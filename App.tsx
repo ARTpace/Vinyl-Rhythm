@@ -22,7 +22,6 @@ const App: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [themeColor, setThemeColor] = useState('rgba(234, 179, 8, 1)'); 
   
-  // 导航请求状态：用于从播放页跳转到歌手/专辑详情
   const [navigationRequest, setNavigationRequest] = useState<{ type: 'artists' | 'albums', name: string } | null>(null);
 
   // 音频分析相关
@@ -44,21 +43,18 @@ const App: React.FC = () => {
 
   const currentTrack = currentTrackIndex !== null ? tracks[currentTrackIndex] : null;
   
-  // 策略：当曲库从无到有加载后，自动选中第一首
   useEffect(() => {
     if (tracks.length > 0 && currentTrackIndex === null) {
       setCurrentTrackIndex(0);
     }
   }, [tracks.length, currentTrackIndex]);
 
-  // 处理跳转库请求
   const handleNavigateToLibrary = (type: 'artists' | 'albums', name: string | undefined) => {
     if (!name || name === "未知歌手" || name === "未知专辑") return;
     setNavigationRequest({ type, name });
     setView(type as ViewType);
   };
 
-  // 主题色提取
   useEffect(() => {
     if (currentTrack?.coverUrl) {
         const img = new Image();
@@ -88,8 +84,10 @@ const App: React.FC = () => {
     }
   }, [currentTrack]);
 
+  // 初始化分析器：平滑值设为 0.4，让律动更灵敏
   const initAudioAnalyzer = useCallback(() => {
     if (!audioRef.current || audioContextRef.current) {
+        // 关键点：每次点击或切歌都要尝试 resume
         if (audioContextRef.current?.state === 'suspended') {
             audioContextRef.current.resume();
         }
@@ -100,8 +98,8 @@ const App: React.FC = () => {
       const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
       const ctx = new AudioContextClass();
       const analyser = ctx.createAnalyser();
-      analyser.fftSize = 128; 
-      analyser.smoothingTimeConstant = 0.6; 
+      analyser.fftSize = 256; 
+      analyser.smoothingTimeConstant = 0.4; // 降低平滑度，提高灵敏度
       const source = ctx.createMediaElementSource(audioRef.current);
       source.connect(analyser);
       analyser.connect(ctx.destination);
@@ -120,19 +118,25 @@ const App: React.FC = () => {
     }
     const dataArray = new Uint8Array(analyserRef.current.frequencyBinCount);
     analyserRef.current.getByteFrequencyData(dataArray);
+    
+    // 专门提取低频分量作为律动基础
     let bass = 0;
-    const sampleSize = 6; 
+    const sampleSize = 4; 
     for (let i = 0; i < sampleSize; i++) bass += dataArray[i];
     bass /= sampleSize;
+    
     const rawValue = bass / 255;
-    const targetIntensity = Math.pow(rawValue, 1.25) * 1.35; 
-    const finalIntensity = targetIntensity > 0.08 ? Math.min(1.0, targetIntensity) : 0;
+    // 使用非线性增强，让重音更突出
+    const targetIntensity = Math.pow(rawValue, 1.1) * 1.5; 
+    const finalIntensity = targetIntensity > 0.05 ? Math.min(1.0, targetIntensity) : 0;
+    
     setAudioIntensity(finalIntensity);
     animationFrameRef.current = requestAnimationFrame(updateIntensity);
   }, [isPlaying]);
 
   useEffect(() => {
     if (isPlaying) {
+      if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
       animationFrameRef.current = requestAnimationFrame(updateIntensity);
     } else {
       if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
@@ -150,7 +154,13 @@ const App: React.FC = () => {
       audioRef.current.pause();
       setIsPlaying(false);
     } else {
-      audioRef.current.play().then(() => setIsPlaying(true)).catch(console.error);
+      audioRef.current.play().then(() => {
+        setIsPlaying(true);
+        // 播放成功后再次确认恢复
+        if (audioContextRef.current?.state === 'suspended') {
+            audioContextRef.current.resume();
+        }
+      }).catch(console.error);
     }
   }, [isPlaying, currentTrack, initAudioAnalyzer]);
 
@@ -160,7 +170,8 @@ const App: React.FC = () => {
       setCurrentTrackIndex(index);
       setView('player');
       setIsPlaying(true);
-      initAudioAnalyzer();
+      // 切换歌曲时恢复上下文
+      setTimeout(() => initAudioAnalyzer(), 100);
     }
   }, [tracks, initAudioAnalyzer]);
 
@@ -176,7 +187,11 @@ const App: React.FC = () => {
 
   useEffect(() => {
     if (isPlaying && audioRef.current && currentTrack) {
-      audioRef.current.play().catch(() => setIsPlaying(false));
+      audioRef.current.play().then(() => {
+         if (audioContextRef.current?.state === 'suspended') {
+             audioContextRef.current.resume();
+         }
+      }).catch(() => setIsPlaying(false));
     }
   }, [currentTrack, isPlaying]);
 
@@ -252,7 +267,6 @@ const App: React.FC = () => {
                       <h2 className="text-4xl font-black text-white tracking-tight mb-2">
                         {currentTrack?.name || "黑胶时光"}
                       </h2>
-                      {/* 点击跳转歌手按钮 */}
                       <button 
                         onClick={() => handleNavigateToLibrary('artists', currentTrack?.artist)}
                         disabled={!currentTrack}
@@ -261,7 +275,6 @@ const App: React.FC = () => {
                       >
                         {currentTrack?.artist || "享受纯净音质"}
                       </button>
-                      {/* 点击跳转专辑按钮 */}
                       {currentTrack?.album && currentTrack.album !== "未知专辑" && (
                         <button
                           onClick={() => handleNavigateToLibrary('albums', currentTrack.album)}
