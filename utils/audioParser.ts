@@ -60,7 +60,6 @@ export const parseFileToTrack = async (file: File): Promise<Track> => {
     const album = common.album || "未知专辑";
     const title = common.title || fileInfo.title;
 
-    // Fix: Add fingerprint property required by Track interface (line 63 fix)
     return {
       id: Math.random().toString(36).substring(2, 9),
       name: title,
@@ -70,12 +69,12 @@ export const parseFileToTrack = async (file: File): Promise<Track> => {
       coverUrl,
       file,
       duration: format.duration,
+      bitrate: format.bitrate, // 提取比特率
       fingerprint: `${file.name}-${file.size}`
     };
   } catch (error) {
     console.warn(`[Metadata] 内置标签解析失败 (${file.name}):`, (error as Error).message);
     
-    // Fix: Add fingerprint property required by Track interface (line 76 fix)
     return {
       id: Math.random().toString(36).substring(2, 9),
       name: fileInfo.title,

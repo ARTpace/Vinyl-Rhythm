@@ -403,7 +403,6 @@ const App: React.FC = () => {
         </header>
 
         <div className="flex-1 relative overflow-hidden">
-            {/* 核心优化：使用更长且带有自定义贝塞尔曲线的动画 (cubic-bezier) */}
             <div 
               key={view} 
               className="absolute inset-0 flex flex-col animate-in fade-in slide-in-from-bottom-8 zoom-in-95 duration-700 cubic-bezier(0.16, 1, 0.3, 1) fill-mode-both"
@@ -411,9 +410,16 @@ const App: React.FC = () => {
                 {view === 'player' ? (
                   <div className="flex-1 flex flex-col items-center justify-center gap-12 p-8 overflow-y-auto custom-scrollbar">
                     <div className="text-center">
-                      <h2 className="text-4xl font-black mb-3 text-white tracking-tight">
-                        {currentTrack?.name || "黑胶时光"}
-                      </h2>
+                      <div className="flex flex-col items-center gap-2 mb-3">
+                         <h2 className="text-4xl font-black text-white tracking-tight">
+                            {currentTrack?.name || "黑胶时光"}
+                         </h2>
+                         {currentTrack?.bitrate && (
+                            <div className="px-2 py-0.5 bg-zinc-800 text-zinc-500 text-[9px] font-black rounded border border-white/5 animate-pulse uppercase tracking-widest">
+                               {Math.floor(currentTrack.bitrate / 1000)} KBPS
+                            </div>
+                         )}
+                      </div>
                       <div className="flex items-center justify-center gap-2 flex-wrap px-4">
                         <button 
                           onClick={() => currentTrack && jumpToArtist(currentTrack.artist)}

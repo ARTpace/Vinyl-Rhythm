@@ -8,6 +8,7 @@ export interface Track {
   coverUrl?: string;
   file: File;
   duration?: number;
+  bitrate?: number; // 新增比特率字段
   // 新增指纹，用于增量识别
   fingerprint: string; 
 }

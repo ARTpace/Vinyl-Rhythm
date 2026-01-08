@@ -298,8 +298,10 @@ const PlayerControls: React.FC<PlayerControlsProps> = ({
           <div className="h-6 w-[1px] bg-zinc-800 hidden md:block" />
 
           <div className="hidden xl:flex flex-col items-end">
-            <span className="text-[9px] font-bold text-yellow-500/70 tracking-[0.2em]">HI-RES</span>
-            <span className="text-[10px] font-mono text-zinc-600 leading-none mt-1">24-BIT</span>
+            <span className="text-[9px] font-bold text-yellow-500/70 tracking-[0.2em]">{currentTrack.bitrate && currentTrack.bitrate > 1000000 ? 'HI-RES' : 'STANDARD'}</span>
+            <span className="text-[10px] font-mono text-zinc-600 leading-none mt-1 uppercase">
+                {currentTrack.bitrate ? `${Math.floor(currentTrack.bitrate / 1000)}kbps` : '24-BIT'}
+            </span>
           </div>
 
           <button
