@@ -1,6 +1,7 @@
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import Sidebar from './components/Sidebar';
+import MobileNav from './components/MobileNav';
 import ImportWindow from './components/ImportWindow';
 import LibraryView from './components/LibraryView';
 import PlayerControls from './components/PlayerControls';
@@ -311,9 +312,9 @@ const App: React.FC = () => {
         className="hidden"
         {...({ webkitdirectory: "true", directory: "" } as any)}
         onChange={(e) => {
-          const files = Array.from(e.target.files || []);
+          const files = Array.from(e.target.files || []) as File[];
           if (files.length > 0) {
-            const folderName = files[0].webkitRelativePath.split('/')[0] || "本地音乐";
+            const folderName = (files[0] as any).webkitRelativePath?.split('/')[0] || "本地音乐";
             handleManualFileSelect(files, folderName, folderName);
           }
           e.target.value = ''; 
@@ -326,8 +327,13 @@ const App: React.FC = () => {
         onImport={handleInitialImport}
         importedFolders={importedFolders}
       />
-      <Sidebar activeView={view} onViewChange={(v) => { setView(v); setNavigationRequest(null); }} trackCount={tracks.length} />
-      <main className="flex-1 flex flex-col relative pb-28 bg-gradient-to-br from-[#1c1c1c] via-[#121212] to-[#0a0a0a]">
+      
+      {/* 桌面端侧边栏 */}
+      <div className="hidden md:flex flex-col h-full z-50">
+          <Sidebar activeView={view} onViewChange={(v) => { setView(v); setNavigationRequest(null); }} trackCount={tracks.length} />
+      </div>
+
+      <main className="flex-1 flex flex-col relative pb-32 md:pb-28 bg-gradient-to-br from-[#1c1c1c] via-[#121212] to-[#0a0a0a]">
         
         {isImporting && (
           <div className="absolute top-0 left-0 right-0 z-[100] h-1.5 bg-zinc-900">
@@ -335,17 +341,17 @@ const App: React.FC = () => {
           </div>
         )}
 
-        <header className="p-6 flex justify-between items-center z-50 relative">
-          <div className="flex items-center gap-6 flex-1">
+        <header className="p-4 md:p-6 flex justify-between items-center z-50 relative gap-3">
+          <div className="flex items-center gap-4 md:gap-6 flex-1 min-w-0">
              <div className="relative group max-w-md w-full">
                 <input
-                  type="text" placeholder="搜索库中的曲目..." value={searchQuery}
+                  type="text" placeholder="搜索曲目..." value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  className="w-full bg-white/5 border border-white/10 rounded-full py-2.5 px-11 text-sm text-white focus:border-yellow-500 outline-none backdrop-blur-md"
+                  className="w-full bg-white/5 border border-white/10 rounded-full py-2 px-4 md:py-2.5 md:px-11 text-sm text-white focus:border-yellow-500 outline-none backdrop-blur-md transition-all"
                 />
              </div>
              {isImporting && (
-               <div className="flex items-center gap-3 bg-black/40 backdrop-blur-md px-4 py-2 rounded-full border border-white/5">
+               <div className="hidden md:flex items-center gap-3 bg-black/40 backdrop-blur-md px-4 py-2 rounded-full border border-white/5">
                   <div className="w-2 h-2 bg-yellow-500 rounded-full animate-pulse shadow-[0_0_8px_rgba(234,179,8,1)]"></div>
                   <span className="text-[10px] text-zinc-400 font-black uppercase tracking-widest whitespace-nowrap truncate max-w-[200px]">
                     同步中: {currentProcessingFile}
@@ -353,19 +359,20 @@ const App: React.FC = () => {
                </div>
              )}
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 md:gap-3 shrink-0">
             <button 
                 onClick={handleSyncAll}
                 title="一键同步库目录"
                 disabled={isImporting}
-                className="w-10 h-10 flex items-center justify-center bg-white/5 hover:bg-white/10 text-white border border-white/10 rounded-full transition-all active:scale-90 disabled:opacity-30 group"
+                className="w-9 h-9 md:w-10 md:h-10 flex items-center justify-center bg-white/5 hover:bg-white/10 text-white border border-white/10 rounded-full transition-all active:scale-90 disabled:opacity-30 group"
             >
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" className={`${isImporting ? 'animate-spin text-yellow-500' : 'group-hover:rotate-180 transition-transform duration-700'}`}>
                 <path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.85.83 6.72 2.24L21 8"/><path d="M21 3v5h-5"/>
               </svg>
             </button>
-            <button onClick={() => setIsImportWindowOpen(true)} className="bg-yellow-500 text-black px-6 py-2.5 rounded-full font-black text-xs shadow-xl uppercase tracking-widest active:scale-95 transition-all">
-              库管理
+            <button onClick={() => setIsImportWindowOpen(true)} className="bg-yellow-500 text-black px-4 md:px-6 py-2 md:py-2.5 rounded-full font-black text-[10px] md:text-xs shadow-xl uppercase tracking-widest active:scale-95 transition-all whitespace-nowrap">
+              <span className="hidden md:inline">库管理</span>
+              <span className="md:hidden">Manage</span>
             </button>
           </div>
         </header>
@@ -373,13 +380,13 @@ const App: React.FC = () => {
         <div className="flex-1 relative overflow-hidden">
             <div key={view} className="absolute inset-0 flex flex-col animate-in fade-in duration-700">
                 {view === 'player' ? (
-                  <div className="flex-1 flex flex-col items-center justify-center gap-10 p-8">
+                  <div className="flex-1 flex flex-col items-center justify-center gap-6 md:gap-10 p-4 md:p-8">
                     <div className="text-center relative z-40">
-                      <h2 className="text-4xl font-black text-white mb-2 truncate max-w-xl">{currentTrack?.name || "黑胶时光"}</h2>
-                      <button onClick={() => { setNavigationRequest({ type: 'artists', name: currentTrack?.artist || '' }); setView('artists'); }} className="font-bold text-xl text-white hover:text-yellow-500 transition-all">{currentTrack?.artist || "享受纯净音质"}</button>
+                      <h2 className="text-2xl md:text-4xl font-black text-white mb-1 md:mb-2 truncate max-w-[80vw] md:max-w-xl">{currentTrack?.name || "黑胶时光"}</h2>
+                      <button onClick={() => { setNavigationRequest({ type: 'artists', name: currentTrack?.artist || '' }); setView('artists'); }} className="font-bold text-lg md:text-xl text-white hover:text-yellow-500 transition-all">{currentTrack?.artist || "享受纯净音质"}</button>
                     </div>
                     <VinylRecord isPlaying={isPlaying} coverUrl={currentTrack?.coverUrl} intensity={audioIntensity} progress={duration > 0 ? progress / duration : 0} />
-                    <div className={`max-w-2xl text-center px-4 italic text-zinc-500 text-lg transition-opacity duration-1000 ${isStoryLoading ? 'opacity-20' : 'opacity-100'}`}>
+                    <div className={`max-w-xs md:max-w-2xl text-center px-4 italic text-zinc-500 text-sm md:text-lg transition-opacity duration-1000 ${isStoryLoading ? 'opacity-20' : 'opacity-100'}`}>
                       {trackStory || (currentTrack ? "正在为您解读..." : "开始一段黑胶之旅。")}
                     </div>
                   </div>
@@ -412,6 +419,9 @@ const App: React.FC = () => {
           playbackMode={playbackMode} onTogglePlaybackMode={() => setPlaybackMode(p => p === 'normal' ? 'shuffle' : p === 'shuffle' ? 'loop' : 'normal')}
           onReorder={moveTrack}
         />
+        
+        {/* 移动端底部导航 */}
+        <MobileNav activeView={view} onViewChange={(v) => { setView(v); setNavigationRequest(null); }} trackCount={tracks.length} />
       </main>
     </div>
   );
