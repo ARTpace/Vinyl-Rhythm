@@ -1,0 +1,7 @@
+{
+  "name": "黑胶时光 (Vinyl Rhythm)",
+  "description": "一个简约风格的本地音乐播放器，采用黑胶唱片视觉设计，支持通过歌手和专辑组织音乐库。",
+  "requestFramePermissions": [
+    "microphone"
+  ]
+}
