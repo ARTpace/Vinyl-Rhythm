@@ -12,15 +12,32 @@
             to { transform: rotate(360deg); }
         }
         .animate-spin-slow {
-            animation: spin 20s linear infinite;
+            animation: spin 15s linear infinite;
         }
+        /* 黑胶细密沟槽纹理 */
         .vinyl-texture {
-            background: repeating-radial-gradient(
-                circle at center,
-                #111,
-                #111 2px,
-                #222 3px,
-                #111 4px
+            background: radial-gradient(circle at center, #222 0%, #111 100%),
+                        repeating-radial-gradient(
+                            circle at center,
+                            transparent,
+                            transparent 1px,
+                            rgba(255, 255, 255, 0.03) 1.5px,
+                            transparent 2px
+                        );
+        }
+        /* 静态环境反光层 */
+        .vinyl-reflection {
+            background: conic-gradient(
+                from 0deg at 50% 50%,
+                transparent 0%,
+                rgba(255, 255, 255, 0.05) 10%,
+                transparent 20%,
+                transparent 45%,
+                rgba(255, 255, 255, 0.08) 50%,
+                transparent 55%,
+                transparent 80%,
+                rgba(255, 255, 255, 0.05) 90%,
+                transparent 100%
             );
         }
         ::-webkit-scrollbar {
