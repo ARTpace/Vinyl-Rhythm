@@ -22,6 +22,13 @@ const App: React.FC = () => {
   const [importStatus, setImportStatus] = useState<{current: number, total: number, added: number, skipped: number} | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   
+  // 音频分析相关
+  const [audioIntensity, setAudioIntensity] = useState(0);
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const analyserRef = useRef<AnalyserNode | null>(null);
+  const sourceRef = useRef<MediaElementAudioSourceNode | null>(null);
+  const animationFrameRef = useRef<number | null>(null);
+
   // 库文件夹记录
   const [libraryFolders, setLibraryFolders] = useState<LibraryFolder[]>(() => {
     const saved = localStorage.getItem('vinyl_folders');
@@ -52,6 +59,72 @@ const App: React.FC = () => {
       t.album.toLowerCase().includes(query)
     ).slice(0, 8);
   }, [searchQuery, tracks]);
+
+  // 初始化音频分析器
+  const initAudioAnalyzer = useCallback(() => {
+    if (!audioRef.current || audioContextRef.current) return;
+
+    try {
+      const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+      const ctx = new AudioContextClass();
+      const analyser = ctx.createAnalyser();
+      analyser.fftSize = 256;
+      
+      const source = ctx.createMediaElementSource(audioRef.current);
+      source.connect(analyser);
+      analyser.connect(ctx.destination);
+
+      audioContextRef.current = ctx;
+      analyserRef.current = analyser;
+      sourceRef.current = source;
+    } catch (e) {
+      console.error("音频分析器初始化失败:", e);
+    }
+  }, []);
+
+  // 循环更新音乐强度
+  const updateIntensity = useCallback(() => {
+    if (!analyserRef.current || !isPlaying) {
+      setAudioIntensity(0);
+      return;
+    }
+
+    const dataArray = new Uint8Array(analyserRef.current.frequencyBinCount);
+    analyserRef.current.getByteFrequencyData(dataArray);
+
+    // 计算低频段强度 (0-10 索引通常对应低音)
+    let sum = 0;
+    const lowFreqRange = 10; 
+    for (let i = 0; i < lowFreqRange; i++) {
+      sum += dataArray[i];
+    }
+    const averageLow = sum / lowFreqRange;
+    
+    // 计算整体平均强度
+    let totalSum = 0;
+    for (let i = 0; i < dataArray.length; i++) {
+      totalSum += dataArray[i];
+    }
+    const averageTotal = totalSum / dataArray.length;
+
+    // 混合强度: 侧重低音起伏
+    const intensity = (averageLow * 0.7 + averageTotal * 0.3) / 255;
+    setAudioIntensity(Math.pow(intensity, 1.2)); // 稍微增强对比度
+
+    animationFrameRef.current = requestAnimationFrame(updateIntensity);
+  }, [isPlaying]);
+
+  useEffect(() => {
+    if (isPlaying) {
+      animationFrameRef.current = requestAnimationFrame(updateIntensity);
+    } else {
+      if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
+      setAudioIntensity(0);
+    }
+    return () => {
+      if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
+    };
+  }, [isPlaying, updateIntensity]);
 
   useEffect(() => {
     localStorage.setItem('vinyl_favorites', JSON.stringify(Array.from(favorites)));
@@ -219,13 +292,20 @@ const App: React.FC = () => {
 
   const togglePlay = useCallback(() => {
     if (!audioRef.current || !currentTrack) return;
+    
+    // 用户交互触发后初始化音频上下文
+    initAudioAnalyzer();
+    if (audioContextRef.current?.state === 'suspended') {
+      audioContextRef.current.resume();
+    }
+
     if (isPlaying) {
       audioRef.current.pause();
     } else {
       audioRef.current.play().catch(console.error);
     }
     setIsPlaying(!isPlaying);
-  }, [isPlaying, currentTrack]);
+  }, [isPlaying, currentTrack, initAudioAnalyzer]);
 
   const playTrack = useCallback((track: Track) => {
     const index = tracks.findIndex(t => t.id === track.id);
@@ -234,8 +314,14 @@ const App: React.FC = () => {
       setView('player');
       setIsPlaying(true);
       setSearchQuery('');
+      
+      // 切换歌曲时也要确保上下文可用
+      initAudioAnalyzer();
+      if (audioContextRef.current?.state === 'suspended') {
+        audioContextRef.current.resume();
+      }
     }
-  }, [tracks]);
+  }, [tracks, initAudioAnalyzer]);
 
   const nextTrack = useCallback(() => {
     if (tracks.length === 0 || currentTrackIndex === null) return;
@@ -441,7 +527,7 @@ const App: React.FC = () => {
                       </div>
                     </div>
 
-                    <VinylRecord isPlaying={isPlaying} coverUrl={currentTrack?.coverUrl} />
+                    <VinylRecord isPlaying={isPlaying} coverUrl={currentTrack?.coverUrl} intensity={audioIntensity} />
 
                     <div className="max-w-2xl text-center px-4">
                       <div className="flex items-center justify-center gap-2 mb-4">
@@ -468,7 +554,7 @@ const App: React.FC = () => {
             </div>
         </div>
 
-        <audio ref={audioRef} src={currentTrack?.url} />
+        <audio ref={audioRef} src={currentTrack?.url} crossOrigin="anonymous" />
 
         <PlayerControls
           currentTrack={currentTrack}

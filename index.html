@@ -14,6 +14,7 @@
         .animate-spin-slow {
             animation: spin 15s linear infinite;
         }
+        
         /* 黑胶细密沟槽纹理 */
         .vinyl-texture {
             background: radial-gradient(circle at center, #222 0%, #111 100%),
@@ -25,6 +26,7 @@
                             transparent 2px
                         );
         }
+        
         /* 静态环境反光层 */
         .vinyl-reflection {
             background: conic-gradient(
@@ -40,6 +42,27 @@
                 transparent 100%
             );
         }
+
+        /* 音波扩散动画 - 支持动态比例 */
+        @keyframes wave-spread {
+            0% { transform: scale(1); opacity: 0.5; }
+            100% { transform: scale(var(--tw-scale-to, 1.5)); opacity: 0; }
+        }
+        .animate-wave-spread {
+            animation: wave-spread 3s cubic-bezier(0, 0, 0.2, 1) infinite;
+        }
+
+        /* 粒子向上漂浮动画 */
+        @keyframes particle-float {
+            0% { transform: translateY(0) translateX(0) scale(0); opacity: 0; }
+            20% { opacity: 0.8; scale: 1; }
+            100% { transform: translateY(-120px) translateX(var(--tw-translate-x)) scale(0.5); opacity: 0; }
+        }
+        .animate-particle {
+            animation: particle-float var(--particle-duration) ease-out infinite;
+            animation-delay: var(--particle-delay);
+        }
+
         ::-webkit-scrollbar {
             width: 6px;
         }
