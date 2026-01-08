@@ -8,15 +8,14 @@ export interface Track {
   coverUrl?: string;
   file: File;
   duration?: number;
-  bitrate?: number; // 新增比特率字段
-  // 新增指纹，用于增量识别
+  bitrate?: number;
   fingerprint: string; 
+  folderId?: string; // 关联到具体的导入文件夹
 }
 
 export interface LibraryFolder {
   id: string;
   name: string;
-  pathPlaceholder: string; // 在浏览器中通常是根文件夹名
   lastSync: number;
   trackCount: number;
 }
@@ -27,6 +26,6 @@ export interface LibraryGroup {
   coverUrl?: string;
 }
 
-export type ViewType = 'all' | 'artists' | 'albums' | 'player' | 'favorites';
+export type ViewType = 'all' | 'artists' | 'albums' | 'player' | 'favorites' | 'folders';
 
 export type PlaybackMode = 'normal' | 'shuffle' | 'loop';

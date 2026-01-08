@@ -29,29 +29,24 @@ const VinylRecord: React.FC<VinylRecordProps> = ({
     }));
   }, []);
 
-  // --- 视觉参数极致灵敏化 (律动感) ---
-  // 唱片主体缩放：基础 1.0 -> 峰值 1.05 (增加震动幅度)
+  // --- 灵敏律动参数：75ms 同步 ---
   const recordScale = isPlaying ? 1 + intensity * 0.05 : 0.98;
-  
-  // 光晕：增加扩散感
-  const auraScale = 0.9 + intensity * 0.4; 
-  const auraOpacity = isPlaying ? (0.2 + intensity * 0.5) : 0;
-  
-  // 波纹扩散
-  const waveScale = 1.0 + intensity * 0.6;
-  const waveOpacity = 0.05 + intensity * 0.25;
+  const auraScale = 0.8 + intensity * 0.5; 
+  const auraOpacity = isPlaying ? (0.1 + intensity * 0.6) : 0;
+  const waveScale = 1.0 + intensity * 0.7;
+  const waveOpacity = 0.05 + intensity * 0.3;
 
   const startAngle = 20;
   const endAngle = 36;
   const currentAngle = isPlaying ? startAngle + (progress * (endAngle - startAngle)) : 0;
 
-  // 灵敏的缓动定义：100ms 是捕捉节奏的黄金分割点
-  const snappyTransition = "all 100ms cubic-bezier(0.17, 0.67, 0.83, 0.67)";
+  // 这里的 transition 时间必须非常短 (75ms)，否则会造成视觉延迟
+  const snappyTransition = "all 75ms cubic-bezier(0.2, 0.8, 0.2, 1)";
 
   return (
     <div className="relative flex items-center justify-center w-72 h-72 md:w-96 md:h-96 flex-shrink-0 aspect-square group">
       
-      {/* 缩放层：包含唱片主体、光晕和粒子 */}
+      {/* 缩放层 */}
       <div 
         className="absolute inset-0 flex items-center justify-center"
         style={{ 
@@ -74,7 +69,7 @@ const VinylRecord: React.FC<VinylRecordProps> = ({
                   backgroundColor: themeColor,
                   opacity: p.baseOpacity + intensity * 0.8,
                   boxShadow: `0 0 10px ${themeColor}`,
-                  transition: 'opacity 150ms ease-out', // 粒子透明度变化也需加快
+                  transition: 'opacity 100ms ease-out',
                   '--particle-delay': p.delay,
                   '--particle-duration': p.duration,
                   '--tw-translate-x': p.translateX,
@@ -84,14 +79,14 @@ const VinylRecord: React.FC<VinylRecordProps> = ({
           </div>
         )}
 
-        {/* 背景光晕 - 响应极度灵敏 */}
+        {/* 背景光晕 */}
         <div 
-          className="absolute inset-[-8%] rounded-full blur-[50px] pointer-events-none"
+          className="absolute inset-[-12%] rounded-full blur-[60px] pointer-events-none"
           style={{ 
             transform: `scale(${auraScale})`,
-            opacity: Math.min(0.85, auraOpacity),
+            opacity: Math.min(0.8, auraOpacity),
             backgroundColor: themeColor,
-            boxShadow: `0 0 ${30 + intensity * 80}px ${themeColor}`,
+            boxShadow: `0 0 ${40 + intensity * 100}px ${themeColor}`,
             transition: snappyTransition
           }}
         />
@@ -110,7 +105,7 @@ const VinylRecord: React.FC<VinylRecordProps> = ({
 
         {/* 唱片主体 */}
         <div className={`
-          relative w-full h-full rounded-full vinyl-texture shadow-[0_0_50px_rgba(0,0,0,0.8),inset_0_0_15px_rgba(255,255,255,0.05)] border-[12px] border-[#161616]
+          relative w-full h-full rounded-full vinyl-texture shadow-[0_0_60px_rgba(0,0,0,0.8),inset_0_0_20px_rgba(255,255,255,0.05)] border-[14px] border-[#161616]
           flex items-center justify-center transition-all duration-1000 cubic-bezier(0.4, 0, 0.2, 1)
           ${isPlaying ? 'animate-spin-slow' : ''}
         `}>
@@ -137,7 +132,7 @@ const VinylRecord: React.FC<VinylRecordProps> = ({
         <div className="absolute inset-0 rounded-full vinyl-reflection pointer-events-none mix-blend-screen opacity-20"></div>
       </div>
 
-      {/* 唱针臂 - 保持稳定，不受音乐律动缩放影响 */}
+      {/* 唱针臂 */}
       <div 
         className={`absolute -top-6 -right-12 w-44 h-52 transition-transform duration-[1200ms] cubic-bezier(0.34, 1.56, 0.64, 1) origin-[85%_10%] pointer-events-none z-30`}
         style={{ transform: `rotate(${currentAngle}deg)` }}

@@ -9,7 +9,8 @@ interface SidebarProps {
 }
 
 const Sidebar: React.FC<SidebarProps> = ({ activeView, onViewChange, trackCount }) => {
-  const [isCollapsed, setIsCollapsed] = useState(false);
+  // 默认折叠
+  const [isCollapsed, setIsCollapsed] = useState(true);
   const [isHovering, setIsHovering] = useState(false);
 
   const navItems = [
@@ -29,6 +30,15 @@ const Sidebar: React.FC<SidebarProps> = ({ activeView, onViewChange, trackCount 
       icon: (
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
           <path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/>
+        </svg>
+      )
+    },
+    { 
+      id: 'folders' as ViewType, 
+      label: '本地目录', 
+      icon: (
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
         </svg>
       )
     },
@@ -66,32 +76,34 @@ const Sidebar: React.FC<SidebarProps> = ({ activeView, onViewChange, trackCount 
       onMouseEnter={() => setIsHovering(true)}
       onMouseLeave={() => setIsHovering(false)}
       className={`
-        relative bg-black h-screen flex flex-col border-r border-zinc-900 transition-all duration-500 ease-[cubic-bezier(0.2,0.8,0.2,1)] z-50
+        relative bg-black h-screen flex flex-col border-r border-zinc-900 transition-all duration-500 ease-[cubic-bezier(0.2,0.8,0.2,1)] z-50 pb-28
         ${isCollapsed ? 'w-20' : 'w-64'}
       `}
     >
-      {/* 条状交互区域 - 靠近边缘显示 */}
-      <div 
+      {/* 优化后的切换按钮：尺寸更大，交互更明显 */}
+      <button
         onClick={() => setIsCollapsed(!isCollapsed)}
+        title={isCollapsed ? "展开侧边栏" : "折叠侧边栏"}
         className={`
-          absolute right-0 top-1/2 -translate-y-1/2 w-1.5 h-24 cursor-pointer z-[60] group flex items-center justify-center
-          transition-all duration-300
-          ${isHovering ? 'opacity-100 translate-x-1' : 'opacity-0 translate-x-0'}
+            absolute top-1/2 -translate-y-1/2
+            ${isCollapsed ? '-right-5 hover:-right-6' : '-right-4 hover:-right-5'}
+            w-6 h-32
+            bg-[#181818] border border-white/10 border-l-0 rounded-r-2xl
+            flex items-center justify-center cursor-pointer z-[60]
+            text-zinc-500 hover:text-yellow-500 hover:w-8 hover:brightness-125
+            transition-all duration-300 shadow-[4px_0_20px_rgba(0,0,0,0.5)] group
         `}
       >
-        <div className="w-full h-full bg-yellow-500/20 group-hover:bg-yellow-500/40 rounded-full transition-colors relative">
-           <div className="absolute inset-y-6 inset-x-[2px] bg-yellow-500 rounded-full shadow-[0_0_10px_rgba(234,179,8,0.5)]"></div>
-        </div>
-      </div>
+         <div className="w-1.5 h-12 bg-zinc-700 rounded-full group-hover:bg-yellow-500 transition-colors duration-300" />
+      </button>
 
-      {/* 顶部 Logo */}
       <div className={`p-8 mb-6 transition-all duration-500 ${isCollapsed ? 'px-0 flex justify-center' : ''}`}>
         <div className="flex items-center gap-2">
-          <div className="w-10 h-10 bg-zinc-900 rounded-xl flex items-center justify-center border border-white/5 shadow-2xl">
+          <div className="w-10 h-10 bg-zinc-900 rounded-xl flex items-center justify-center border border-white/5 shadow-2xl shrink-0">
             <span className="text-2xl font-black text-yellow-500 select-none">V</span>
           </div>
           {!isCollapsed && (
-            <div className="overflow-hidden animate-in fade-in slide-in-from-left-4 duration-500">
+            <div className="overflow-hidden animate-in fade-in slide-in-from-left-4 duration-500 whitespace-nowrap">
               <h1 className="text-xl font-black text-white tracking-[0.2em] leading-none">INYL</h1>
               <span className="text-[10px] text-zinc-600 font-black tracking-[0.1em]">TIME AUDIO</span>
             </div>
@@ -99,7 +111,6 @@ const Sidebar: React.FC<SidebarProps> = ({ activeView, onViewChange, trackCount 
         </div>
       </div>
 
-      {/* 导航菜单 */}
       <nav className="flex-1 space-y-2 px-4">
         {navItems.map(item => (
           <button
@@ -121,14 +132,11 @@ const Sidebar: React.FC<SidebarProps> = ({ activeView, onViewChange, trackCount 
             `}>
               {item.icon}
             </div>
-            
             {!isCollapsed && (
               <span className="font-black text-[11px] tracking-[0.2em] uppercase truncate whitespace-nowrap animate-in fade-in slide-in-from-left-2 duration-300">
                 {item.label}
               </span>
             )}
-
-            {/* 活动状态指示条 */}
             {activeView === item.id && (
               <div className="absolute left-0 w-1 h-6 bg-yellow-500 rounded-r-full shadow-[0_0_15px_rgba(234,179,8,0.5)]" />
             )}
@@ -136,7 +144,6 @@ const Sidebar: React.FC<SidebarProps> = ({ activeView, onViewChange, trackCount 
         ))}
       </nav>
 
-      {/* 底部存储信息 */}
       <div className={`mt-auto p-8 transition-all duration-500 ${isCollapsed ? 'px-0 flex justify-center' : ''}`}>
         {!isCollapsed ? (
           <div className="animate-in fade-in slide-in-from-bottom-2 duration-500 bg-zinc-900/40 p-5 rounded-3xl border border-white/5">

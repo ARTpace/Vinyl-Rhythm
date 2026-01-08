@@ -1,6 +1,7 @@
 
-import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import Sidebar from './components/Sidebar';
+import ImportWindow from './components/ImportWindow';
 import LibraryView from './components/LibraryView';
 import PlayerControls from './components/PlayerControls';
 import VinylRecord from './components/VinylRecord';
@@ -8,10 +9,16 @@ import { Track, ViewType, PlaybackMode, LibraryFolder } from './types';
 import { parseFileToTrack } from './utils/audioParser';
 import { SUPPORTED_FORMATS } from './constants';
 import { getTrackStory } from './services/geminiService';
+import { saveLibraryFolder, getAllLibraryFolders } from './utils/storage';
 
 const App: React.FC = () => {
   const [view, setView] = useState<ViewType>('player');
   const [tracks, setTracks] = useState<Track[]>([]);
+  const [importedFolders, setImportedFolders] = useState<LibraryFolder[]>(() => {
+    const saved = localStorage.getItem('vinyl_folders');
+    return saved ? JSON.parse(saved) : [];
+  });
+
   const [currentTrackIndex, setCurrentTrackIndex] = useState<number | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [progress, setProgress] = useState(0);
@@ -20,16 +27,18 @@ const App: React.FC = () => {
   const [trackStory, setTrackStory] = useState<string>('');
   const [isStoryLoading, setIsStoryLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
-  const [themeColor, setThemeColor] = useState('rgba(234, 179, 8, 1)'); 
   
-  const [navigationRequest, setNavigationRequest] = useState<{ type: 'artists' | 'albums', name: string } | null>(null);
+  const [isImporting, setIsImporting] = useState<boolean>(false);
+  const [importProgress, setImportProgress] = useState<number>(0);
+  const [currentProcessingFile, setCurrentProcessingFile] = useState<string>('');
+  const [isImportWindowOpen, setIsImportWindowOpen] = useState<boolean>(false);
 
-  // 音频分析相关
+  const [navigationRequest, setNavigationRequest] = useState<{ type: 'artists' | 'albums' | 'folders', name: string } | null>(null);
   const [audioIntensity, setAudioIntensity] = useState(0);
   const audioContextRef = useRef<AudioContext | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
-  const sourceRef = useRef<MediaElementAudioSourceNode | null>(null);
   const animationFrameRef = useRef<number | null>(null);
+  const fallbackInputRef = useRef<HTMLInputElement>(null);
 
   const [favorites, setFavorites] = useState<Set<string>>(() => {
     const saved = localStorage.getItem('vinyl_favorites');
@@ -37,132 +46,178 @@ const App: React.FC = () => {
   });
 
   const [playbackMode, setPlaybackMode] = useState<PlaybackMode>('normal');
-
   const audioRef = useRef<HTMLAudioElement | null>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-
   const currentTrack = currentTrackIndex !== null ? tracks[currentTrackIndex] : null;
-  
-  useEffect(() => {
-    if (tracks.length > 0 && currentTrackIndex === null) {
-      setCurrentTrackIndex(0);
-    }
-  }, [tracks.length, currentTrackIndex]);
-
-  const handleNavigateToLibrary = (type: 'artists' | 'albums', name: string | undefined) => {
-    if (!name || name === "未知歌手" || name === "未知专辑") return;
-    setNavigationRequest({ type, name });
-    setView(type as ViewType);
-  };
 
   useEffect(() => {
-    if (currentTrack?.coverUrl) {
-        const img = new Image();
-        img.crossOrigin = "Anonymous";
-        img.src = currentTrack.coverUrl;
-        img.onload = () => {
-            const canvas = document.createElement('canvas');
-            const ctx = canvas.getContext('2d');
-            if (!ctx) return;
-            canvas.width = 1;
-            canvas.height = 1;
-            ctx.drawImage(img, 0, 0, 1, 1);
-            const data = ctx.getImageData(0, 0, 1, 1).data;
-            let [r, g, b] = [data[0], data[1], data[2]];
-            
-            const luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b;
-            if (luminance < 50) {
-              r = Math.min(255, r + 65);
-              g = Math.min(255, g + 65);
-              b = Math.min(255, b + 65);
-            }
-            setThemeColor(`rgba(${r}, ${g}, ${b}, 1)`);
-        };
-        img.onerror = () => setThemeColor('rgba(234, 179, 8, 1)');
-    } else {
-        setThemeColor('rgba(234, 179, 8, 1)');
-    }
-  }, [currentTrack]);
+    localStorage.setItem('vinyl_folders', JSON.stringify(importedFolders));
+  }, [importedFolders]);
 
-  // 初始化分析器：平滑值设为 0.4，让律动更灵敏
   const initAudioAnalyzer = useCallback(() => {
-    if (!audioRef.current || audioContextRef.current) {
-        // 关键点：每次点击或切歌都要尝试 resume
-        if (audioContextRef.current?.state === 'suspended') {
-            audioContextRef.current.resume();
-        }
-        return;
-    }
-
+    if (!audioRef.current || audioContextRef.current) return;
     try {
       const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
       const ctx = new AudioContextClass();
       const analyser = ctx.createAnalyser();
-      analyser.fftSize = 256; 
-      analyser.smoothingTimeConstant = 0.4; // 降低平滑度，提高灵敏度
+      analyser.fftSize = 256;
       const source = ctx.createMediaElementSource(audioRef.current);
       source.connect(analyser);
       analyser.connect(ctx.destination);
       audioContextRef.current = ctx;
       analyserRef.current = analyser;
-      sourceRef.current = source;
-    } catch (e) {
-      console.error("音频分析初始化失败:", e);
-    }
+    } catch (e) { console.error(e); }
   }, []);
 
   const updateIntensity = useCallback(() => {
-    if (!analyserRef.current || !isPlaying) {
-      setAudioIntensity(0);
-      return;
-    }
+    if (!analyserRef.current || !isPlaying) { setAudioIntensity(0); return; }
     const dataArray = new Uint8Array(analyserRef.current.frequencyBinCount);
     analyserRef.current.getByteFrequencyData(dataArray);
-    
-    // 专门提取低频分量作为律动基础
-    let bass = 0;
-    const sampleSize = 4; 
-    for (let i = 0; i < sampleSize; i++) bass += dataArray[i];
-    bass /= sampleSize;
-    
-    const rawValue = bass / 255;
-    // 使用非线性增强，让重音更突出
-    const targetIntensity = Math.pow(rawValue, 1.1) * 1.5; 
-    const finalIntensity = targetIntensity > 0.05 ? Math.min(1.0, targetIntensity) : 0;
-    
-    setAudioIntensity(finalIntensity);
+    let bass = 0; for (let i = 0; i < 3; i++) bass += dataArray[i];
+    const val = (bass / 3) / 255;
+    setAudioIntensity(Math.pow(val, 1.2) * 1.6);
     animationFrameRef.current = requestAnimationFrame(updateIntensity);
   }, [isPlaying]);
 
   useEffect(() => {
-    if (isPlaying) {
-      if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
-      animationFrameRef.current = requestAnimationFrame(updateIntensity);
-    } else {
-      if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
-      setAudioIntensity(0);
-    }
-    return () => {
-      if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
-    };
+    if (isPlaying) animationFrameRef.current = requestAnimationFrame(updateIntensity);
+    else if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
   }, [isPlaying, updateIntensity]);
 
-  const togglePlay = useCallback(() => {
-    if (!audioRef.current || !currentTrack) return;
-    initAudioAnalyzer();
-    if (isPlaying) {
-      audioRef.current.pause();
-      setIsPlaying(false);
-    } else {
-      audioRef.current.play().then(() => {
-        setIsPlaying(true);
-        // 播放成功后再次确认恢复
-        if (audioContextRef.current?.state === 'suspended') {
-            audioContextRef.current.resume();
+  const scanDirectory = async (handle: FileSystemDirectoryHandle, folderId: string) => {
+    const foundFiles: File[] = [];
+    async function recursiveScan(dirHandle: FileSystemDirectoryHandle) {
+      for await (const entry of (dirHandle as any).values()) {
+        if (entry.kind === 'file') {
+          if (SUPPORTED_FORMATS.some(ext => entry.name.toLowerCase().endsWith(ext))) {
+            foundFiles.push(await entry.getFile());
+          }
+        } else if (entry.kind === 'directory') {
+          await recursiveScan(entry);
         }
-      }).catch(console.error);
+      }
     }
-  }, [isPlaying, currentTrack, initAudioAnalyzer]);
+    await recursiveScan(handle);
+    return foundFiles;
+  };
+
+  const ingestFiles = async (files: File[], folderId: string, folderName: string) => {
+    const allNewTracks: Track[] = [];
+    let processedCount = 0;
+
+    for (const file of files) {
+      processedCount++;
+      const fingerprint = `${file.name}-${file.size}`;
+      
+      if (tracks.some(t => t.fingerprint === fingerprint)) continue;
+      if (allNewTracks.some(t => t.fingerprint === fingerprint)) continue;
+
+      setImportProgress(Math.round((processedCount / files.length) * 100));
+      setCurrentProcessingFile(file.name);
+
+      try {
+        const track = await parseFileToTrack(file);
+        track.folderId = folderId;
+        allNewTracks.push(track);
+      } catch (e) { console.warn(e); }
+
+      if (processedCount % 5 === 0) await new Promise(r => setTimeout(r, 0));
+    }
+
+    if (allNewTracks.length > 0) {
+      setTracks(prev => [...prev, ...allNewTracks]);
+      if (currentTrackIndex === null) setCurrentTrackIndex(0);
+    }
+
+    setImportedFolders(prev => {
+      const updated = [...prev];
+      const fIdx = updated.findIndex(f => f.id === folderId);
+      if (fIdx !== -1) {
+        updated[fIdx] = { 
+          ...updated[fIdx], 
+          lastSync: Date.now(), 
+          trackCount: updated[fIdx].trackCount + allNewTracks.length 
+        };
+      } else {
+        updated.push({ id: folderId, name: folderName, lastSync: Date.now(), trackCount: allNewTracks.length });
+      }
+      return updated;
+    });
+  };
+
+  const handleManualFileSelect = async (files: File[], folderId: string, folderName: string) => {
+    setIsImporting(true);
+    await ingestFiles(files, folderId, folderName);
+    setIsImporting(false);
+    setImportProgress(0);
+    setCurrentProcessingFile('');
+  };
+
+  const handleSyncAll = async () => {
+    if (isImporting) return;
+    
+    const savedFolders = await getAllLibraryFolders();
+    
+    if (savedFolders.length === 0) {
+      handleInitialImport();
+      return;
+    }
+
+    setIsImporting(true);
+    setImportProgress(0);
+
+    for (const folder of savedFolders) {
+      try {
+        let permission = await folder.handle.queryPermission({ mode: 'read' });
+        
+        if (permission !== 'granted') {
+             try {
+                permission = await folder.handle.requestPermission({ mode: 'read' });
+             } catch (err) {
+                console.warn("请求权限时出错 (可能是环境限制):", err);
+             }
+        }
+
+        if (permission !== 'granted') {
+             console.warn(`跳过文件夹 ${folder.name}: 权限未授予`);
+             continue;
+        }
+
+        setCurrentProcessingFile(`扫描目录: ${folder.name}`);
+        const files = await scanDirectory(folder.handle, folder.id);
+        
+        await ingestFiles(files, folder.id, folder.name);
+
+      } catch (e) {
+        console.warn(`同步文件夹 ${folder.name} 失败:`, e);
+      }
+    }
+    
+    setIsImporting(false);
+    setImportProgress(0);
+    setCurrentProcessingFile('');
+  };
+
+  const handleInitialImport = async () => {
+    try {
+      if ('showDirectoryPicker' in window) {
+        const handle = await window.showDirectoryPicker();
+        const folderId = handle.name;
+        await saveLibraryFolder(folderId, handle);
+        
+        setIsImporting(true);
+        const files = await scanDirectory(handle, folderId);
+        await ingestFiles(files, folderId, handle.name);
+        setIsImporting(false);
+        setImportProgress(0);
+        setCurrentProcessingFile('');
+      } else {
+        throw new Error('FileSystem Access API not supported');
+      }
+    } catch (e) {
+      console.warn('showDirectoryPicker 失败或被拦截，回退到标准文件选择器:', e);
+      fallbackInputRef.current?.click();
+    }
+  };
 
   const playTrack = useCallback((track: Track) => {
     const index = tracks.findIndex(t => t.id === track.id);
@@ -170,30 +225,55 @@ const App: React.FC = () => {
       setCurrentTrackIndex(index);
       setView('player');
       setIsPlaying(true);
-      // 切换歌曲时恢复上下文
       setTimeout(() => initAudioAnalyzer(), 100);
     }
   }, [tracks, initAudioAnalyzer]);
 
+  // 处理拖拽排序或添加
+  const moveTrack = useCallback((draggedId: string, targetId: string | null) => {
+    // 使用当前 tracks 的引用来计算新顺序
+    const prevTracks = [...tracks]; 
+    const fromIndex = prevTracks.findIndex(t => t.id === draggedId);
+    if (fromIndex === -1) return;
+    
+    const [trackToMove] = prevTracks.splice(fromIndex, 1);
+    
+    let toIndex;
+    if (targetId === null) {
+        toIndex = prevTracks.length; // 移动到末尾
+    } else {
+        const targetIndex = prevTracks.findIndex(t => t.id === targetId);
+        toIndex = targetIndex === -1 ? prevTracks.length : targetIndex;
+    }
+
+    prevTracks.splice(toIndex, 0, trackToMove);
+    
+    // 更新 playing index，确保当前播放的索引跟随移动
+    let newCurrentIndex = currentTrackIndex;
+    if (currentTrackIndex !== null) {
+         const playingTrackId = tracks[currentTrackIndex].id;
+         newCurrentIndex = prevTracks.findIndex(t => t.id === playingTrackId);
+    }
+    
+    setTracks(prevTracks);
+    setCurrentTrackIndex(newCurrentIndex);
+  }, [tracks, currentTrackIndex]);
+
   useEffect(() => {
     if (currentTrack) {
       setIsStoryLoading(true);
-      getTrackStory(currentTrack.name, currentTrack.artist).then(story => {
-        setTrackStory(story);
-        setIsStoryLoading(false);
-      });
+      setTrackStory(''); 
+
+      const timer = setTimeout(() => {
+        getTrackStory(currentTrack.name, currentTrack.artist).then(story => {
+          setTrackStory(story);
+          setIsStoryLoading(false);
+        });
+      }, 1500);
+
+      return () => clearTimeout(timer);
     }
   }, [currentTrack]);
-
-  useEffect(() => {
-    if (isPlaying && audioRef.current && currentTrack) {
-      audioRef.current.play().then(() => {
-         if (audioContextRef.current?.state === 'suspended') {
-             audioContextRef.current.resume();
-         }
-      }).catch(() => setIsPlaying(false));
-    }
-  }, [currentTrack, isPlaying]);
 
   const nextTrack = useCallback(() => {
     if (tracks.length === 0 || currentTrackIndex === null) return;
@@ -221,42 +301,73 @@ const App: React.FC = () => {
       audio.removeEventListener('loadedmetadata', handleLoadedMetadata);
       audio.removeEventListener('ended', handleEnded);
     };
-  }, [playbackMode, currentTrackIndex, nextTrack]);
+  }, [playbackMode, nextTrack]);
 
   return (
     <div className="flex h-screen overflow-hidden font-sans selection:bg-yellow-500/30">
+      <input
+        type="file"
+        ref={fallbackInputRef}
+        className="hidden"
+        {...({ webkitdirectory: "true", directory: "" } as any)}
+        onChange={(e) => {
+          const files = Array.from(e.target.files || []);
+          if (files.length > 0) {
+            const folderName = files[0].webkitRelativePath.split('/')[0] || "本地音乐";
+            handleManualFileSelect(files, folderName, folderName);
+          }
+          e.target.value = ''; 
+        }}
+      />
+
+      <ImportWindow
+        isOpen={isImportWindowOpen}
+        onClose={() => setIsImportWindowOpen(false)}
+        onImport={handleInitialImport}
+        importedFolders={importedFolders}
+      />
       <Sidebar activeView={view} onViewChange={(v) => { setView(v); setNavigationRequest(null); }} trackCount={tracks.length} />
       <main className="flex-1 flex flex-col relative pb-28 bg-gradient-to-br from-[#1c1c1c] via-[#121212] to-[#0a0a0a]">
+        
+        {isImporting && (
+          <div className="absolute top-0 left-0 right-0 z-[100] h-1.5 bg-zinc-900">
+            <div className="h-full bg-yellow-500 shadow-[0_0_20px_rgba(234,179,8,1)] transition-all duration-300" style={{ width: `${importProgress}%` }} />
+          </div>
+        )}
+
         <header className="p-6 flex justify-between items-center z-50 relative">
           <div className="flex items-center gap-6 flex-1">
              <div className="relative group max-w-md w-full">
                 <input
-                  type="text"
-                  placeholder="搜索库中的曲目..."
-                  value={searchQuery}
+                  type="text" placeholder="搜索库中的曲目..." value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  className="w-full bg-white/5 border border-white/10 rounded-full py-2.5 px-11 text-sm text-white focus:border-yellow-500 outline-none backdrop-blur-md transition-all"
+                  className="w-full bg-white/5 border border-white/10 rounded-full py-2.5 px-11 text-sm text-white focus:border-yellow-500 outline-none backdrop-blur-md"
                 />
              </div>
+             {isImporting && (
+               <div className="flex items-center gap-3 bg-black/40 backdrop-blur-md px-4 py-2 rounded-full border border-white/5">
+                  <div className="w-2 h-2 bg-yellow-500 rounded-full animate-pulse shadow-[0_0_8px_rgba(234,179,8,1)]"></div>
+                  <span className="text-[10px] text-zinc-400 font-black uppercase tracking-widest whitespace-nowrap truncate max-w-[200px]">
+                    同步中: {currentProcessingFile}
+                  </span>
+               </div>
+             )}
           </div>
-          <button
-            onClick={() => fileInputRef.current?.click()}
-            className="bg-yellow-500 text-black px-6 py-2.5 rounded-full font-black text-sm shadow-xl active:scale-95 transition-all"
-          >
-            导入库
-          </button>
-          <input 
-            type="file" 
-            ref={fileInputRef} 
-            className="hidden" 
-            {...({ webkitdirectory: "true", directory: "" } as any)} 
-            multiple 
-            onChange={(e) => {
-              const files = Array.from(e.target.files || []);
-              const audioFiles = files.filter(f => SUPPORTED_FORMATS.some(ext => f.name.toLowerCase().endsWith(ext)));
-              Promise.all(audioFiles.map(parseFileToTrack)).then(newTracks => setTracks(prev => [...prev, ...newTracks]));
-            }} 
-          />
+          <div className="flex items-center gap-3">
+            <button 
+                onClick={handleSyncAll}
+                title="一键同步库目录"
+                disabled={isImporting}
+                className="w-10 h-10 flex items-center justify-center bg-white/5 hover:bg-white/10 text-white border border-white/10 rounded-full transition-all active:scale-90 disabled:opacity-30 group"
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" className={`${isImporting ? 'animate-spin text-yellow-500' : 'group-hover:rotate-180 transition-transform duration-700'}`}>
+                <path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.85.83 6.72 2.24L21 8"/><path d="M21 3v5h-5"/>
+              </svg>
+            </button>
+            <button onClick={() => setIsImportWindowOpen(true)} className="bg-yellow-500 text-black px-6 py-2.5 rounded-full font-black text-xs shadow-xl uppercase tracking-widest active:scale-95 transition-all">
+              库管理
+            </button>
+          </div>
         </header>
 
         <div className="flex-1 relative overflow-hidden">
@@ -264,68 +375,42 @@ const App: React.FC = () => {
                 {view === 'player' ? (
                   <div className="flex-1 flex flex-col items-center justify-center gap-10 p-8">
                     <div className="text-center relative z-40">
-                      <h2 className="text-4xl font-black text-white tracking-tight mb-2">
-                        {currentTrack?.name || "黑胶时光"}
-                      </h2>
-                      <button 
-                        onClick={() => handleNavigateToLibrary('artists', currentTrack?.artist)}
-                        disabled={!currentTrack}
-                        className="font-bold text-xl hover:underline cursor-pointer transition-all active:scale-95 outline-none block mx-auto" 
-                        style={{ color: themeColor }}
-                      >
-                        {currentTrack?.artist || "享受纯净音质"}
-                      </button>
-                      {currentTrack?.album && currentTrack.album !== "未知专辑" && (
-                        <button
-                          onClick={() => handleNavigateToLibrary('albums', currentTrack.album)}
-                          className="mt-2 text-zinc-500 text-xs font-black uppercase tracking-[0.3em] hover:text-white transition-colors block mx-auto"
-                        >
-                          — {currentTrack.album} —
-                        </button>
-                      )}
+                      <h2 className="text-4xl font-black text-white mb-2 truncate max-w-xl">{currentTrack?.name || "黑胶时光"}</h2>
+                      <button onClick={() => { setNavigationRequest({ type: 'artists', name: currentTrack?.artist || '' }); setView('artists'); }} className="font-bold text-xl text-white hover:text-yellow-500 transition-all">{currentTrack?.artist || "享受纯净音质"}</button>
                     </div>
-
-                    <VinylRecord 
-                        isPlaying={isPlaying} 
-                        coverUrl={currentTrack?.coverUrl} 
-                        intensity={audioIntensity} 
-                        progress={duration > 0 ? progress / duration : 0}
-                        themeColor={themeColor}
-                    />
-
-                    <div className="max-w-2xl text-center px-4 relative z-40">
-                      <div className={`text-zinc-500 italic text-lg leading-relaxed transition-opacity duration-1000 ${isStoryLoading ? 'opacity-20' : 'opacity-100'}`}>
-                        {trackStory || (currentTrack ? "正在通过 AI 为您解读..." : "开始一段跨越时空的黑胶之旅。")}
-                      </div>
+                    <VinylRecord isPlaying={isPlaying} coverUrl={currentTrack?.coverUrl} intensity={audioIntensity} progress={duration > 0 ? progress / duration : 0} />
+                    <div className={`max-w-2xl text-center px-4 italic text-zinc-500 text-lg transition-opacity duration-1000 ${isStoryLoading ? 'opacity-20' : 'opacity-100'}`}>
+                      {trackStory || (currentTrack ? "正在为您解读..." : "开始一段黑胶之旅。")}
                     </div>
                   </div>
                 ) : (
                   <LibraryView 
-                    view={view} tracks={tracks} onPlay={playTrack} 
-                    favorites={favorites} 
-                    navigationRequest={navigationRequest}
-                    onNavigationProcessed={() => setNavigationRequest(null)}
+                    view={view} tracks={tracks} onPlay={playTrack} favorites={favorites} 
+                    navigationRequest={navigationRequest} onNavigationProcessed={() => setNavigationRequest(null)}
                     onToggleFavorite={(id) => setFavorites(prev => {
-                      const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n;
+                      const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id);
+                      localStorage.setItem('vinyl_favorites', JSON.stringify(Array.from(n)));
+                      return n;
                     })}
                   />
                 )}
             </div>
         </div>
-
         <audio ref={audioRef} src={currentTrack?.url} />
-
         <PlayerControls
           currentTrack={currentTrack} tracks={tracks} currentIndex={currentTrackIndex}
-          isPlaying={isPlaying} onTogglePlay={togglePlay} onNext={nextTrack} onPrev={prevTrack}
-          onSelectTrack={setCurrentTrackIndex} onRemoveTrack={(id) => setTracks(prev => prev.filter(t => t.id !== id))}
-          progress={progress} duration={duration} volume={volume} onVolumeChange={setVolume}
+          isPlaying={isPlaying} onTogglePlay={() => { initAudioAnalyzer(); if (isPlaying) audioRef.current?.pause(); else audioRef.current?.play(); setIsPlaying(!isPlaying); }}
+          onNext={nextTrack} onPrev={prevTrack} onSelectTrack={setCurrentTrackIndex} onRemoveTrack={(id) => setTracks(prev => prev.filter(t => t.id !== id))}
+          progress={progress} duration={duration} volume={volume} onVolumeChange={(v) => { setVolume(v); if (audioRef.current) audioRef.current.volume = v; }}
           onSeek={(val) => audioRef.current && (audioRef.current.currentTime = val)}
           isFavorite={currentTrack ? favorites.has(currentTrack.id) : false} 
           onToggleFavorite={() => currentTrack && setFavorites(prev => {
-            const n = new Set(prev); if (n.has(currentTrack.id)) n.delete(currentTrack.id); else n.add(currentTrack.id); return n;
+            const n = new Set(prev); if (n.has(currentTrack.id)) n.delete(currentTrack.id); else n.add(currentTrack.id);
+            localStorage.setItem('vinyl_favorites', JSON.stringify(Array.from(n)));
+            return n;
           })}
           playbackMode={playbackMode} onTogglePlaybackMode={() => setPlaybackMode(p => p === 'normal' ? 'shuffle' : p === 'shuffle' ? 'loop' : 'normal')}
+          onReorder={moveTrack}
         />
       </main>
     </div>
