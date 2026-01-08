@@ -1,3 +1,4 @@
+
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import Sidebar from './components/Sidebar';
 import LibraryView from './components/LibraryView';
@@ -49,7 +50,7 @@ const App: React.FC = () => {
   const currentTrack = currentTrackIndex !== null ? tracks[currentTrackIndex] : null;
   const isFavorite = currentTrack ? favorites.has(currentTrack.id) : false;
 
-  // 改进的主题色提取：确保输出标准 rgba 格式
+  // 主题色提取优化
   useEffect(() => {
     if (currentTrack?.coverUrl) {
         const img = new Image();
@@ -65,13 +66,12 @@ const App: React.FC = () => {
             const data = ctx.getImageData(0, 0, 1, 1).data;
             let [r, g, b] = [data[0], data[1], data[2]];
             
-            // 亮度调整：如果太暗，调亮一点以保证动画可见度
+            // 提亮暗色封面，确保光晕可见
             const luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b;
-            if (luminance < 60) {
-              const boost = 1.6;
-              r = Math.min(255, r * boost);
-              g = Math.min(255, g * boost);
-              b = Math.min(255, b * boost);
+            if (luminance < 50) {
+              r = Math.min(255, r + 60);
+              g = Math.min(255, g + 60);
+              b = Math.min(255, b + 60);
             }
             setThemeColor(`rgba(${r}, ${g}, ${b}, 1)`);
         };
@@ -81,10 +81,8 @@ const App: React.FC = () => {
     }
   }, [currentTrack]);
 
-  // 初始化音频分析器
   const initAudioAnalyzer = useCallback(() => {
     if (!audioRef.current || audioContextRef.current) {
-        // 如果已经初始化，尝试恢复 context
         if (audioContextRef.current?.state === 'suspended') {
             audioContextRef.current.resume();
         }
@@ -95,8 +93,8 @@ const App: React.FC = () => {
       const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
       const ctx = new AudioContextClass();
       const analyser = ctx.createAnalyser();
-      analyser.fftSize = 128; // 更小的 FFT 尺寸，灵敏度更高
-      analyser.smoothingTimeConstant = 0.5; // 降低平滑度，让跳动更干脆
+      analyser.fftSize = 64; // 进一步减小，提高爆发性响应
+      analyser.smoothingTimeConstant = 0.3; // 极大降低平滑度，让律动更“脆”
       
       const source = ctx.createMediaElementSource(audioRef.current);
       source.connect(analyser);
@@ -105,14 +103,12 @@ const App: React.FC = () => {
       audioContextRef.current = ctx;
       analyserRef.current = analyser;
       sourceRef.current = source;
-      
-      if (ctx.state === 'suspended') ctx.resume();
     } catch (e) {
-      console.error("音频分析器初始化失败:", e);
+      console.error("音频引擎启动失败:", e);
     }
   }, []);
 
-  // 极致律动算法
+  // --- 极致律动算法优化 ---
   const updateIntensity = useCallback(() => {
     if (!analyserRef.current || !isPlaying) {
       setAudioIntensity(0);
@@ -122,25 +118,22 @@ const App: React.FC = () => {
     const dataArray = new Uint8Array(analyserRef.current.frequencyBinCount);
     analyserRef.current.getByteFrequencyData(dataArray);
 
-    // 针对低音部分进行强力提取 (Bass: 前 10% 的频段)
-    let bassSum = 0;
-    const bassRange = Math.floor(dataArray.length * 0.15) || 5; 
-    for (let i = 0; i < bassRange; i++) {
-      bassSum += dataArray[i];
-    }
-    const averageBass = bassSum / bassRange;
-    
-    // 整体强度
-    let totalSum = 0;
-    for (let i = 0; i < dataArray.length; i++) {
-        totalSum += dataArray[i];
-    }
-    const averageTotal = totalSum / dataArray.length;
+    // 1. 低音增强（Bass）: 0-4 频段通常代表鼓声和贝斯
+    let bass = 0;
+    for (let i = 0; i < 4; i++) bass += dataArray[i];
+    bass /= 4;
 
-    // 综合强度计算：非线性映射增强重音感
-    const normalized = (averageBass * 0.85 + averageTotal * 0.15) / 255;
-    const finalIntensity = Math.min(1.2, Math.pow(normalized, 0.9) * 1.8); 
-    setAudioIntensity(finalIntensity);
+    // 2. 高音（Treble）: 捕捉人声和清脆乐器
+    let mid = 0;
+    for (let i = 4; i < 16; i++) mid += dataArray[i];
+    mid /= 12;
+
+    // 3. 动态映射：使用 Math.pow(x, 1.5) 拉大差距，让静默和高潮的视觉效果差 10 倍以上
+    const rawValue = (bass * 0.9 + mid * 0.1) / 255;
+    const dynamicIntensity = Math.pow(rawValue, 1.3) * 1.5; 
+    
+    // 设置一个小阈值，过滤掉微弱底噪
+    setAudioIntensity(dynamicIntensity > 0.05 ? Math.min(1.1, dynamicIntensity) : 0);
 
     animationFrameRef.current = requestAnimationFrame(updateIntensity);
   }, [isPlaying]);
@@ -157,22 +150,15 @@ const App: React.FC = () => {
     };
   }, [isPlaying, updateIntensity]);
 
+  // 播放逻辑...
   const togglePlay = useCallback(() => {
     if (!audioRef.current || !currentTrack) return;
-    
     initAudioAnalyzer();
-    
     if (isPlaying) {
       audioRef.current.pause();
       setIsPlaying(false);
     } else {
-      audioRef.current.play().then(() => {
-          setIsPlaying(true);
-      }).catch(err => {
-          console.error("播放失败:", err);
-          // 如果是因为 context 问题，再次尝试
-          if (audioContextRef.current) audioContextRef.current.resume();
-      });
+      audioRef.current.play().then(() => setIsPlaying(true)).catch(console.error);
     }
   }, [isPlaying, currentTrack, initAudioAnalyzer]);
 
@@ -182,77 +168,45 @@ const App: React.FC = () => {
       setCurrentTrackIndex(index);
       setView('player');
       setIsPlaying(true);
-      setSearchQuery('');
-      
       initAudioAnalyzer();
     }
   }, [tracks, initAudioAnalyzer]);
 
-  // Fix: 添加 useEffect 当歌曲切换时调用 Gemini API 获取专属故事
+  // 其他 Effect 和辅助函数
   useEffect(() => {
-    if (!currentTrack) {
-      setTrackStory('');
-      return;
-    }
-
-    const fetchStory = async () => {
+    if (currentTrack) {
       setIsStoryLoading(true);
-      const story = await getTrackStory(currentTrack.name, currentTrack.artist);
-      setTrackStory(story);
-      setIsStoryLoading(false);
-    };
-
-    fetchStory();
+      getTrackStory(currentTrack.name, currentTrack.artist).then(story => {
+        setTrackStory(story);
+        setIsStoryLoading(false);
+      });
+    }
   }, [currentTrack]);
 
-  // Fix: 处理切歌后的自动播放，确保在 isPlaying 状态下 src 变更后音频能正常播放
   useEffect(() => {
     if (isPlaying && audioRef.current && currentTrack) {
-      const playPromise = audioRef.current.play();
-      if (playPromise !== undefined) {
-        playPromise.catch(error => {
-          console.error("切歌自动播放失败:", error);
-        });
-      }
+      audioRef.current.play().catch(() => setIsPlaying(false));
     }
   }, [currentTrack, isPlaying]);
 
-  const handleToggleFavorite = useCallback((trackId?: string) => {
-    const targetId = trackId || currentTrack?.id;
-    if (!targetId) return;
-    setFavorites(prev => {
-      const newFavorites = new Set(prev);
-      if (newFavorites.has(targetId)) newFavorites.delete(targetId);
-      else newFavorites.add(targetId);
-      return newFavorites;
-    });
-  }, [currentTrack]);
+  const nextTrack = useCallback(() => {
+    if (tracks.length === 0 || currentTrackIndex === null) return;
+    setCurrentTrackIndex((currentTrackIndex + 1) % tracks.length);
+    setIsPlaying(true);
+  }, [tracks.length, currentTrackIndex]);
 
-  const handleRemoveTrack = useCallback((trackId: string) => {
-    setTracks(prev => prev.filter(t => t.id !== trackId));
-  }, []);
-
-  const togglePlaybackMode = useCallback(() => {
-    setPlaybackMode(prev => prev === 'normal' ? 'shuffle' : prev === 'shuffle' ? 'loop' : 'normal');
-  }, []);
-
-  const jumpToArtist = (artist: string) => {
-    setView('artists');
-    setLibraryNavigation({ type: 'artists', name: artist });
-  };
-
-  const jumpToAlbum = (album: string) => {
-    setView('albums');
-    setLibraryNavigation({ type: 'albums', name: album });
-  };
+  const prevTrack = useCallback(() => {
+    if (tracks.length === 0 || currentTrackIndex === null) return;
+    setCurrentTrackIndex((currentTrackIndex - 1 + tracks.length) % tracks.length);
+    setIsPlaying(true);
+  }, [tracks.length, currentTrackIndex]);
 
   useEffect(() => {
     const audio = audioRef.current;
     if (!audio) return;
     const handleTimeUpdate = () => setProgress(audio.currentTime);
     const handleLoadedMetadata = () => setDuration(audio.duration);
-    const handleEnded = () => playbackMode === 'loop' ? (audio.currentTime = 0, audio.play()) : nextTrack();
-    
+    const handleEnded = () => (playbackMode === 'loop' ? (audio.currentTime = 0, audio.play()) : nextTrack());
     audio.addEventListener('timeupdate', handleTimeUpdate);
     audio.addEventListener('loadedmetadata', handleLoadedMetadata);
     audio.addEventListener('ended', handleEnded);
@@ -261,72 +215,54 @@ const App: React.FC = () => {
       audio.removeEventListener('loadedmetadata', handleLoadedMetadata);
       audio.removeEventListener('ended', handleEnded);
     };
-  }, [playbackMode, currentTrackIndex]);
-
-  const nextTrack = useCallback(() => {
-    if (tracks.length === 0 || currentTrackIndex === null) return;
-    const nextIdx = (currentTrackIndex + 1) % tracks.length;
-    setCurrentTrackIndex(nextIdx);
-    setIsPlaying(true);
-  }, [tracks.length, currentTrackIndex]);
-
-  const prevTrack = useCallback(() => {
-    if (tracks.length === 0 || currentTrackIndex === null) return;
-    const prevIdx = (currentTrackIndex - 1 + tracks.length) % tracks.length;
-    setCurrentTrackIndex(prevIdx);
-    setIsPlaying(true);
-  }, [tracks.length, currentTrackIndex]);
+  }, [playbackMode, currentTrackIndex, nextTrack]);
 
   return (
     <div className="flex h-screen overflow-hidden font-sans selection:bg-yellow-500/30">
       <Sidebar activeView={view} onViewChange={setView} trackCount={tracks.length} />
-
       <main className="flex-1 flex flex-col relative pb-28 bg-gradient-to-br from-[#1c1c1c] via-[#121212] to-[#0a0a0a]">
         <header className="p-6 flex justify-between items-center z-50 relative">
           <div className="flex items-center gap-6 flex-1">
              <div className="relative group max-w-md w-full">
-                <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-zinc-500 group-focus-within:text-yellow-500 transition-colors">
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
-                </div>
                 <input
                   type="text"
                   placeholder="搜索库中的曲目..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  className="w-full bg-white/5 border border-white/10 rounded-full py-2.5 pl-11 pr-4 text-sm text-white focus:border-yellow-500 transition-all outline-none backdrop-blur-md"
+                  className="w-full bg-white/5 border border-white/10 rounded-full py-2.5 px-11 text-sm text-white focus:border-yellow-500 outline-none backdrop-blur-md transition-all"
                 />
              </div>
           </div>
           <button
             onClick={() => fileInputRef.current?.click()}
-            className="bg-yellow-500 text-black px-5 py-2.5 rounded-full font-black text-sm shadow-xl flex items-center gap-2 active:scale-95"
+            className="bg-yellow-500 text-black px-6 py-2.5 rounded-full font-black text-sm shadow-xl active:scale-95 transition-all"
           >
-            导入音乐库
+            导入库
           </button>
-          {/* Fix: 使用类型断言解决 React 对 webkitdirectory 属性的类型校验错误 */}
-          <input type="file" ref={fileInputRef} className="hidden" {...({ webkitdirectory: "true", directory: "" } as any)} multiple onChange={(e) => {
+          <input 
+            type="file" 
+            ref={fileInputRef} 
+            className="hidden" 
+            {...({ webkitdirectory: "true", directory: "" } as any)} 
+            multiple 
+            onChange={(e) => {
               const files = Array.from(e.target.files || []);
               const audioFiles = files.filter(f => SUPPORTED_FORMATS.some(ext => f.name.toLowerCase().endsWith(ext)));
               Promise.all(audioFiles.map(parseFileToTrack)).then(newTracks => setTracks(prev => [...prev, ...newTracks]));
-          }} />
+            }} 
+          />
         </header>
 
         <div className="flex-1 relative overflow-hidden">
-            <div key={view} className="absolute inset-0 flex flex-col animate-in fade-in slide-in-from-bottom-8 duration-700">
+            <div key={view} className="absolute inset-0 flex flex-col animate-in fade-in duration-700">
                 {view === 'player' ? (
-                  <div className="flex-1 flex flex-col items-center justify-center gap-12 p-8 overflow-y-auto custom-scrollbar">
+                  <div className="flex-1 flex flex-col items-center justify-center gap-10 p-8">
                     <div className="text-center relative z-40">
                       <h2 className="text-4xl font-black text-white tracking-tight mb-2">
                         {currentTrack?.name || "黑胶时光"}
                       </h2>
-                      <div className="flex items-center justify-center gap-2">
-                        <button 
-                          onClick={() => currentTrack && jumpToArtist(currentTrack.artist)}
-                          className="font-bold text-xl hover:underline"
-                          style={{ color: themeColor }}
-                        >
-                            {currentTrack?.artist || "请选择您的音乐"}
-                        </button>
+                      <div className="font-bold text-xl" style={{ color: themeColor }}>
+                        {currentTrack?.artist || "享受纯净音质"}
                       </div>
                     </div>
 
@@ -339,15 +275,17 @@ const App: React.FC = () => {
                     />
 
                     <div className="max-w-2xl text-center px-4 relative z-40">
-                      <div className={`text-zinc-400 italic text-lg transition-all duration-1000 ${isStoryLoading ? 'opacity-20' : 'opacity-100'}`}>
-                        {trackStory || (currentTrack ? "正在准备您的专属音乐故事..." : "开始一段跨越时空的黑胶之旅。")}
+                      <div className={`text-zinc-500 italic text-lg leading-relaxed transition-opacity duration-1000 ${isStoryLoading ? 'opacity-20' : 'opacity-100'}`}>
+                        {trackStory || (currentTrack ? "正在通过 AI 为您解读..." : "开始一段跨越时空的黑胶之旅。")}
                       </div>
                     </div>
                   </div>
                 ) : (
                   <LibraryView 
                     view={view} tracks={tracks} onPlay={playTrack} 
-                    favorites={favorites} onToggleFavorite={handleToggleFavorite}
+                    favorites={favorites} onToggleFavorite={(id) => setFavorites(prev => {
+                      const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n;
+                    })}
                   />
                 )}
             </div>
@@ -358,11 +296,14 @@ const App: React.FC = () => {
         <PlayerControls
           currentTrack={currentTrack} tracks={tracks} currentIndex={currentTrackIndex}
           isPlaying={isPlaying} onTogglePlay={togglePlay} onNext={nextTrack} onPrev={prevTrack}
-          onSelectTrack={setCurrentTrackIndex} onRemoveTrack={handleRemoveTrack}
+          onSelectTrack={setCurrentTrackIndex} onRemoveTrack={(id) => setTracks(prev => prev.filter(t => t.id !== id))}
           progress={progress} duration={duration} volume={volume} onVolumeChange={setVolume}
           onSeek={(val) => audioRef.current && (audioRef.current.currentTime = val)}
-          isFavorite={isFavorite} onToggleFavorite={handleToggleFavorite} favorites={favorites}
-          playbackMode={playbackMode} onTogglePlaybackMode={togglePlaybackMode}
+          isFavorite={currentTrack ? favorites.has(currentTrack.id) : false} 
+          onToggleFavorite={() => currentTrack && setFavorites(prev => {
+            const n = new Set(prev); if (n.has(currentTrack.id)) n.delete(currentTrack.id); else n.add(currentTrack.id); return n;
+          })}
+          playbackMode={playbackMode} onTogglePlaybackMode={() => setPlaybackMode(p => p === 'normal' ? 'shuffle' : p === 'shuffle' ? 'loop' : 'normal')}
         />
       </main>
     </div>

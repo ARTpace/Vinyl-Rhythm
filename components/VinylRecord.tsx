@@ -1,3 +1,4 @@
+
 import React, { useMemo } from 'react';
 
 interface VinylRecordProps {
@@ -28,31 +29,31 @@ const VinylRecord: React.FC<VinylRecordProps> = ({
     }));
   }, []);
 
-  // 极致灵敏度计算
-  const auraScale = 1 + intensity * 1.2; 
-  const auraOpacity = 0.05 + intensity * 1.5; // 增加光晕亮度
-  const waveScale = 1.1 + intensity * 1.5;
-  const waveOpacity = 0.1 + intensity * 0.9;
+  // --- 视觉参数优化：收紧范围，增强跳动感 ---
+  // 唱片主体缩放（泵感）：基础 1.0 -> 峰值 1.05
+  const recordScale = isPlaying ? 1 + intensity * 0.05 : 0.98;
+  
+  // 光晕收紧：以前是 1.25，现在收缩到 1.1 左右，使其贴合唱片
+  const auraScale = 0.9 + intensity * 0.4; 
+  const auraOpacity = isPlaying ? (0.1 + intensity * 0.8) : 0;
+  
+  // 波纹扩散范围：随律动变化
+  const waveScale = 1.0 + intensity * 0.8;
+  const waveOpacity = 0.05 + intensity * 0.5;
 
   const startAngle = 20;
   const endAngle = 36;
   const currentAngle = isPlaying ? startAngle + (progress * (endAngle - startAngle)) : 0;
 
-  /**
-   * 健壮的颜色处理：将 rgba(r,g,b,1) 转换为不同透明度的版本
-   */
-  // Fix: 修正正则表达式，移除错误的 'death?' 字符串以确保颜色解析正确
-  const getAlphaColor = (alpha: number) => {
-    return themeColor.replace(/rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*[\d.]+)?\)/, `rgba($1, $2, $3, ${alpha})`)
-                     .replace(/rgb\((\d+),\s*(\d+),\s*(\d+)\)/, `rgba($1, $2, $3, ${alpha})`);
+  // 辅助函数：根据 themeColor 生成不同透明度的颜色
+  const getGlowColor = (alpha: number) => {
+    return themeColor.replace(/rgba?\((\d+),\s*(\d+ death?|(\d+)),\s*(\d+)(?:,\s*[\d.]+)?\)/, `rgba($1, $2, $4, ${alpha})`)
+                     .replace(/rgb\((\d+),\s*(\d+ death?|(\d+)),\s*(\d+)\)/, `rgba($1, $2, $4, ${alpha})`);
   };
 
-  // 容错处理：如果正则失败，回退到原始颜色或默认颜色
-  const particleColor = themeColor.includes('rgba') ? themeColor.replace(/[\d.]+\)$/, '0.9)') : themeColor;
-  const glowColor = themeColor.includes('rgba') ? themeColor.replace(/[\d.]+\)$/, '0.4)') : themeColor;
-
   return (
-    <div className="relative flex items-center justify-center w-72 h-72 md:w-96 md:h-96 flex-shrink-0 aspect-square group">
+    <div className="relative flex items-center justify-center w-72 h-72 md:w-96 md:h-96 flex-shrink-0 aspect-square group transition-transform duration-75 ease-out"
+         style={{ transform: `scale(${recordScale})` }}>
       
       {/* 粒子系统层 */}
       {isPlaying && (
@@ -67,7 +68,7 @@ const VinylRecord: React.FC<VinylRecordProps> = ({
                 width: p.size,
                 height: p.size,
                 backgroundColor: themeColor,
-                opacity: p.baseOpacity + intensity * 1.2,
+                opacity: p.baseOpacity + intensity * 1.5,
                 boxShadow: `0 0 15px ${themeColor}`,
                 '--particle-delay': p.delay,
                 '--particle-duration': p.duration,
@@ -78,14 +79,14 @@ const VinylRecord: React.FC<VinylRecordProps> = ({
         </div>
       )}
 
-      {/* 律动背景光晕 - 增强对比度 */}
+      {/* 紧致背景光晕 - 范围减小，亮度随律动大幅变化 */}
       <div 
-        className="absolute inset-[-25%] rounded-full blur-[110px] transition-all duration-[80ms] ease-out pointer-events-none"
+        className="absolute inset-[-10%] rounded-full blur-[60px] transition-all duration-75 ease-out pointer-events-none"
         style={{ 
           transform: `scale(${auraScale})`,
-          opacity: isPlaying ? Math.min(0.8, auraOpacity) : 0,
+          opacity: Math.min(0.9, auraOpacity),
           backgroundColor: themeColor,
-          boxShadow: `0 0 120px ${themeColor}`
+          boxShadow: `0 0 ${40 + intensity * 100}px ${themeColor}`
         }}
       />
 
@@ -103,14 +104,15 @@ const VinylRecord: React.FC<VinylRecordProps> = ({
 
       {/* 唱片主体 */}
       <div className={`
-        relative w-full h-full rounded-full vinyl-texture shadow-[0_0_100px_rgba(0,0,0,0.9),inset_0_0_30px_rgba(255,255,255,0.05)] border-[14px] border-[#161616]
+        relative w-full h-full rounded-full vinyl-texture shadow-[0_0_80px_rgba(0,0,0,0.8),inset_0_0_20px_rgba(255,255,255,0.05)] border-[12px] border-[#161616]
         flex items-center justify-center transition-all duration-1000 cubic-bezier(0.4, 0, 0.2, 1)
-        ${isPlaying ? 'animate-spin-slow scale-100' : 'scale-[0.98]'}
+        ${isPlaying ? 'animate-spin-slow' : ''}
       `}>
+        {/* 纹理圈 */}
         <div className="absolute inset-4 rounded-full border border-white/5 pointer-events-none"></div>
-        <div className="absolute inset-10 rounded-full border border-white/5 pointer-events-none"></div>
-        <div className="absolute inset-20 rounded-full border border-white/5 pointer-events-none opacity-40"></div>
+        <div className="absolute inset-12 rounded-full border border-white/10 pointer-events-none opacity-30"></div>
         
+        {/* 中心标签 */}
         <div className="relative w-1/3 h-1/3 rounded-full bg-[#111] shadow-inner flex items-center justify-center overflow-hidden border-4 border-zinc-900 z-10">
           {coverUrl ? (
             <img 
@@ -129,13 +131,11 @@ const VinylRecord: React.FC<VinylRecordProps> = ({
         <div className="absolute w-2.5 h-2.5 bg-[#222] rounded-full z-20 shadow-[inset_0_1px_3px_rgba(255,255,255,0.3)] border border-black"></div>
       </div>
 
-      <div className="absolute inset-0 rounded-full vinyl-reflection pointer-events-none mix-blend-screen opacity-40"></div>
+      <div className="absolute inset-0 rounded-full vinyl-reflection pointer-events-none mix-blend-screen opacity-30"></div>
 
-      {/* 唱针手臂 */}
+      {/* 唱针臂 */}
       <div 
-        className={`
-            absolute -top-6 -right-12 w-44 h-52 transition-transform duration-[1200ms] cubic-bezier(0.34, 1.56, 0.64, 1) origin-[85%_10%] pointer-events-none z-30
-        `}
+        className={`absolute -top-6 -right-12 w-44 h-52 transition-transform duration-[1200ms] cubic-bezier(0.34, 1.56, 0.64, 1) origin-[85%_10%] pointer-events-none z-30`}
         style={{ transform: `rotate(${currentAngle}deg)` }}
       >
         <div className="absolute top-2 right-4 w-14 h-14 bg-gradient-to-br from-zinc-400 to-zinc-800 rounded-full shadow-2xl border-4 border-zinc-900 flex items-center justify-center">
@@ -147,17 +147,6 @@ const VinylRecord: React.FC<VinylRecordProps> = ({
             </div>
         </div>
       </div>
-
-      {/* 底部指示光晕 */}
-      <div 
-        className={`absolute -bottom-10 w-2/3 h-4 blur-3xl transition-all duration-300 rounded-full pointer-events-none`}
-        style={{ 
-          transform: `scale(${1 + intensity * 1.5})`,
-          opacity: isPlaying ? 0.3 + intensity : 0,
-          backgroundColor: themeColor,
-          boxShadow: `0 0 40px ${themeColor}`
-        }}
-      />
     </div>
   );
 };
