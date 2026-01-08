@@ -19,10 +19,12 @@ const App: React.FC = () => {
   const [volume, setVolume] = useState(0.8);
   const [trackStory, setTrackStory] = useState<string>('');
   const [isStoryLoading, setIsStoryLoading] = useState(false);
-  const [importStatus, setImportStatus] = useState<{current: number, total: number, added: number, skipped: number} | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [themeColor, setThemeColor] = useState('rgba(234, 179, 8, 1)'); 
   
+  // 导航请求状态：用于从播放页跳转到歌手/专辑详情
+  const [navigationRequest, setNavigationRequest] = useState<{ type: 'artists' | 'albums', name: string } | null>(null);
+
   // 音频分析相关
   const [audioIntensity, setAudioIntensity] = useState(0);
   const audioContextRef = useRef<AudioContext | null>(null);
@@ -30,27 +32,33 @@ const App: React.FC = () => {
   const sourceRef = useRef<MediaElementAudioSourceNode | null>(null);
   const animationFrameRef = useRef<number | null>(null);
 
-  const [libraryFolders, setLibraryFolders] = useState<LibraryFolder[]>(() => {
-    const saved = localStorage.getItem('vinyl_folders');
-    return saved ? JSON.parse(saved) : [];
-  });
-
-  const [libraryNavigation, setLibraryNavigation] = useState<{ type: 'artists' | 'albums', name: string } | null>(null);
   const [favorites, setFavorites] = useState<Set<string>>(() => {
     const saved = localStorage.getItem('vinyl_favorites');
     return saved ? new Set(JSON.parse(saved)) : new Set();
   });
 
   const [playbackMode, setPlaybackMode] = useState<PlaybackMode>('normal');
-  const [shuffledIndices, setShuffledIndices] = useState<number[]>([]);
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const currentTrack = currentTrackIndex !== null ? tracks[currentTrackIndex] : null;
-  const isFavorite = currentTrack ? favorites.has(currentTrack.id) : false;
+  
+  // 策略：当曲库从无到有加载后，自动选中第一首
+  useEffect(() => {
+    if (tracks.length > 0 && currentTrackIndex === null) {
+      setCurrentTrackIndex(0);
+    }
+  }, [tracks.length, currentTrackIndex]);
 
-  // 主题色提取优化
+  // 处理跳转库请求
+  const handleNavigateToLibrary = (type: 'artists' | 'albums', name: string | undefined) => {
+    if (!name || name === "未知歌手" || name === "未知专辑") return;
+    setNavigationRequest({ type, name });
+    setView(type as ViewType);
+  };
+
+  // 主题色提取
   useEffect(() => {
     if (currentTrack?.coverUrl) {
         const img = new Image();
@@ -66,12 +74,11 @@ const App: React.FC = () => {
             const data = ctx.getImageData(0, 0, 1, 1).data;
             let [r, g, b] = [data[0], data[1], data[2]];
             
-            // 提亮暗色封面，确保光晕可见
             const luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b;
             if (luminance < 50) {
-              r = Math.min(255, r + 60);
-              g = Math.min(255, g + 60);
-              b = Math.min(255, b + 60);
+              r = Math.min(255, r + 65);
+              g = Math.min(255, g + 65);
+              b = Math.min(255, b + 65);
             }
             setThemeColor(`rgba(${r}, ${g}, ${b}, 1)`);
         };
@@ -93,48 +100,34 @@ const App: React.FC = () => {
       const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
       const ctx = new AudioContextClass();
       const analyser = ctx.createAnalyser();
-      analyser.fftSize = 64; // 进一步减小，提高爆发性响应
-      analyser.smoothingTimeConstant = 0.3; // 极大降低平滑度，让律动更“脆”
-      
+      analyser.fftSize = 128; 
+      analyser.smoothingTimeConstant = 0.6; 
       const source = ctx.createMediaElementSource(audioRef.current);
       source.connect(analyser);
       analyser.connect(ctx.destination);
-
       audioContextRef.current = ctx;
       analyserRef.current = analyser;
       sourceRef.current = source;
     } catch (e) {
-      console.error("音频引擎启动失败:", e);
+      console.error("音频分析初始化失败:", e);
     }
   }, []);
 
-  // --- 极致律动算法优化 ---
   const updateIntensity = useCallback(() => {
     if (!analyserRef.current || !isPlaying) {
       setAudioIntensity(0);
       return;
     }
-
     const dataArray = new Uint8Array(analyserRef.current.frequencyBinCount);
     analyserRef.current.getByteFrequencyData(dataArray);
-
-    // 1. 低音增强（Bass）: 0-4 频段通常代表鼓声和贝斯
     let bass = 0;
-    for (let i = 0; i < 4; i++) bass += dataArray[i];
-    bass /= 4;
-
-    // 2. 高音（Treble）: 捕捉人声和清脆乐器
-    let mid = 0;
-    for (let i = 4; i < 16; i++) mid += dataArray[i];
-    mid /= 12;
-
-    // 3. 动态映射：使用 Math.pow(x, 1.5) 拉大差距，让静默和高潮的视觉效果差 10 倍以上
-    const rawValue = (bass * 0.9 + mid * 0.1) / 255;
-    const dynamicIntensity = Math.pow(rawValue, 1.3) * 1.5; 
-    
-    // 设置一个小阈值，过滤掉微弱底噪
-    setAudioIntensity(dynamicIntensity > 0.05 ? Math.min(1.1, dynamicIntensity) : 0);
-
+    const sampleSize = 6; 
+    for (let i = 0; i < sampleSize; i++) bass += dataArray[i];
+    bass /= sampleSize;
+    const rawValue = bass / 255;
+    const targetIntensity = Math.pow(rawValue, 1.25) * 1.35; 
+    const finalIntensity = targetIntensity > 0.08 ? Math.min(1.0, targetIntensity) : 0;
+    setAudioIntensity(finalIntensity);
     animationFrameRef.current = requestAnimationFrame(updateIntensity);
   }, [isPlaying]);
 
@@ -150,7 +143,6 @@ const App: React.FC = () => {
     };
   }, [isPlaying, updateIntensity]);
 
-  // 播放逻辑...
   const togglePlay = useCallback(() => {
     if (!audioRef.current || !currentTrack) return;
     initAudioAnalyzer();
@@ -172,7 +164,6 @@ const App: React.FC = () => {
     }
   }, [tracks, initAudioAnalyzer]);
 
-  // 其他 Effect 和辅助函数
   useEffect(() => {
     if (currentTrack) {
       setIsStoryLoading(true);
@@ -219,7 +210,7 @@ const App: React.FC = () => {
 
   return (
     <div className="flex h-screen overflow-hidden font-sans selection:bg-yellow-500/30">
-      <Sidebar activeView={view} onViewChange={setView} trackCount={tracks.length} />
+      <Sidebar activeView={view} onViewChange={(v) => { setView(v); setNavigationRequest(null); }} trackCount={tracks.length} />
       <main className="flex-1 flex flex-col relative pb-28 bg-gradient-to-br from-[#1c1c1c] via-[#121212] to-[#0a0a0a]">
         <header className="p-6 flex justify-between items-center z-50 relative">
           <div className="flex items-center gap-6 flex-1">
@@ -261,9 +252,24 @@ const App: React.FC = () => {
                       <h2 className="text-4xl font-black text-white tracking-tight mb-2">
                         {currentTrack?.name || "黑胶时光"}
                       </h2>
-                      <div className="font-bold text-xl" style={{ color: themeColor }}>
+                      {/* 点击跳转歌手按钮 */}
+                      <button 
+                        onClick={() => handleNavigateToLibrary('artists', currentTrack?.artist)}
+                        disabled={!currentTrack}
+                        className="font-bold text-xl hover:underline cursor-pointer transition-all active:scale-95 outline-none block mx-auto" 
+                        style={{ color: themeColor }}
+                      >
                         {currentTrack?.artist || "享受纯净音质"}
-                      </div>
+                      </button>
+                      {/* 点击跳转专辑按钮 */}
+                      {currentTrack?.album && currentTrack.album !== "未知专辑" && (
+                        <button
+                          onClick={() => handleNavigateToLibrary('albums', currentTrack.album)}
+                          className="mt-2 text-zinc-500 text-xs font-black uppercase tracking-[0.3em] hover:text-white transition-colors block mx-auto"
+                        >
+                          — {currentTrack.album} —
+                        </button>
+                      )}
                     </div>
 
                     <VinylRecord 
@@ -283,7 +289,10 @@ const App: React.FC = () => {
                 ) : (
                   <LibraryView 
                     view={view} tracks={tracks} onPlay={playTrack} 
-                    favorites={favorites} onToggleFavorite={(id) => setFavorites(prev => {
+                    favorites={favorites} 
+                    navigationRequest={navigationRequest}
+                    onNavigationProcessed={() => setNavigationRequest(null)}
+                    onToggleFavorite={(id) => setFavorites(prev => {
                       const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n;
                     })}
                   />

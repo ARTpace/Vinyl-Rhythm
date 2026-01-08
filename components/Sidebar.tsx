@@ -1,5 +1,5 @@
 
-import React from 'react';
+import React, { useState } from 'react';
 import { ViewType } from '../types';
 
 interface SidebarProps {
@@ -9,45 +9,159 @@ interface SidebarProps {
 }
 
 const Sidebar: React.FC<SidebarProps> = ({ activeView, onViewChange, trackCount }) => {
+  const [isCollapsed, setIsCollapsed] = useState(false);
+  const [isHovering, setIsHovering] = useState(false);
+
   const navItems = [
-    { id: 'player' as ViewType, label: '正在播放', icon: '💿' },
-    { id: 'all' as ViewType, label: '全部歌曲', icon: '🎵' },
-    { id: 'favorites' as ViewType, label: '我的收藏', icon: '❤️' },
-    { id: 'artists' as ViewType, label: '歌手预览', icon: '👤' },
-    { id: 'albums' as ViewType, label: '专辑浏览', icon: '💿' },
+    { 
+      id: 'player' as ViewType, 
+      label: '正在播放', 
+      icon: (
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/>
+          <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/>
+        </svg>
+      )
+    },
+    { 
+      id: 'all' as ViewType, 
+      label: '全部歌曲', 
+      icon: (
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/>
+        </svg>
+      )
+    },
+    { 
+      id: 'favorites' as ViewType, 
+      label: '我的收藏', 
+      icon: (
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"/>
+        </svg>
+      )
+    },
+    { 
+      id: 'artists' as ViewType, 
+      label: '歌手预览', 
+      icon: (
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/>
+        </svg>
+      )
+    },
+    { 
+      id: 'albums' as ViewType, 
+      label: '专辑浏览', 
+      icon: (
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="12" cy="12" r="3"/><path d="M3 12h18"/>
+        </svg>
+      )
+    },
   ];
 
   return (
-    <div className="w-64 bg-[#000000] h-screen flex flex-col border-r border-zinc-800 p-6 z-20 relative">
-      <div className="mb-10">
-        <h1 className="text-xl font-bold text-yellow-500 tracking-widest flex items-center gap-2">
-          <span>VINYL</span>
-          <span className="text-xs bg-zinc-800 text-zinc-400 px-2 py-0.5 rounded">TIME</span>
-        </h1>
+    <aside 
+      onMouseEnter={() => setIsHovering(true)}
+      onMouseLeave={() => setIsHovering(false)}
+      className={`
+        relative bg-black h-screen flex flex-col border-r border-zinc-900 transition-all duration-500 ease-[cubic-bezier(0.2,0.8,0.2,1)] z-50
+        ${isCollapsed ? 'w-20' : 'w-64'}
+      `}
+    >
+      {/* 条状交互区域 - 靠近边缘显示 */}
+      <div 
+        onClick={() => setIsCollapsed(!isCollapsed)}
+        className={`
+          absolute right-0 top-1/2 -translate-y-1/2 w-1.5 h-24 cursor-pointer z-[60] group flex items-center justify-center
+          transition-all duration-300
+          ${isHovering ? 'opacity-100 translate-x-1' : 'opacity-0 translate-x-0'}
+        `}
+      >
+        <div className="w-full h-full bg-yellow-500/20 group-hover:bg-yellow-500/40 rounded-full transition-colors relative">
+           <div className="absolute inset-y-6 inset-x-[2px] bg-yellow-500 rounded-full shadow-[0_0_10px_rgba(234,179,8,0.5)]"></div>
+        </div>
       </div>
 
-      <nav className="flex-1 space-y-2">
+      {/* 顶部 Logo */}
+      <div className={`p-8 mb-6 transition-all duration-500 ${isCollapsed ? 'px-0 flex justify-center' : ''}`}>
+        <div className="flex items-center gap-2">
+          <div className="w-10 h-10 bg-zinc-900 rounded-xl flex items-center justify-center border border-white/5 shadow-2xl">
+            <span className="text-2xl font-black text-yellow-500 select-none">V</span>
+          </div>
+          {!isCollapsed && (
+            <div className="overflow-hidden animate-in fade-in slide-in-from-left-4 duration-500">
+              <h1 className="text-xl font-black text-white tracking-[0.2em] leading-none">INYL</h1>
+              <span className="text-[10px] text-zinc-600 font-black tracking-[0.1em]">TIME AUDIO</span>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* 导航菜单 */}
+      <nav className="flex-1 space-y-2 px-4">
         {navItems.map(item => (
           <button
             key={item.id}
             onClick={() => onViewChange(item.id)}
+            title={isCollapsed ? item.label : ''}
             className={`
-              w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-all
-              ${activeView === item.id ? 'bg-zinc-800 text-white shadow-lg' : 'text-zinc-500 hover:text-zinc-300 hover:bg-zinc-900'}
+              w-full flex items-center rounded-2xl transition-all duration-300 group relative
+              ${isCollapsed ? 'justify-center py-5' : 'px-5 py-3.5 gap-5'}
+              ${activeView === item.id 
+                ? 'bg-zinc-900 text-white border border-white/5' 
+                : 'text-zinc-600 hover:text-zinc-300 hover:bg-zinc-900/50'}
             `}
           >
-            <span className="text-lg">{item.icon}</span>
-            <span className="font-medium">{item.label}</span>
+            <div className={`
+              shrink-0 transition-all duration-300
+              ${isCollapsed ? 'w-6 h-6' : 'w-5 h-5'}
+              ${activeView === item.id ? 'text-yellow-500 drop-shadow-[0_0_8px_rgba(234,179,8,0.4)]' : 'group-hover:text-zinc-400'}
+            `}>
+              {item.icon}
+            </div>
+            
+            {!isCollapsed && (
+              <span className="font-black text-[11px] tracking-[0.2em] uppercase truncate whitespace-nowrap animate-in fade-in slide-in-from-left-2 duration-300">
+                {item.label}
+              </span>
+            )}
+
+            {/* 活动状态指示条 */}
+            {activeView === item.id && (
+              <div className="absolute left-0 w-1 h-6 bg-yellow-500 rounded-r-full shadow-[0_0_15px_rgba(234,179,8,0.5)]" />
+            )}
           </button>
         ))}
       </nav>
 
-      <div className="mt-auto pt-6 border-t border-zinc-800">
-        <div className="text-xs text-zinc-500">
-          库中共有 {trackCount} 首曲目
-        </div>
+      {/* 底部存储信息 */}
+      <div className={`mt-auto p-8 transition-all duration-500 ${isCollapsed ? 'px-0 flex justify-center' : ''}`}>
+        {!isCollapsed ? (
+          <div className="animate-in fade-in slide-in-from-bottom-2 duration-500 bg-zinc-900/40 p-5 rounded-3xl border border-white/5">
+            <p className="text-[9px] text-zinc-600 font-black uppercase tracking-[0.3em] mb-2">Storage Status</p>
+            <div className="flex items-end justify-between">
+                <span className="text-sm text-white font-mono opacity-80">{trackCount}</span>
+                <span className="text-[9px] text-zinc-700 font-black">TRACKS</span>
+            </div>
+            <div className="mt-3 w-full h-1 bg-zinc-800 rounded-full overflow-hidden">
+                <div 
+                    className="h-full bg-yellow-500/50 transition-all duration-1000" 
+                    style={{ width: `${Math.min(100, trackCount * 2)}%` }}
+                />
+            </div>
+          </div>
+        ) : (
+          <div className="relative">
+             <div className="w-8 h-8 rounded-full bg-zinc-900 flex items-center justify-center text-[9px] font-black text-yellow-500/80 border border-white/5">
+                {trackCount > 99 ? '99+' : trackCount}
+             </div>
+             <div className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-yellow-500 rounded-full border-2 border-black animate-pulse"></div>
+          </div>
+        )}
       </div>
-    </div>
+    </aside>
   );
 };
 

@@ -1,4 +1,3 @@
-
 import React, { useMemo } from 'react';
 
 interface VinylRecordProps {
@@ -21,119 +20,125 @@ const VinylRecord: React.FC<VinylRecordProps> = ({
     return Array.from({ length: 15 }).map((_, i) => ({
       id: i,
       delay: `${Math.random() * 5}s`,
-      duration: `${2 + Math.random() * 3}s`,
-      translateX: `${(Math.random() - 0.5) * 200}px`,
+      duration: `${3 + Math.random() * 2}s`, // 略微延长粒子寿命
+      translateX: `${(Math.random() - 0.5) * 150}px`,
       left: `${20 + Math.random() * 60}%`,
-      size: `${2 + Math.random() * 4}px`,
-      baseOpacity: 0.1 + Math.random() * 0.4
+      size: `${1.5 + Math.random() * 3}px`, // 粒子稍微变细小一点
+      baseOpacity: 0.1 + Math.random() * 0.3
     }));
   }, []);
 
-  // --- 视觉参数优化：收紧范围，增强跳动感 ---
-  // 唱片主体缩放（泵感）：基础 1.0 -> 峰值 1.05
-  const recordScale = isPlaying ? 1 + intensity * 0.05 : 0.98;
+  // --- 视觉参数极致平滑化 (呼吸感) ---
+  // 唱片主体缩放：基础 1.0 -> 峰值 1.02 (非常微弱的起伏)
+  const recordScale = isPlaying ? 1 + intensity * 0.025 : 0.98;
   
-  // 光晕收紧：以前是 1.25，现在收缩到 1.1 左右，使其贴合唱片
-  const auraScale = 0.9 + intensity * 0.4; 
-  const auraOpacity = isPlaying ? (0.1 + intensity * 0.8) : 0;
+  // 光晕收紧且平滑：减少 multiplier，增加基础值，使变化更连贯
+  const auraScale = 0.95 + intensity * 0.25; 
+  const auraOpacity = isPlaying ? (0.2 + intensity * 0.45) : 0;
   
-  // 波纹扩散范围：随律动变化
-  const waveScale = 1.0 + intensity * 0.8;
-  const waveOpacity = 0.05 + intensity * 0.5;
+  // 波纹扩散
+  const waveScale = 1.0 + intensity * 0.5;
+  const waveOpacity = 0.05 + intensity * 0.2;
 
   const startAngle = 20;
   const endAngle = 36;
   const currentAngle = isPlaying ? startAngle + (progress * (endAngle - startAngle)) : 0;
 
-  // 辅助函数：根据 themeColor 生成不同透明度的颜色
-  const getGlowColor = (alpha: number) => {
-    return themeColor.replace(/rgba?\((\d+),\s*(\d+ death?|(\d+)),\s*(\d+)(?:,\s*[\d.]+)?\)/, `rgba($1, $2, $4, ${alpha})`)
-                     .replace(/rgb\((\d+),\s*(\d+ death?|(\d+)),\s*(\d+)\)/, `rgba($1, $2, $4, ${alpha})`);
-  };
+  // 柔和的缓动定义
+  const smoothTransition = "all 500ms cubic-bezier(0.33, 1, 0.68, 1)";
 
   return (
-    <div className="relative flex items-center justify-center w-72 h-72 md:w-96 md:h-96 flex-shrink-0 aspect-square group transition-transform duration-75 ease-out"
-         style={{ transform: `scale(${recordScale})` }}>
+    <div className="relative flex items-center justify-center w-72 h-72 md:w-96 md:h-96 flex-shrink-0 aspect-square group">
       
-      {/* 粒子系统层 */}
-      {isPlaying && (
-        <div className="absolute inset-0 pointer-events-none z-0">
-          {particles.map((p) => (
-            <div
-              key={p.id}
-              className="absolute animate-particle rounded-full blur-[1px] transition-opacity duration-300 pointer-events-none"
-              style={{
-                left: p.left,
-                bottom: '40%',
-                width: p.size,
-                height: p.size,
-                backgroundColor: themeColor,
-                opacity: p.baseOpacity + intensity * 1.5,
-                boxShadow: `0 0 15px ${themeColor}`,
-                '--particle-delay': p.delay,
-                '--particle-duration': p.duration,
-                '--tw-translate-x': p.translateX,
-              } as React.CSSProperties}
-            />
-          ))}
-        </div>
-      )}
-
-      {/* 紧致背景光晕 - 范围减小，亮度随律动大幅变化 */}
+      {/* 缩放层：仅包含唱片主体、光晕和粒子。由于增加了 transition 时间，它会呈现出呼吸般的起伏 */}
       <div 
-        className="absolute inset-[-10%] rounded-full blur-[60px] transition-all duration-75 ease-out pointer-events-none"
+        className="absolute inset-0 flex items-center justify-center transition-transform"
         style={{ 
-          transform: `scale(${auraScale})`,
-          opacity: Math.min(0.9, auraOpacity),
-          backgroundColor: themeColor,
-          boxShadow: `0 0 ${40 + intensity * 100}px ${themeColor}`
+          transform: `scale(${recordScale})`,
+          transition: smoothTransition
         }}
-      />
+      >
+        {/* 粒子系统 */}
+        {isPlaying && (
+          <div className="absolute inset-0 pointer-events-none z-0">
+            {particles.map((p) => (
+              <div
+                key={p.id}
+                className="absolute animate-particle rounded-full blur-[1px] pointer-events-none"
+                style={{
+                  left: p.left,
+                  bottom: '40%',
+                  width: p.size,
+                  height: p.size,
+                  backgroundColor: themeColor,
+                  // 粒子透明度随律动变化，但增加 transition 使其不闪烁
+                  opacity: p.baseOpacity + intensity * 0.8,
+                  boxShadow: `0 0 10px ${themeColor}`,
+                  transition: 'opacity 600ms ease-out',
+                  '--particle-delay': p.delay,
+                  '--particle-duration': p.duration,
+                  '--tw-translate-x': p.translateX,
+                } as React.CSSProperties}
+              />
+            ))}
+          </div>
+        )}
 
-      {/* 扩散波纹环 */}
-      {isPlaying && (
+        {/* 背景光晕 - 范围更紧，变化像呼吸一样平缓 */}
         <div 
-            className="absolute inset-0 rounded-full border-2 animate-wave-spread pointer-events-none" 
-            style={{ 
-                borderColor: themeColor,
-                opacity: waveOpacity,
-                '--tw-scale-to': waveScale 
-            } as any} 
+          className="absolute inset-[-6%] rounded-full blur-[45px] pointer-events-none"
+          style={{ 
+            transform: `scale(${auraScale})`,
+            opacity: Math.min(0.8, auraOpacity),
+            backgroundColor: themeColor,
+            boxShadow: `0 0 ${25 + intensity * 60}px ${themeColor}`,
+            transition: smoothTransition
+          }}
         />
-      )}
 
-      {/* 唱片主体 */}
-      <div className={`
-        relative w-full h-full rounded-full vinyl-texture shadow-[0_0_80px_rgba(0,0,0,0.8),inset_0_0_20px_rgba(255,255,255,0.05)] border-[12px] border-[#161616]
-        flex items-center justify-center transition-all duration-1000 cubic-bezier(0.4, 0, 0.2, 1)
-        ${isPlaying ? 'animate-spin-slow' : ''}
-      `}>
-        {/* 纹理圈 */}
-        <div className="absolute inset-4 rounded-full border border-white/5 pointer-events-none"></div>
-        <div className="absolute inset-12 rounded-full border border-white/10 pointer-events-none opacity-30"></div>
-        
-        {/* 中心标签 */}
-        <div className="relative w-1/3 h-1/3 rounded-full bg-[#111] shadow-inner flex items-center justify-center overflow-hidden border-4 border-zinc-900 z-10">
-          {coverUrl ? (
-            <img 
-              src={coverUrl} 
-              alt="Cover" 
-              className={`w-full h-full object-cover transition-all duration-1000 ${isPlaying ? 'opacity-90 scale-105' : 'opacity-60 scale-100'}`} 
-            />
-          ) : (
-            <div className="flex flex-col items-center">
-                <div className="font-black text-[10px] tracking-widest mb-1 uppercase" style={{ color: themeColor }}>Vinyl</div>
-                <div className="text-zinc-600 font-bold text-[8px] tracking-tighter">HI-FI AUDIO</div>
-            </div>
-          )}
-          <div className="absolute inset-0 bg-gradient-to-tr from-black/40 via-transparent to-white/10 pointer-events-none"></div>
+        {/* 扩散波纹 */}
+        {isPlaying && (
+          <div 
+              className="absolute inset-0 rounded-full border-2 animate-wave-spread pointer-events-none" 
+              style={{ 
+                  borderColor: themeColor,
+                  opacity: waveOpacity,
+                  '--tw-scale-to': waveScale 
+              } as any} 
+          />
+        )}
+
+        {/* 唱片主体 */}
+        <div className={`
+          relative w-full h-full rounded-full vinyl-texture shadow-[0_0_50px_rgba(0,0,0,0.8),inset_0_0_15px_rgba(255,255,255,0.05)] border-[12px] border-[#161616]
+          flex items-center justify-center transition-all duration-1000 cubic-bezier(0.4, 0, 0.2, 1)
+          ${isPlaying ? 'animate-spin-slow' : ''}
+        `}>
+          <div className="absolute inset-4 rounded-full border border-white/5 pointer-events-none"></div>
+          <div className="absolute inset-12 rounded-full border border-white/10 pointer-events-none opacity-10"></div>
+          
+          <div className="relative w-1/3 h-1/3 rounded-full bg-[#111] shadow-inner flex items-center justify-center overflow-hidden border-4 border-zinc-900 z-10">
+            {coverUrl ? (
+              <img 
+                src={coverUrl} 
+                alt="Cover" 
+                className={`w-full h-full object-cover transition-all duration-1000 ${isPlaying ? 'opacity-90 scale-105' : 'opacity-60 scale-100'}`} 
+              />
+            ) : (
+              <div className="flex flex-col items-center">
+                  <div className="font-black text-[10px] tracking-widest mb-1 uppercase" style={{ color: themeColor }}>Vinyl</div>
+                  <div className="text-zinc-600 font-bold text-[8px] tracking-tighter">HI-FI AUDIO</div>
+              </div>
+            )}
+            <div className="absolute inset-0 bg-gradient-to-tr from-black/40 via-transparent to-white/10 pointer-events-none"></div>
+          </div>
+          <div className="absolute w-2.5 h-2.5 bg-[#222] rounded-full z-20 shadow-[inset_0_1px_3px_rgba(255,255,255,0.3)] border border-black"></div>
         </div>
-        <div className="absolute w-2.5 h-2.5 bg-[#222] rounded-full z-20 shadow-[inset_0_1px_3px_rgba(255,255,255,0.3)] border border-black"></div>
+
+        <div className="absolute inset-0 rounded-full vinyl-reflection pointer-events-none mix-blend-screen opacity-20"></div>
       </div>
 
-      <div className="absolute inset-0 rounded-full vinyl-reflection pointer-events-none mix-blend-screen opacity-30"></div>
-
-      {/* 唱针臂 */}
+      {/* 唱针臂 - 独立层，不参与任何缩放动画，位置锁定且稳定 */}
       <div 
         className={`absolute -top-6 -right-12 w-44 h-52 transition-transform duration-[1200ms] cubic-bezier(0.34, 1.56, 0.64, 1) origin-[85%_10%] pointer-events-none z-30`}
         style={{ transform: `rotate(${currentAngle}deg)` }}
