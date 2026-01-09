@@ -4,13 +4,31 @@ import * as mm from 'music-metadata-browser';
 
 /**
  * 智能清理文件名
+ * 针对中文下载站点的常见命名习惯进行优化
  */
 const cleanFileNameData = (fileName: string) => {
-  let cleanName = fileName.replace(/\.[^/.]+$/, "");
+  let cleanName = fileName.replace(/\.[^/.]+$/, ""); // 移除扩展名
+  
+  // 1. 移除常见的网站广告后缀
+  const ads = [
+    "【无损音乐网 www.wusuns.com】", 
+    " - 更多精彩尽在www.it688.cn", 
+    "_无损下载", 
+    "[80s下载网]", 
+    " (高清版)",
+    " - 副本",
+    "-(www.music.com)"
+  ];
+  ads.forEach(ad => cleanName = cleanName.split(ad).join(""));
+
+  // 2. 移除括号内的杂质内容
   cleanName = cleanName.replace(/[\[\(].*?[\]\)]/g, "").trim();
+  
+  // 3. 移除开头的数字序号（如 01. 歌曲名）
   const prefixRegex = /^([a-zA-Z0-9]{1,3}[\.\-\s_)]+\s*)/;
   cleanName = cleanName.replace(prefixRegex, "");
 
+  // 4. 处理 分隔符
   const separators = [" - ", " – ", " — ", " ~ ", " _ "];
   let artist = "未知歌手";
   let title = cleanName;
@@ -24,20 +42,20 @@ const cleanFileNameData = (fileName: string) => {
     }
   }
 
+  // 二次清理歌手名中的数字
   artist = artist.replace(prefixRegex, "");
+  
   return { artist, title };
 };
 
 export const parseFileToTrack = async (file: File): Promise<Track> => {
   const fileInfo = cleanFileNameData(file.name);
   
-  // 检查 Buffer 环境
   if (typeof window !== 'undefined' && !(window as any).Buffer) {
-    console.warn("[AudioParser] Buffer polyfill 尚未就绪，解析可能受限");
+    console.warn("[AudioParser] Buffer polyfill 尚未就绪");
   }
 
   try {
-    // 解析内置标签
     const metadata = await mm.parseBlob(file);
     const { common, format } = metadata;
     
@@ -69,12 +87,10 @@ export const parseFileToTrack = async (file: File): Promise<Track> => {
       coverUrl,
       file,
       duration: format.duration,
-      bitrate: format.bitrate, // 提取比特率
+      bitrate: format.bitrate,
       fingerprint: `${file.name}-${file.size}`
     };
   } catch (error) {
-    console.warn(`[Metadata] 内置标签解析失败 (${file.name}):`, (error as Error).message);
-    
     return {
       id: Math.random().toString(36).substring(2, 9),
       name: fileInfo.title,
