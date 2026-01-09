@@ -89,7 +89,7 @@ const PlayerControls: React.FC<PlayerControlsProps> = ({
   return (
     <>
       {showQueue && <div className="fixed inset-0 z-[80] bg-black/40 backdrop-blur-sm transition-opacity" onClick={() => setShowQueue(false)} />}
-      <div className={`fixed right-0 md:right-6 bottom-16 md:bottom-28 w-full md:w-96 bg-[#161616] md:border border-[#333] rounded-t-3xl md:rounded-3xl shadow-[0_-10px_40px_rgba(0,0,0,0.9)] z-[90] transform transition-all duration-300 flex flex-col ${showQueue ? 'translate-y-0 opacity-100' : 'translate-y-full opacity-0 pointer-events-none'}`} style={{ maxHeight: '70vh' }}>
+      <div className={`fixed right-0 md:right-6 bottom-16 md:bottom-28 w-full md:w-[420px] bg-[#161616] md:border border-[#333] rounded-t-3xl md:rounded-3xl shadow-[0_-10px_40px_rgba(0,0,0,0.9)] z-[90] transform transition-all duration-300 flex flex-col ${showQueue ? 'translate-y-0 opacity-100' : 'translate-y-full opacity-0 pointer-events-none'}`} style={{ maxHeight: '70vh' }}>
         <div className="p-4 border-b border-[#2a2a2a] flex justify-between items-center bg-gradient-to-b from-[#222] to-[#161616] rounded-t-3xl" onClick={() => setShowQueue(false)}>
           <h3 className="text-zinc-200 font-bold text-sm tracking-widest uppercase pl-2 flex items-center gap-2">
             <div className="w-2 h-2 bg-yellow-500 rounded-full shadow-[0_0_5px_rgba(234,179,8,0.8)]"></div>
@@ -99,19 +99,46 @@ const PlayerControls: React.FC<PlayerControlsProps> = ({
         </div>
         <div className="overflow-y-auto p-2 flex-1 custom-scrollbar bg-[#111]">
           {tracks.map((track, idx) => (
-            <div key={track.id} draggable onDragStart={(e) => e.dataTransfer.setData('text/plain', track.id)} onDragOver={(e) => e.preventDefault()} onDrop={(e) => { e.preventDefault(); onReorder(e.dataTransfer.getData('text/plain'), track.id); }} className={`group flex items-center gap-3 p-3 rounded-lg cursor-pointer transition-all border mb-1 ${idx === currentIndex ? 'bg-[#1a1a1a] border-[#333]' : 'border-transparent hover:bg-[#1a1a1a]'}`} onClick={() => onSelectTrack(idx)}>
-              {idx === currentIndex && isPlaying ? (
-                 <div className="w-4 h-4 flex items-end justify-center gap-0.5 shrink-0">
-                    <div className="w-0.5 animate-[bounce_1s_infinite] h-2 bg-yellow-500"></div>
-                    <div className="w-0.5 animate-[bounce_1.2s_infinite] h-4 bg-yellow-500"></div>
-                    <div className="w-0.5 animate-[bounce_0.8s_infinite] h-3 bg-yellow-500"></div>
-                 </div>
-              ) : (
-                 <span className={`text-[10px] font-mono w-4 text-center ${idx === currentIndex ? 'text-yellow-500' : 'text-zinc-700'}`}>{idx + 1}</span>
-              )}
+            <div key={track.id} draggable onDragStart={(e) => e.dataTransfer.setData('text/plain', track.id)} onDragOver={(e) => e.preventDefault()} onDrop={(e) => { e.preventDefault(); onReorder(e.dataTransfer.getData('text/plain'), track.id); }} className={`group flex items-center gap-3 p-2 rounded-xl cursor-pointer transition-all border mb-1 ${idx === currentIndex ? 'bg-[#1a1a1a] border-[#333]' : 'border-transparent hover:bg-[#1a1a1a]'}`} onClick={() => onSelectTrack(idx)}>
+              <div className="w-8 flex items-center justify-center shrink-0">
+                  {idx === currentIndex && isPlaying ? (
+                    <div className="w-4 h-4 flex items-end justify-center gap-0.5 shrink-0">
+                        <div className="w-0.5 animate-[bounce_1s_infinite] h-2 bg-yellow-500"></div>
+                        <div className="w-0.5 animate-[bounce_1.2s_infinite] h-4 bg-yellow-500"></div>
+                        <div className="w-0.5 animate-[bounce_0.8s_infinite] h-3 bg-yellow-500"></div>
+                    </div>
+                  ) : (
+                    <span className={`text-[10px] font-mono text-center ${idx === currentIndex ? 'text-yellow-500' : 'text-zinc-700'}`}>{idx + 1}</span>
+                  )}
+              </div>
+              
+              <div className="w-10 h-10 rounded-md bg-zinc-800 overflow-hidden shrink-0 relative">
+                 {track.coverUrl ? (
+                    <img src={track.coverUrl} className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-opacity" />
+                 ) : (
+                    <div className="w-full h-full flex items-center justify-center text-zinc-600 bg-zinc-900">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/></svg>
+                    </div>
+                 )}
+              </div>
+
               <div className="flex-1 min-w-0">
-                <div className={`font-medium text-sm truncate ${idx === currentIndex ? 'text-yellow-500' : 'text-zinc-400'}`}>{track.name}</div>
-                <div className="text-[10px] text-zinc-600 truncate">{track.artist}</div>
+                <div className={`font-bold text-xs truncate ${idx === currentIndex ? 'text-yellow-500' : 'text-zinc-300'}`}>{track.name}</div>
+                <div className="text-[10px] text-zinc-600 truncate font-medium">{track.artist}</div>
+              </div>
+
+              <div className="flex items-center gap-2 shrink-0 pr-1">
+                 <span className="text-[10px] font-mono text-zinc-700 group-hover:text-zinc-500 transition-colors">
+                    {formatTime(track.duration || 0)}
+                 </span>
+                 <button 
+                    onClick={(e) => { e.stopPropagation(); onToggleFavorite(track.id); }}
+                    className={`p-1.5 rounded-full transition-all active:scale-90 ${favorites.has(track.id) ? 'text-red-500 drop-shadow-[0_0_5px_rgba(239,68,68,0.3)]' : 'text-zinc-800 hover:text-zinc-400 opacity-40 group-hover:opacity-100'}`}
+                 >
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill={favorites.has(track.id) ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2.5">
+                        <path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"/>
+                    </svg>
+                 </button>
               </div>
             </div>
           ))}

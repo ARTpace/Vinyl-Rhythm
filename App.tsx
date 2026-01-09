@@ -244,23 +244,15 @@ const App: React.FC = () => {
   // 新增：移除文件夹及相关曲目的逻辑
   const handleRemoveFolder = async (id: string) => {
     if (confirm('确定要从库中移除此文件夹吗？(不会删除本地物理文件)')) {
-      // 1. 从 IndexedDB 中移除
       await removeLibraryFolder(id);
-      
-      // 2. 更新文件夹列表状态
       setImportedFolders(prev => prev.filter(f => f.id !== id));
-      
-      // 3. 移除关联的曲目，并重置播放状态（如果当前播放的歌被移除了）
       const trackToRemoveIds = tracks.filter(t => t.folderId === id).map(t => t.id);
       
       setTracks(prev => {
         const newTracks = prev.filter(t => t.folderId !== id);
-        
-        // 调整当前播放索引
         if (currentTrackIndex !== null) {
           const currentlyPlayingId = prev[currentTrackIndex].id;
           if (trackToRemoveIds.includes(currentlyPlayingId)) {
-            // 当前播放曲目被移除，停止播放或切换
             setIsPlaying(false);
             setCurrentTrackIndex(newTracks.length > 0 ? 0 : null);
           } else {
@@ -349,7 +341,7 @@ const App: React.FC = () => {
         isOpen={isImportWindowOpen} 
         onClose={() => setIsImportWindowOpen(false)} 
         onImport={handleInitialImport} 
-        onRemoveFolder={handleRemoveFolder} // 新增
+        onRemoveFolder={handleRemoveFolder} 
         importedFolders={importedFolders} 
       />
       
@@ -441,11 +433,17 @@ const App: React.FC = () => {
           progress={progress} duration={duration} volume={volume} onVolumeChange={(v) => { setVolume(v); if (audioRef.current) audioRef.current.volume = v; }}
           onSeek={(val) => audioRef.current && (audioRef.current.currentTime = val)}
           isFavorite={currentTrack ? favorites.has(currentTrack.id) : false} 
-          onToggleFavorite={() => currentTrack && setFavorites(prev => {
-            const n = new Set(prev); if (n.has(currentTrack.id)) n.delete(currentTrack.id); else n.add(currentTrack.id);
-            localStorage.setItem('vinyl_favorites', JSON.stringify(Array.from(n)));
-            return n;
-          })}
+          favorites={favorites}
+          onToggleFavorite={(id) => {
+            const targetId = id || currentTrack?.id;
+            if (!targetId) return;
+            setFavorites(prev => {
+              const n = new Set(prev);
+              if (n.has(targetId)) n.delete(targetId); else n.add(targetId);
+              localStorage.setItem('vinyl_favorites', JSON.stringify(Array.from(n)));
+              return n;
+            });
+          }}
           playbackMode={playbackMode} onTogglePlaybackMode={() => setPlaybackMode(p => p === 'normal' ? 'shuffle' : p === 'shuffle' ? 'loop' : 'normal')}
           onReorder={moveTrack}
           themeColor="#eab308" 
