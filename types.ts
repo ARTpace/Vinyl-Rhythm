@@ -26,6 +26,6 @@ export interface LibraryGroup {
   coverUrl?: string;
 }
 
-export type ViewType = 'all' | 'artists' | 'albums' | 'player' | 'favorites' | 'folders';
+export type ViewType = 'all' | 'artists' | 'albums' | 'player' | 'favorites' | 'folders' | 'artistProfile';
 
 export type PlaybackMode = 'normal' | 'shuffle' | 'loop';

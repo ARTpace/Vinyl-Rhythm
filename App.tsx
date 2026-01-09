@@ -1,8 +1,10 @@
+
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import Sidebar from './components/Sidebar';
 import MobileNav from './components/MobileNav';
 import ImportWindow from './components/ImportWindow';
 import LibraryView from './components/LibraryView';
+import ArtistProfile from './components/ArtistProfile';
 import PlayerControls from './components/PlayerControls';
 import VinylRecord, { ToneArm } from './components/VinylRecord';
 import SwipeableTrack from './components/SwipeableTrack';
@@ -15,6 +17,7 @@ import { normalizeChinese } from './utils/chineseConverter';
 
 const App: React.FC = () => {
   const [view, setView] = useState<ViewType>('player');
+  const [selectedArtist, setSelectedArtist] = useState<string | null>(null);
   const [tracks, setTracks] = useState<Track[]>([]);
   const [importedFolders, setImportedFolders] = useState<LibraryFolder[]>(() => {
     const saved = localStorage.getItem('vinyl_folders');
@@ -64,9 +67,14 @@ const App: React.FC = () => {
 
   const currentTrack = currentTrackIndex !== null ? tracks[currentTrackIndex] : null;
 
-  const handleNavigate = useCallback((type: 'artists' | 'albums' | 'folders', name: string) => {
-    setNavigationRequest({ type, name });
-    setView(type as ViewType);
+  const handleNavigate = useCallback((type: 'artists' | 'albums' | 'folders' | 'artistProfile', name: string) => {
+    if (type === 'artistProfile' || (type === 'artists' && name)) {
+      setSelectedArtist(name);
+      setView('artistProfile');
+    } else {
+      setNavigationRequest({ type: type as any, name });
+      setView(type as ViewType);
+    }
     setSearchQuery('');
   }, []);
 
@@ -406,6 +414,15 @@ const App: React.FC = () => {
     };
   }, []);
 
+  const handleToggleFavorite = (id: string) => {
+    setFavorites(prev => {
+      const n = new Set(prev);
+      if (n.has(id)) n.delete(id); else n.add(id);
+      localStorage.setItem('vinyl_favorites', JSON.stringify(Array.from(n)));
+      return n;
+    });
+  };
+
   return (
     <div className="flex h-screen overflow-hidden font-sans selection:bg-yellow-500/30">
       <input 
@@ -447,7 +464,7 @@ const App: React.FC = () => {
       />
       
       <div className="hidden md:flex flex-col h-full z-50">
-          <Sidebar activeView={view} onViewChange={(v) => { setView(v); setNavigationRequest(null); }} trackCount={tracks.length} />
+          <Sidebar activeView={view} onViewChange={(v) => { setView(v); setNavigationRequest(null); setSelectedArtist(null); }} trackCount={tracks.length} />
       </div>
 
       <main className="flex-1 flex flex-col relative pb-32 md:pb-28 bg-gradient-to-br from-[#1c1c1c] via-[#121212] to-[#0a0a0a]">
@@ -499,7 +516,7 @@ const App: React.FC = () => {
         </header>
 
         <div className="flex-1 relative overflow-hidden">
-            <div key={view} className="absolute inset-0 flex flex-col animate-in fade-in duration-700">
+            <div key={view + (selectedArtist || '')} className="absolute inset-0 flex flex-col animate-in fade-in duration-700">
                 {view === 'player' ? (
                   <div className="flex-1 flex flex-col items-center justify-center gap-6 md:gap-8 p-4 md:p-8 overflow-hidden">
                     <div className="text-center relative z-40 px-6 max-w-4xl min-h-[100px] flex flex-col justify-center animate-in slide-in-from-top-4 duration-1000">
@@ -508,7 +525,7 @@ const App: React.FC = () => {
                       </h2>
                       <div className="flex flex-wrap items-center justify-center gap-x-2.5 gap-y-1.5 opacity-60">
                         <button 
-                          onClick={() => handleNavigate('artists', currentTrack?.artist || '')} 
+                          onClick={() => handleNavigate('artistProfile', currentTrack?.artist || '')} 
                           className="text-zinc-400 font-bold uppercase tracking-[0.2em] text-[9px] md:text-[10px] hover:text-yellow-500 transition-colors"
                         >
                           {currentTrack?.artist || (tracks.length > 0 ? "等待开启旋律" : "享受纯净音质")}
@@ -547,16 +564,22 @@ const App: React.FC = () => {
                       {trackStory || (currentTrack ? "正在为您解读..." : (tracks.length > 0 ? "黑胶唱片已准备就绪。" : "开启一段黑胶之旅。"))}
                     </div>
                   </div>
+                ) : view === 'artistProfile' && selectedArtist ? (
+                  <ArtistProfile 
+                    artistName={selectedArtist}
+                    allTracks={tracks}
+                    onBack={() => setView('artists')}
+                    onPlayTrack={playTrack}
+                    onNavigateToAlbum={(album) => handleNavigate('albums', album)}
+                    favorites={favorites}
+                    onToggleFavorite={handleToggleFavorite}
+                  />
                 ) : (
                   <LibraryView 
                     view={view} tracks={filteredTracks} onPlay={playTrack} favorites={favorites} 
                     navigationRequest={navigationRequest} onNavigationProcessed={() => setNavigationRequest(null)}
                     onNavigate={handleNavigate} isSearching={searchQuery.length > 0}
-                    onToggleFavorite={(id) => setFavorites(prev => {
-                      const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id);
-                      localStorage.setItem('vinyl_favorites', JSON.stringify(Array.from(n)));
-                      return n;
-                    })}
+                    onToggleFavorite={handleToggleFavorite}
                   />
                 )}
             </div>
@@ -570,20 +593,11 @@ const App: React.FC = () => {
           onSeek={(val) => audioRef.current && (audioRef.current.currentTime = val)}
           isFavorite={currentTrack ? favorites.has(currentTrack.id) : false} 
           favorites={favorites} onNavigate={handleNavigate}
-          onToggleFavorite={(id) => {
-            const targetId = id || currentTrack?.id;
-            if (!targetId) return;
-            setFavorites(prev => {
-              const n = new Set(prev);
-              if (n.has(targetId)) n.delete(targetId); else n.add(targetId);
-              localStorage.setItem('vinyl_favorites', JSON.stringify(Array.from(n)));
-              return n;
-            });
-          }}
+          onToggleFavorite={(id) => handleToggleFavorite(id || currentTrack?.id || '')}
           playbackMode={playbackMode} onTogglePlaybackMode={() => setPlaybackMode(p => p === 'normal' ? 'shuffle' : p === 'shuffle' ? 'loop' : 'normal')}
           onReorder={moveTrack} themeColor="#eab308" 
         />
-        <MobileNav activeView={view} onViewChange={(v) => { setView(v); setNavigationRequest(null); }} trackCount={tracks.length} themeColor="#eab308" />
+        <MobileNav activeView={view} onViewChange={(v) => { setView(v); setNavigationRequest(null); setSelectedArtist(null); }} trackCount={tracks.length} themeColor="#eab308" />
       </main>
     </div>
   );
