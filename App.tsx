@@ -45,6 +45,10 @@ const App: React.FC = () => {
         getTrackStory(currentTrack.name, currentTrack.artist).then(story => {
           setTrackStory(story);
           setIsStoryLoading(false);
+          // 产生新故事后，触发文件夹本地文件的更新
+          if (currentTrack.folderId) {
+            library.persistFolderMetadataToDisk(currentTrack.folderId);
+          }
         });
       }, 1500);
       return () => clearTimeout(timer);
@@ -80,7 +84,6 @@ const App: React.FC = () => {
     try {
       const handle = await window.showDirectoryPicker();
       await saveLibraryFolder(handle.name, handle);
-      // 调用 library hook 中的私有扫描逻辑比较复杂，这里直接触发同步
       await library.syncAll();
       if (player.currentTrackIndex === null) player.setCurrentTrackIndex(0);
       setView('player');
@@ -88,19 +91,15 @@ const App: React.FC = () => {
     } catch (e) { console.warn(e); }
   };
 
-  // 歌曲排序逻辑
   const handleReorder = useCallback((draggedId: string, targetId: string | null) => {
     const prevTracks = [...library.tracks];
     const fromIndex = prevTracks.findIndex(t => t.id === draggedId);
     if (fromIndex === -1) return;
-    
     const [trackToMove] = prevTracks.splice(fromIndex, 1);
     const toIndex = targetId === null ? prevTracks.length : prevTracks.findIndex(t => t.id === targetId);
     prevTracks.splice(toIndex === -1 ? prevTracks.length : toIndex, 0, trackToMove);
-    
     const playingTrackId = currentTrack?.id;
     library.setTracks(prevTracks);
-    
     if (playingTrackId) {
       const newCurrentIndex = prevTracks.findIndex(t => t.id === playingTrackId);
       player.setCurrentTrackIndex(newCurrentIndex);

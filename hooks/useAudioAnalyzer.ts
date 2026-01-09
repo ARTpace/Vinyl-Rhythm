@@ -5,43 +5,51 @@ export const useAudioAnalyzer = (audioRef: React.RefObject<HTMLAudioElement | nu
   const [audioIntensity, setAudioIntensity] = useState(0);
   const audioContextRef = useRef<AudioContext | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
-  const sourceRef = useRef<MediaElementAudioSourceNode | null>(null);
+  const gainNodeRef = useRef<GainNode | null>(null);
   const animationFrameRef = useRef<number | null>(null);
 
   const initAnalyzer = useCallback(() => {
-    if (!audioRef.current) return;
+    if (!audioRef.current) return null;
     
-    // 如果已经初始化过，直接返回
     if (audioContextRef.current) return audioContextRef.current;
 
     try {
-      // 检查全局是否已有实例
       if ((window as any).audioContextInstance) {
         audioContextRef.current = (window as any).audioContextInstance;
         analyserRef.current = (window as any).analyserInstance;
+        gainNodeRef.current = (window as any).gainNodeInstance;
         return audioContextRef.current;
       }
 
       const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
       const ctx = new AudioContextClass();
+      
       const analyser = ctx.createAnalyser();
       analyser.fftSize = 256;
-      
-      // 关键：MediaElementSource 必须且只能创建一次
+
+      // 创建 GainNode
+      const gainNode = ctx.createGain();
+      // 初始化时设为 0，防止爆音，等待播放器控制淡入
+      gainNode.gain.setValueAtTime(0, ctx.currentTime);
+
       const source = ctx.createMediaElementSource(audioRef.current);
-      source.connect(analyser);
-      analyser.connect(ctx.destination);
       
-      // 存储到 Ref 和全局环境
+      // 链路: Source -> Analyser -> Gain -> Destination
+      source.connect(analyser);
+      analyser.connect(gainNode);
+      gainNode.connect(ctx.destination);
+      
       audioContextRef.current = ctx;
       analyserRef.current = analyser;
-      sourceRef.current = source;
+      gainNodeRef.current = gainNode;
+      
       (window as any).audioContextInstance = ctx;
       (window as any).analyserInstance = analyser;
+      (window as any).gainNodeInstance = gainNode;
       
       return ctx;
     } catch (e) {
-      console.warn("频谱分析器初始化失败:", e);
+      console.warn("音频系统初始化失败:", e);
       return null;
     }
   }, [audioRef]);

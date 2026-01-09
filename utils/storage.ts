@@ -1,57 +1,136 @@
 
 const DB_NAME = 'VinylRhythmDB';
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 const STORE_NAME = 'libraryHandles';
+const STORIES_STORE = 'trackStories';
+
+const METADATA_FILENAME = '.vinyl_rhythm.json';
 
 const initDB = async (): Promise<IDBDatabase> => {
+  if (navigator.storage && navigator.storage.persist) {
+    await navigator.storage.persist();
+  }
+
   return new Promise((resolve, reject) => {
     const request = indexedDB.open(DB_NAME, DB_VERSION);
-    
     request.onupgradeneeded = (event) => {
       const db = (event.target as IDBOpenDBRequest).result;
       if (!db.objectStoreNames.contains(STORE_NAME)) {
         db.createObjectStore(STORE_NAME, { keyPath: 'id' });
       }
+      if (!db.objectStoreNames.contains(STORIES_STORE)) {
+        const store = db.createObjectStore(STORIES_STORE, { keyPath: 'key' });
+        store.createIndex('artist', 'artist', { unique: false });
+      }
     };
-    
     request.onsuccess = () => resolve(request.result);
     request.onerror = () => reject(request.error);
   });
 };
 
-export const saveLibraryFolder = async (id: string, handle: FileSystemDirectoryHandle) => {
+/**
+ * 读取文件夹内的本地元数据文件
+ */
+export const readLocalFolderMetadata = async (dirHandle: FileSystemDirectoryHandle) => {
   try {
-    const db = await initDB();
-    const tx = db.transaction(STORE_NAME, 'readwrite');
-    await tx.objectStore(STORE_NAME).put({
-      id,
-      handle,
-      name: handle.name,
-      addedAt: Date.now()
-    });
+    const fileHandle = await dirHandle.getFileHandle(METADATA_FILENAME);
+    const file = await fileHandle.getFile();
+    const content = await file.text();
+    return JSON.parse(content);
   } catch (e) {
-    console.warn('无法保存文件夹句柄:', e);
+    return null; // 文件不存在或无法读取
   }
 };
 
-export const getAllLibraryFolders = async (): Promise<{id: string, handle: FileSystemDirectoryHandle, name: string}[]> => {
+/**
+ * 将元数据写入文件夹内的本地文件
+ */
+export const writeLocalFolderMetadata = async (dirHandle: FileSystemDirectoryHandle, metadata: any) => {
   try {
-    const db = await initDB();
-    const tx = db.transaction(STORE_NAME, 'readonly');
-    const store = tx.objectStore(STORE_NAME);
-    const request = store.getAll();
-    
-    return new Promise((resolve) => {
-      request.onsuccess = () => resolve(request.result || []);
-      request.onerror = () => resolve([]);
-    });
+    // 请求写入权限
+    const permission = await dirHandle.queryPermission({ mode: 'readwrite' });
+    if (permission !== 'granted') {
+      const request = await dirHandle.requestPermission({ mode: 'readwrite' });
+      if (request !== 'granted') return false;
+    }
+
+    const fileHandle = await dirHandle.getFileHandle(METADATA_FILENAME, { create: true });
+    const writable = await fileHandle.createWritable();
+    await writable.write(JSON.stringify(metadata, null, 2));
+    await writable.close();
+    return true;
   } catch (e) {
-    return [];
+    console.warn('无法写入本地元数据文件:', e);
+    return false;
   }
+};
+
+export const saveLibraryFolder = async (id: string, handle: FileSystemDirectoryHandle) => {
+  const db = await initDB();
+  const tx = db.transaction(STORE_NAME, 'readwrite');
+  await tx.objectStore(STORE_NAME).put({ id, handle, name: handle.name, addedAt: Date.now() });
+};
+
+export const getAllLibraryFolders = async (): Promise<{id: string, handle: FileSystemDirectoryHandle, name: string}[]> => {
+  const db = await initDB();
+  const tx = db.transaction(STORE_NAME, 'readonly');
+  const request = tx.objectStore(STORE_NAME).getAll();
+  return new Promise((resolve) => {
+    request.onsuccess = () => resolve(request.result || []);
+    request.onerror = () => resolve([]);
+  });
 };
 
 export const removeLibraryFolder = async (id: string) => {
   const db = await initDB();
   const tx = db.transaction(STORE_NAME, 'readwrite');
   tx.objectStore(STORE_NAME).delete(id);
+};
+
+export const getStoredStory = async (artist: string, trackName: string): Promise<string | null> => {
+  const db = await initDB();
+  const key = `${artist}-${trackName}`;
+  const tx = db.transaction(STORIES_STORE, 'readonly');
+  const request = tx.objectStore(STORIES_STORE).get(key);
+  return new Promise((resolve) => {
+    request.onsuccess = () => resolve(request.result?.story || null);
+    request.onerror = () => resolve(null);
+  });
+};
+
+export const saveStoryToStore = async (artist: string, trackName: string, story: string) => {
+  const db = await initDB();
+  const key = `${artist}-${trackName}`;
+  const tx = db.transaction(STORIES_STORE, 'readwrite');
+  await tx.objectStore(STORIES_STORE).put({ key, artist, trackName, story, savedAt: Date.now() });
+};
+
+export const exportDatabase = async () => {
+  const db = await initDB();
+  const txStories = db.transaction(STORIES_STORE, 'readonly');
+  const stories = await new Promise<any[]>(resolve => {
+    txStories.objectStore(STORIES_STORE).getAll().onsuccess = (e: any) => resolve(e.target.result);
+  });
+  const data = { version: DB_VERSION, exportDate: Date.now(), stories, favorites: JSON.parse(localStorage.getItem('vinyl_favorites') || '[]') };
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `VinylRhythm_Backup_${new Date().toISOString().split('T')[0]}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+};
+
+export const importDatabase = async (jsonString: string) => {
+  try {
+    const data = JSON.parse(jsonString);
+    const db = await initDB();
+    if (data.stories && Array.isArray(data.stories)) {
+      const tx = db.transaction(STORIES_STORE, 'readwrite');
+      const store = tx.objectStore(STORIES_STORE);
+      for (const item of data.stories) store.put(item);
+    }
+    if (data.favorites) localStorage.setItem('vinyl_favorites', JSON.stringify(data.favorites));
+    return true;
+  } catch (e) { return false; }
 };
