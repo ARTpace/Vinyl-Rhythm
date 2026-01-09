@@ -433,23 +433,26 @@ const App: React.FC = () => {
         <div className="flex-1 relative overflow-hidden">
             <div key={view} className="absolute inset-0 flex flex-col animate-in fade-in duration-700">
                 {view === 'player' ? (
-                  <div className="flex-1 flex flex-col items-center justify-center gap-6 md:gap-10 p-4 md:p-8">
-                    {/* 优化标题区域：移除 truncate，增加换行支持与艺术字样式 */}
-                    <div className="text-center relative z-40 px-4 max-w-3xl min-h-[120px] flex flex-col justify-center">
-                      <h2 className="text-3xl md:text-5xl lg:text-6xl font-black mb-4 leading-[1.1] md:leading-tight tracking-tighter text-transparent bg-clip-text bg-gradient-to-b from-white via-white to-zinc-500 drop-shadow-[0_10px_10px_rgba(0,0,0,0.5)] [text-wrap:balance] line-clamp-2">
+                  <div className="flex-1 flex flex-col items-center justify-center gap-6 md:gap-8 p-4 md:p-8 overflow-hidden">
+                    <div className="text-center relative z-40 px-6 max-w-4xl min-h-[100px] flex flex-col justify-center animate-in slide-in-from-top-4 duration-1000">
+                      <h2 className="text-xl md:text-3xl lg:text-4xl font-bold mb-3 leading-tight tracking-tight text-transparent bg-clip-text bg-gradient-to-b from-white to-zinc-400 drop-shadow-sm [text-wrap:balance] line-clamp-3 break-words">
                         {currentTrack?.name || (tracks.length > 0 ? "准备播放" : "黑胶时光")}
                       </h2>
-                      <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-2 opacity-80">
+                      <div className="flex flex-wrap items-center justify-center gap-x-2.5 gap-y-1.5 opacity-60">
                         <button 
                           onClick={() => { setNavigationRequest({ type: 'artists', name: currentTrack?.artist || '' }); setView('artists'); }} 
-                          className="text-zinc-400 font-black uppercase tracking-[0.25em] text-[10px] md:text-xs hover:text-yellow-500 transition-colors"
+                          className="text-zinc-400 font-bold uppercase tracking-[0.2em] text-[9px] md:text-[10px] hover:text-yellow-500 transition-colors"
                         >
                           {currentTrack?.artist || (tracks.length > 0 ? "等待开启旋律" : "享受纯净音质")}
                         </button>
-                        {(currentTrack?.album || tracks.length > 0) && <span className="w-1.5 h-1.5 bg-zinc-800 rounded-full" />}
-                        <span className="text-zinc-500 font-black uppercase tracking-[0.15em] text-[10px] md:text-xs truncate max-w-[280px]">
+                        {(currentTrack?.album || tracks.length > 0) && <span className="w-1 h-1 bg-zinc-700 rounded-full" />}
+                        {/* 优化：专辑名现在也是一个按钮，点击可跳转 */}
+                        <button 
+                          onClick={() => { setNavigationRequest({ type: 'albums', name: currentTrack?.album || '' }); setView('albums'); }}
+                          className="text-zinc-500 font-bold uppercase tracking-[0.1em] text-[9px] md:text-[10px] truncate max-w-[200px] hover:text-yellow-500 transition-colors"
+                        >
                           {currentTrack?.album || (tracks.length > 0 ? "选一支喜欢的歌吧" : "请先添加音乐文件夹")}
-                        </span>
+                        </button>
                       </div>
                     </div>
                     
@@ -470,18 +473,18 @@ const App: React.FC = () => {
                         </div>
 
                         {currentTrack?.bitrate && (
-                          <div className="mt-8 px-5 py-2 rounded-full bg-white/5 border border-white/5 backdrop-blur-md flex items-center gap-3 animate-in fade-in slide-in-from-bottom-2 duration-1000">
-                            <div className={`w-1.5 h-1.5 rounded-full shadow-[0_0_8px_rgba(34,197,94,0.5)] ${isPlaying ? 'bg-green-500 animate-pulse' : 'bg-zinc-600'}`} />
-                            <div className="flex items-center gap-2 font-mono text-[10px] font-black uppercase tracking-widest text-zinc-500">
-                               <span className="text-zinc-300">{Math.round(currentTrack.bitrate / 1000)} KBPS</span>
+                          <div className="mt-8 px-4 py-1.5 rounded-full bg-white/5 border border-white/5 backdrop-blur-md flex items-center gap-3 animate-in fade-in slide-in-from-bottom-2 duration-1000">
+                            <div className={`w-1.5 h-1.5 rounded-full shadow-[0_0_8px_rgba(34,197,94,0.3)] ${isPlaying ? 'bg-green-500 animate-pulse' : 'bg-zinc-600'}`} />
+                            <div className="flex items-center gap-2 font-mono text-[9px] font-bold uppercase tracking-widest text-zinc-500">
+                               <span className="text-zinc-400">{Math.round(currentTrack.bitrate / 1000)} KBPS</span>
                                <span className="opacity-30">/</span>
-                               <span className="text-zinc-500">{currentTrack.name.toLowerCase().endsWith('.flac') ? 'Lossless' : 'Hifi Audio'}</span>
+                               <span className="text-zinc-600">{currentTrack.name.toLowerCase().endsWith('.flac') ? 'Lossless' : 'Hifi Audio'}</span>
                             </div>
                           </div>
                         )}
                     </div>
                     
-                    <div className={`max-w-xs md:max-w-2xl text-center px-4 italic text-zinc-500 text-sm md:text-lg transition-opacity duration-1000 ${isStoryLoading ? 'opacity-20' : 'opacity-100'}`}>
+                    <div className={`max-w-xs md:max-w-2xl text-center px-4 italic text-zinc-500 text-sm md:text-base transition-opacity duration-1000 leading-relaxed ${isStoryLoading ? 'opacity-20' : 'opacity-100'}`}>
                       {trackStory || (currentTrack ? "正在为您解读..." : (tracks.length > 0 ? "黑胶唱片已准备就绪。" : "开启一段黑胶之旅。"))}
                     </div>
                   </div>
