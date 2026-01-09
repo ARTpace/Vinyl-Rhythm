@@ -208,6 +208,62 @@ const App: React.FC = () => {
     return foundFiles;
   };
 
+  const processFiles = async (files: File[], folderId: string) => {
+    setIsImporting(true);
+    let localBatch: Track[] = [];
+    const BATCH_SIZE = 50;
+    
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      setImportProgress(Math.round(((i + 1) / files.length) * 100));
+      setCurrentProcessingFile(`导入 (${i+1}/${files.length}): ${file.name}`);
+      
+      try {
+        const track = await parseFileToTrack(file);
+        track.folderId = folderId;
+        localBatch.push(track);
+        
+        if (localBatch.length >= BATCH_SIZE) {
+          const currentBatch = [...localBatch];
+          setTracks(prev => [...prev, ...currentBatch]);
+          localBatch = [];
+        }
+      } catch (e) { console.warn(e); }
+      
+      if (i % 10 === 0) await new Promise(r => setTimeout(r, 0));
+    }
+
+    if (localBatch.length > 0) {
+      setTracks(prev => [...prev, ...localBatch]);
+    }
+    setIsImporting(false);
+    setImportProgress(0);
+  };
+
+  const handleManualFilesSelect = async (fileList: FileList) => {
+    const files = Array.from(fileList).filter(f => 
+      SUPPORTED_FORMATS.some(ext => f.name.toLowerCase().endsWith(ext))
+    );
+    
+    if (files.length === 0) {
+      alert("选中的文件夹中没有支持的音频文件。");
+      return;
+    }
+
+    const folderId = "manual_" + Date.now();
+    await processFiles(files, folderId);
+    
+    setImportedFolders(prev => [...prev, { 
+      id: folderId, 
+      name: "本地导入 (兼容模式)", 
+      lastSync: Date.now(), 
+      trackCount: files.length 
+    }]);
+    
+    setView('all');
+    setIsImportWindowOpen(false);
+  };
+
   const handleSyncAll = async (isSilent: boolean = false) => {
     if (isImporting) return;
     const savedFolders = await getAllLibraryFolders();
@@ -223,6 +279,9 @@ const App: React.FC = () => {
 
     for (const folder of savedFolders) {
       try {
+        // 如果是兼容模式导入的，跳过自动同步
+        if (folder.id.startsWith('manual_')) continue;
+
         let permission = await folder.handle.queryPermission({ mode: 'read' });
         if (permission !== 'granted' && isSilent) continue;
         if (permission !== 'granted') {
@@ -285,49 +344,32 @@ const App: React.FC = () => {
   const handleInitialImport = async () => {
     try {
       if ('showDirectoryPicker' in window) {
-        const handle = await window.showDirectoryPicker();
+        const handle = await window.showDirectoryPicker().catch(err => {
+          // 如果是因为框架限制导致的错误，抛出特定的标记
+          if (err.name === 'SecurityError' || err.message.includes('sub frames')) {
+            throw new Error('FRAME_RESTRICTION');
+          }
+          throw err;
+        });
+
         const folderId = handle.name;
         await saveLibraryFolder(folderId, handle);
-        setIsImporting(true);
         const files = await scanDirectory(handle);
-        
-        let localBatch: Track[] = [];
-        const BATCH_SIZE = 50;
-        
-        for (let i = 0; i < files.length; i++) {
-          const file = files[i];
-          setImportProgress(Math.round(((i + 1) / files.length) * 100));
-          setCurrentProcessingFile(`导入 (${i+1}/${files.length}): ${file.name}`);
-          
-          try {
-            const track = await parseFileToTrack(file);
-            track.folderId = folderId;
-            localBatch.push(track);
-            
-            if (localBatch.length >= BATCH_SIZE) {
-              setTracks(prev => [...prev, ...localBatch]);
-              localBatch = [];
-            }
-          } catch (e) { console.warn(e); }
-          
-          if (i % 10 === 0) await new Promise(r => setTimeout(r, 0));
-        }
-
-        if (localBatch.length > 0) {
-          setTracks(prev => [...prev, ...localBatch]);
-        }
+        await processFiles(files, folderId);
 
         setImportedFolders(prev => [...prev, { id: folderId, name: handle.name, lastSync: Date.now(), trackCount: files.length }]);
         setView('player');
         setIsImportWindowOpen(false);
         setIsPlaying(true);
-        setIsImporting(false);
-        setImportProgress(0);
       } else {
-        alert("您的浏览器不支持文件夹选择，请使用最新版的 Chrome 或 Edge 浏览器。");
+        throw new Error('NOT_SUPPORTED');
       }
-    } catch (e) {
-      console.warn("导入已取消或失败", e);
+    } catch (e: any) {
+      if (e.message === 'FRAME_RESTRICTION') {
+        alert("检测到当前处于受限的框架环境（如预览窗口），无法直接访问文件夹。请使用下方的“传统兼容模式”进行导入。");
+      } else if (e.name !== 'AbortError') {
+        console.warn("导入失败", e);
+      }
       setIsImporting(false);
     }
   };
@@ -431,6 +473,7 @@ const App: React.FC = () => {
       <ImportWindow 
         isOpen={isImportWindowOpen} onClose={() => setIsImportWindowOpen(false)} 
         onImport={handleInitialImport} 
+        onManualFilesSelect={handleManualFilesSelect}
         onRemoveFolder={handleRemoveFolder} importedFolders={importedFolders} 
       />
       

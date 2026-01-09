@@ -1,5 +1,5 @@
 
-import React from 'react';
+import React, { useRef } from 'react';
 import { LibraryFolder } from '../types';
 
 interface ImportWindowProps {
@@ -8,15 +8,48 @@ interface ImportWindowProps {
   onImport: () => void;
   onRemoveFolder: (id: string) => void;
   importedFolders: LibraryFolder[];
+  onManualFilesSelect?: (files: FileList) => void;
 }
 
-const ImportWindow: React.FC<ImportWindowProps> = ({ isOpen, onClose, onImport, onRemoveFolder, importedFolders }) => {
+const ImportWindow: React.FC<ImportWindowProps> = ({ 
+  isOpen, 
+  onClose, 
+  onImport, 
+  onRemoveFolder, 
+  importedFolders,
+  onManualFilesSelect
+}) => {
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
   if (!isOpen) return null;
+
+  const handleManualClick = () => {
+    if (fileInputRef.current) {
+      fileInputRef.current.click();
+    }
+  };
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && onManualFilesSelect) {
+      onManualFilesSelect(e.target.files);
+    }
+  };
 
   return (
     <div className="fixed inset-0 bg-black/80 backdrop-blur-md flex items-center justify-center z-[100] animate-in fade-in duration-300">
       <div className="bg-[#181818] border border-white/10 rounded-[2.5rem] p-8 w-[32rem] shadow-2xl relative overflow-hidden">
-        {/* 背景装饰 */}
+        {/* 隐藏的传统文件输入框 */}
+        <input 
+          type="file" 
+          ref={fileInputRef} 
+          style={{ display: 'none' }} 
+          onChange={handleFileChange}
+          // @ts-ignore
+          webkitdirectory="true" 
+          directory="true" 
+          multiple 
+        />
+        
         <div className="absolute top-0 right-0 -translate-y-1/2 translate-x-1/2 w-64 h-64 bg-yellow-500/5 rounded-full blur-3xl" />
         
         <div className="flex justify-between items-center mb-8 relative z-10">
@@ -74,8 +107,16 @@ const ImportWindow: React.FC<ImportWindowProps> = ({ isOpen, onClose, onImport, 
               添加文件夹 (智能同步)
             </button>
             
+            <button
+              onClick={handleManualClick}
+              className="w-full bg-white/5 hover:bg-white/10 text-zinc-300 py-3 rounded-full font-bold text-xs active:scale-95 transition-all flex items-center justify-center gap-2"
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
+              传统兼容模式 (如果上方失败)
+            </button>
+            
             <p className="text-center px-4 text-[9px] text-zinc-600 font-bold leading-relaxed uppercase tracking-widest">
-              请选择包含音频文件的文件夹。播放器将自动扫描子目录并建立索引。
+              由于部分环境安全策略，“智能同步”可能被禁用，此时请使用“兼容模式”。
             </p>
           </div>
         </div>
