@@ -2,6 +2,7 @@
 import React, { useMemo, useState, useEffect, useCallback, useRef } from 'react';
 import { Track, ViewType } from '../types';
 import { formatTime } from '../utils/audioParser';
+import { scrapeTrackMetadata } from '../services/geminiService';
 
 interface LibraryViewProps {
   view: ViewType;
@@ -9,21 +10,24 @@ interface LibraryViewProps {
   onPlay: (track: Track) => void;
   favorites: Set<string>;
   onToggleFavorite: (trackId: string) => void;
-  onNavigate?: (type: 'artists' | 'albums' | 'folders', name: string) => void;
+  onUpdateTrack?: (trackId: string, updates: Partial<Track>) => void;
+  onNavigate?: (type: 'artists' | 'albums' | 'folders' | 'artistProfile', name: string) => void;
+  onBack?: () => void;
   navigationRequest?: { type: 'artists' | 'albums' | 'folders', name: string } | null;
   onNavigationProcessed?: () => void;
   isSearching?: boolean;
 }
 
-// 使用 React.memo 优化单行曲目的渲染性能
 const TrackRow = React.memo<{
   track: Track;
   index: number;
   isFavorite: boolean;
   onPlay: (track: Track) => void;
   onToggleFavorite: (id: string) => void;
-  onNavigate?: (type: 'artists' | 'albums' | 'folders', name: string) => void;
-}>(({ track, index, isFavorite, onPlay, onToggleFavorite, onNavigate }) => {
+  onScrape: (track: Track) => void;
+  isScraping: boolean;
+  onNavigate?: (type: 'artists' | 'albums' | 'folders' | 'artistProfile', name: string) => void;
+}>(({ track, index, isFavorite, onPlay, onToggleFavorite, onScrape, isScraping, onNavigate }) => {
   return (
     <div 
       className="group flex items-center gap-4 p-3 md:p-4 hover:bg-white/5 transition-all cursor-pointer border-b border-white/[0.03] last:border-0"
@@ -34,21 +38,39 @@ const TrackRow = React.memo<{
           {track.coverUrl ? (
             <img src={track.coverUrl} className="w-full h-full object-cover" loading="lazy" />
           ) : (
-            <div className="w-full h-full flex items-center justify-center text-zinc-600"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/></svg></div>
+            <div className="w-full h-full flex items-center justify-center text-zinc-600">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/></svg>
+            </div>
           )}
           <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
               <svg width="20" height="20" viewBox="0 0 24 24" fill="white"><path d="M5 3l14 9-14 9V3z"/></svg>
           </div>
         </div>
         <div className="flex-1 min-w-0">
-          <div className="text-white font-black truncate text-sm md:text-base tracking-tight">{track.name}</div>
+          <div className="text-white font-black truncate text-sm md:text-base tracking-tight flex items-center gap-2">
+            {track.name}
+            {track.duration === 0 && <span className="text-[8px] bg-red-500/20 text-red-500 px-1 rounded uppercase">Corrupted</span>}
+          </div>
           <button 
-            onClick={(e) => { e.stopPropagation(); onNavigate?.('artists', track.artist); }}
+            onClick={(e) => { e.stopPropagation(); onNavigate?.('artistProfile', track.artist); }}
             className="text-zinc-500 text-[9px] md:text-xs font-bold uppercase tracking-widest mt-0.5 hover:text-yellow-500 transition-colors"
           >
             {track.artist}
           </button>
         </div>
+        
+        {/* 智能刮削按钮 */}
+        <button 
+          onClick={(e) => { e.stopPropagation(); onScrape(track); }}
+          title="AI 智能刮削信息"
+          className={`hidden md:flex p-2 rounded-full transition-all hover:bg-white/10 ${isScraping ? 'animate-spin text-yellow-500' : 'text-zinc-700 hover:text-yellow-500 opacity-0 group-hover:opacity-100'}`}
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"/>
+            <path d="M5 3v4"/><path d="M19 17v4"/><path d="M3 5h4"/><path d="M17 19h4"/>
+          </svg>
+        </button>
+
         <button 
           onClick={(e) => { e.stopPropagation(); onNavigate?.('albums', track.album); }}
           className="hidden lg:block text-zinc-600 text-[10px] font-black uppercase tracking-widest max-w-[150px] truncate hover:text-yellow-500 transition-colors"
@@ -67,14 +89,32 @@ const TrackRow = React.memo<{
 });
 
 const LibraryView: React.FC<LibraryViewProps> = ({ 
-  view, tracks, onPlay, favorites, onToggleFavorite, onNavigate,
+  view, tracks, onPlay, favorites, onToggleFavorite, onUpdateTrack, onNavigate, onBack,
   navigationRequest, onNavigationProcessed, isSearching = false
 }) => {
   const [activeGroup, setActiveGroup] = useState<string | null>(null);
   const [displayLimit, setDisplayLimit] = useState(100);
+  const [scrapingId, setScrapingId] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   
-  // 视图切换时重置加载上限
+  const handleScrape = async (track: Track) => {
+    if (scrapingId) return;
+    setScrapingId(track.id);
+    try {
+      const newData = await scrapeTrackMetadata(track.name, track.artist, track.album);
+      if (newData && onUpdateTrack) {
+        onUpdateTrack(track.id, {
+          name: newData.title,
+          artist: newData.artist,
+          album: newData.album
+        });
+        // 可以在这里弹出提示或故事更新
+      }
+    } finally {
+      setScrapingId(null);
+    }
+  };
+
   useEffect(() => {
     setDisplayLimit(100);
     if (scrollRef.current) scrollRef.current.scrollTop = 0;
@@ -112,60 +152,18 @@ const LibraryView: React.FC<LibraryViewProps> = ({
     return [];
   }, [tracks, view, favorites, activeGroup, groups, isSearching]);
 
-  // 渲染的分片，用于优化长列表性能
   const visibleTracks = useMemo(() => {
     return filteredTracks.slice(0, displayLimit);
   }, [filteredTracks, displayLimit]);
 
   const handleScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
     const target = e.currentTarget;
-    // 如果滚动到底部 100px 范围内，加载更多
     if (target.scrollHeight - target.scrollTop <= target.clientHeight + 100) {
       if (displayLimit < filteredTracks.length) {
         setDisplayLimit(prev => Math.min(prev + 100, filteredTracks.length));
       }
     }
   }, [displayLimit, filteredTracks.length]);
-
-  const renderAlbumSleeve = (name: string, groupTracks: Track[]) => {
-    const coverUrl = groupTracks[0]?.coverUrl;
-    return (
-      <div 
-        key={name}
-        onClick={() => setActiveGroup(name)}
-        className="group relative cursor-pointer perspective-1000 z-10 hover:z-20"
-      >
-        <div className="absolute inset-0 bg-black/40 translate-x-1 translate-y-1 rounded-[3px] blur-[2px] opacity-0 group-hover:opacity-100 transition-all duration-500"></div>
-        <div className="absolute inset-0 bg-[#0a0a0a] translate-x-[2px] translate-y-[2px] rounded-[3px] border border-white/5 opacity-0 group-hover:opacity-100 transition-all duration-500 delay-75"></div>
-
-        <div className="relative z-10 aspect-square bg-[#1a1a1a] rounded-[3px] shadow-[0_4px_12px_rgba(0,0,0,0.5)] transition-all duration-500 ease-[cubic-bezier(0.34,1.56,0.64,1)] group-hover:-translate-y-2 group-hover:rotate-x-6 group-hover:rotate-y-[-6deg] group-hover:shadow-[20px_25px_50px_rgba(0,0,0,0.8)] overflow-hidden border border-white/10">
-          {coverUrl ? (
-            <img src={coverUrl} className="w-full h-full object-cover select-none" alt={name} loading="lazy" />
-          ) : (
-            <div className="w-full h-full flex items-center justify-center bg-zinc-800 text-zinc-600 font-black text-3xl">
-              {name[0]?.toUpperCase()}
-            </div>
-          )}
-          <div className="absolute top-0 right-0 w-[4px] h-full bg-gradient-to-l from-black/60 to-transparent pointer-events-none"></div>
-          <div className="absolute bottom-0 left-0 right-0 p-3 bg-gradient-to-t from-black/90 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500">
-             <div className="flex items-center justify-between text-white/80">
-                <span className="text-[7px] font-black uppercase tracking-[0.2em]">Collector's Edition</span>
-                <span className="text-[8px] font-mono">{groupTracks.length} Pcs</span>
-             </div>
-          </div>
-        </div>
-
-        <div className="mt-3 px-0.5 relative z-20">
-          <h3 className="text-zinc-200 font-bold text-[11px] leading-tight truncate group-hover:text-yellow-500 transition-colors">
-            {name === 'undefined' ? '未知专辑' : name}
-          </h3>
-          <p className="text-zinc-600 text-[9px] font-black uppercase tracking-tight mt-1 truncate">
-            {groupTracks[0]?.artist}
-          </p>
-        </div>
-      </div>
-    );
-  };
 
   if (groups && !activeGroup) {
     const isAlbumView = view === 'albums';
@@ -189,21 +187,41 @@ const LibraryView: React.FC<LibraryViewProps> = ({
           ? 'grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-7 2xl:grid-cols-9' 
           : 'grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-7 xl:grid-cols-9'}`}>
           {groups.map(([name, groupTracks]) => (
-            isAlbumView ? renderAlbumSleeve(name, groupTracks) : (
+            isAlbumView ? (
               <div 
                 key={name}
                 onClick={() => setActiveGroup(name)}
+                className="group relative cursor-pointer perspective-1000 z-10 hover:z-20"
+              >
+                <div className="relative z-10 aspect-square bg-[#1a1a1a] rounded-[3px] shadow-[0_4px_12px_rgba(0,0,0,0.5)] transition-all duration-500 overflow-hidden border border-white/10 group-hover:-translate-y-2">
+                  {groupTracks[0]?.coverUrl ? (
+                    <img src={groupTracks[0].coverUrl} className="w-full h-full object-cover" loading="lazy" />
+                  ) : (
+                    <div className="w-full h-full flex items-center justify-center bg-zinc-800 text-zinc-600 font-black text-3xl">{name[0]}</div>
+                  )}
+                </div>
+                <div className="mt-3">
+                  <h3 className="text-zinc-200 font-bold text-[11px] leading-tight truncate group-hover:text-yellow-500 transition-colors">{name === 'undefined' ? '未知专辑' : name}</h3>
+                  <p className="text-zinc-600 text-[9px] font-black uppercase tracking-tight mt-1 truncate">{groupTracks[0]?.artist}</p>
+                </div>
+              </div>
+            ) : (
+              <div 
+                key={name}
+                onClick={() => {
+                  if (view === 'artists') onNavigate?.('artistProfile', name);
+                  else setActiveGroup(name);
+                }}
                 className="group flex flex-col items-center gap-3 cursor-pointer"
               >
                 <div className="relative w-full aspect-square">
-                   <div className="absolute inset-0 rounded-full bg-zinc-900 border border-zinc-800 shadow-xl overflow-hidden group-hover:scale-110 group-hover:border-yellow-500/50 group-hover:shadow-[0_0_30px_rgba(234,179,8,0.15)] transition-all duration-500">
+                   <div className="absolute inset-0 rounded-full bg-zinc-900 border border-zinc-800 shadow-xl overflow-hidden group-hover:scale-110 transition-all duration-500">
                       {groupTracks[0]?.coverUrl ? (
-                        <img src={groupTracks[0].coverUrl} className="w-full h-full object-cover opacity-70 group-hover:opacity-100 transition-opacity" />
+                        <img src={groupTracks[0].coverUrl} className="w-full h-full object-cover opacity-70 group-hover:opacity-100" />
                       ) : (
-                        <div className="w-full h-full flex items-center justify-center text-zinc-700 text-2xl font-black">{name[0]?.toUpperCase()}</div>
+                        <div className="w-full h-full flex items-center justify-center text-zinc-700 text-2xl font-black">{name[0]}</div>
                       )}
                    </div>
-                   <div className="absolute bottom-0 right-0 w-6 h-6 bg-black rounded-full flex items-center justify-center text-[8px] font-bold text-yellow-500 border border-white/10 shadow-xl z-10">{groupTracks.length}</div>
                 </div>
                 <h3 className="text-zinc-400 font-bold text-[10px] text-center truncate w-full group-hover:text-yellow-500 transition-colors uppercase tracking-wider">{name === 'undefined' ? '未知' : name}</h3>
               </div>
@@ -218,7 +236,7 @@ const LibraryView: React.FC<LibraryViewProps> = ({
     <div className="flex flex-col h-full bg-[#111111]/30">
       <div className="p-4 md:p-8 pb-4 shrink-0 flex items-center gap-6">
          {activeGroup && (
-           <button onClick={() => setActiveGroup(null)} className="w-10 h-10 flex items-center justify-center rounded-xl bg-white/5 hover:bg-yellow-500 hover:text-black text-white transition-all active:scale-90 shadow-lg">
+           <button onClick={() => { setActiveGroup(null); onBack?.(); }} className="w-10 h-10 flex items-center justify-center rounded-xl bg-white/5 hover:bg-yellow-500 hover:text-black text-white transition-all active:scale-90">
              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
            </button>
          )}
@@ -245,26 +263,12 @@ const LibraryView: React.FC<LibraryViewProps> = ({
                 index={i} 
                 isFavorite={favorites.has(track.id)} 
                 onPlay={onPlay} 
-                onToggleFavorite={onToggleFavorite} 
+                onToggleFavorite={onToggleFavorite}
+                onScrape={handleScrape}
+                isScraping={scrapingId === track.id}
                 onNavigate={onNavigate} 
               />
             ))}
-            
-            {visibleTracks.length < filteredTracks.length && (
-              <div className="p-8 text-center text-zinc-600 font-black text-[10px] uppercase tracking-[0.5em] animate-pulse">
-                Loading more tracks...
-              </div>
-            )}
-
-            {filteredTracks.length === 0 && (
-              <div className="py-32 text-center animate-in fade-in zoom-in duration-500">
-                <div className="w-20 h-20 bg-white/5 rounded-full flex items-center justify-center mx-auto mb-6 relative">
-                    <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#333" strokeWidth="2.5" className="opacity-40"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
-                    <div className="absolute -top-1 -right-1 w-6 h-6 bg-yellow-500 rounded-full flex items-center justify-center text-black font-black text-xs shadow-lg">?</div>
-                </div>
-                <h3 className="text-white font-black text-lg uppercase tracking-widest mb-2">No Matches Found</h3>
-              </div>
-            )}
          </div>
       </div>
     </div>

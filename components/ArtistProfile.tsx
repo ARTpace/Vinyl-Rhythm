@@ -31,8 +31,9 @@ const ArtistProfile: React.FC<ArtistProfileProps> = ({
   const albums = useMemo(() => {
     const map = new Map<string, Track[]>();
     artistTracks.forEach(t => {
-      if (!map.has(t.album)) map.set(t.album, []);
-      map.get(t.album)!.push(t);
+      const albumKey = t.album || '未知专辑';
+      if (!map.has(albumKey)) map.set(albumKey, []);
+      map.get(albumKey)!.push(t);
     });
     return Array.from(map.entries());
   }, [artistTracks]);
@@ -52,13 +53,13 @@ const ArtistProfile: React.FC<ArtistProfileProps> = ({
   return (
     <div className="flex flex-col h-full bg-[#0a0a0a] overflow-y-auto custom-scrollbar animate-in fade-in slide-in-from-bottom-4 duration-700">
       {/* 沉浸式 Hero Section */}
-      <div className="relative h-[40vh] md:h-[50vh] flex-shrink-0 flex items-end p-6 md:p-12 overflow-hidden">
-        {/* 背景大图 - 封面模糊处理 */}
+      <div className="relative min-h-[50vh] md:min-h-[60vh] flex-shrink-0 flex items-end p-6 md:p-12 pb-10 md:pb-16 overflow-hidden">
+        {/* 背景大图 - 封面极度模糊处理 */}
         <div className="absolute inset-0 z-0">
           {heroCover ? (
             <>
-              <img src={heroCover} className="w-full h-full object-cover scale-110 blur-3xl opacity-40" alt="" />
-              <div className="absolute inset-0 bg-gradient-to-t from-[#0a0a0a] via-transparent to-black/20" />
+              <img src={heroCover} className="w-full h-full object-cover scale-125 blur-[100px] opacity-30" alt="" />
+              <div className="absolute inset-0 bg-gradient-to-t from-[#0a0a0a] via-[#0a0a0a]/40 to-black/20" />
             </>
           ) : (
             <div className="w-full h-full bg-gradient-to-br from-zinc-800 to-[#0a0a0a]" />
@@ -73,76 +74,77 @@ const ArtistProfile: React.FC<ArtistProfileProps> = ({
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
         </button>
 
-        {/* 歌手信息展示 */}
-        <div className="relative z-10 flex flex-col md:flex-row items-center md:items-end gap-6 md:gap-10 w-full">
+        {/* 歌手信息展示核心区域 */}
+        <div className="relative z-10 flex flex-col md:flex-row items-center md:items-start gap-8 md:gap-12 w-full max-w-7xl mx-auto">
           {/* 封面堆叠艺术 */}
-          <div className="relative w-40 h-40 md:w-56 md:h-56 shrink-0 group">
+          <div className="relative w-48 h-48 md:w-64 md:h-64 shrink-0 mt-8 md:mt-0">
              {albums.slice(0, 3).map(([name, tracks], i) => (
                <div 
                 key={name}
-                className="absolute inset-0 rounded-2xl shadow-2xl border border-white/10 overflow-hidden transition-all duration-500"
+                className="absolute inset-0 rounded-[2.5rem] shadow-2xl border border-white/10 overflow-hidden transition-all duration-700"
                 style={{ 
-                  transform: `translate(${i * 12}px, -${i * 12}px) rotate(${i * 2}deg)`,
+                  transform: `translate(${i * 16}px, -${i * 16}px) rotate(${i * 3}deg)`,
                   zIndex: 10 - i,
-                  opacity: 1 - (i * 0.2)
+                  opacity: 1 - (i * 0.25)
                 }}
                >
                  {tracks[0].coverUrl ? (
                    <img src={tracks[0].coverUrl} className="w-full h-full object-cover" alt="" />
                  ) : (
-                   <div className="w-full h-full bg-zinc-800 flex items-center justify-center text-zinc-600 font-black text-4xl">{artistName[0]}</div>
+                   <div className="w-full h-full bg-zinc-800 flex items-center justify-center text-zinc-600 font-black text-5xl">{artistName[0]}</div>
                  )}
                </div>
              ))}
           </div>
 
-          <div className="flex-1 text-center md:text-left pb-2">
-            <div className="flex items-center justify-center md:justify-start gap-3 mb-2">
-               <span className="px-2 py-0.5 rounded bg-yellow-500 text-black text-[10px] font-black uppercase tracking-tighter shadow-lg shadow-yellow-500/20">Verified Artist</span>
-               <span className="text-zinc-500 text-[10px] font-black uppercase tracking-[0.2em]">Local Library</span>
+          <div className="flex-1 text-center md:text-left pt-2 md:pt-4">
+            <div className="flex items-center justify-center md:justify-start gap-3 mb-4">
+               <span className="px-2 py-0.5 rounded bg-yellow-500 text-black text-[9px] font-black uppercase tracking-tighter shadow-lg shadow-yellow-500/20">Verified Collector</span>
+               <span className="text-zinc-500 text-[9px] font-black uppercase tracking-[0.3em]">HIFI Library</span>
             </div>
-            <h1 className="text-5xl md:text-7xl lg:text-8xl font-black text-white tracking-tighter leading-none mb-4 drop-shadow-2xl">
+            
+            <h1 className="text-5xl md:text-7xl lg:text-8xl font-black text-white tracking-tighter leading-none mb-6 drop-shadow-2xl">
               {artistName}
             </h1>
-            <div className="flex items-center justify-center md:justify-start gap-4 text-zinc-400 font-bold text-xs md:text-sm">
-               <span className="flex items-center gap-1.5"><span className="text-white">{stats.albumCount}</span> 张专辑</span>
-               <span className="w-1.5 h-1.5 rounded-full bg-zinc-800" />
-               <span className="flex items-center gap-1.5"><span className="text-white">{stats.count}</span> 首曲目</span>
-               <span className="w-1.5 h-1.5 rounded-full bg-zinc-800" />
-               <span className="flex items-center gap-1.5"><span className="text-white">{stats.duration}</span> 分钟时长</span>
+
+            {/* 简化后的简介与统计 */}
+            <div className="max-w-2xl">
+              <p className="text-zinc-400 text-sm md:text-base leading-relaxed font-medium mb-8 opacity-80 italic">
+                在您的本地音乐库中，这位艺术家贡献了 <span className="text-white font-bold">{stats.count}</span> 首曲目，
+                分布在 <span className="text-white font-bold">{stats.albumCount}</span> 张不同的专辑中。
+                这些收藏为您累计提供了约 <span className="text-white font-bold">{stats.duration}</span> 分钟的沉浸式听觉体验。
+              </p>
+
+              <div className="flex flex-wrap items-center justify-center md:justify-start gap-6">
+                 <div className="flex flex-col">
+                    <span className="text-white font-black text-xl leading-none">{stats.albumCount}</span>
+                    <span className="text-zinc-600 text-[9px] font-black uppercase tracking-widest mt-1">Albums</span>
+                 </div>
+                 <div className="w-px h-6 bg-zinc-800" />
+                 <div className="flex flex-col">
+                    <span className="text-white font-black text-xl leading-none">{stats.count}</span>
+                    <span className="text-zinc-600 text-[9px] font-black uppercase tracking-widest mt-1">Tracks</span>
+                 </div>
+                 <div className="w-px h-6 bg-zinc-800" />
+                 <div className="flex flex-col">
+                    <span className="text-white font-black text-xl leading-none">{stats.duration}</span>
+                    <span className="text-zinc-600 text-[9px] font-black uppercase tracking-widest mt-1">Mins</span>
+                 </div>
+              </div>
             </div>
           </div>
         </div>
       </div>
 
       {/* 内容区域 */}
-      <div className="px-6 md:px-12 py-10 space-y-16">
+      <div className="px-6 md:px-12 py-12 space-y-20 max-w-7xl mx-auto w-full">
         
-        {/* 数据生成的简介板块 */}
-        <section className="max-w-4xl">
-           <h2 className="text-zinc-600 text-[10px] font-black uppercase tracking-[0.4em] mb-4">关于歌手</h2>
-           <div className="bg-white/[0.03] border border-white/5 rounded-[2.5rem] p-8 md:p-10 backdrop-blur-sm shadow-xl relative overflow-hidden group">
-              <div className="absolute top-0 right-0 w-32 h-32 bg-yellow-500/5 blur-3xl rounded-full" />
-              <p className="text-zinc-300 text-lg md:text-xl leading-relaxed italic font-medium">
-                "{artistName} 是您音乐库中极具分量的收藏。您目前保存了其涵盖 <span className="text-yellow-500 font-black">{stats.albumCount}</span> 张不同专辑的 
-                <span className="text-yellow-500 font-black"> {stats.count} </span> 
-                首经典作品。从曲库分析来看，这些作品为您提供了约 <span className="text-yellow-500 font-black">{stats.duration}</span> 分钟的高品质听觉享受。
-                每一段旋律都记录着独特的本地存储时光。"
-              </p>
-              <div className="mt-8 flex flex-wrap gap-2">
-                 {Array.from(new Set(artistTracks.map(t => t.file.name.split('.').pop()?.toUpperCase()))).map(ext => (
-                   <span key={ext} className="px-3 py-1 rounded-full bg-zinc-900 border border-white/5 text-[9px] font-black text-zinc-500 uppercase tracking-widest">{ext} Format</span>
-                 ))}
-                 <span className="px-3 py-1 rounded-full bg-zinc-900 border border-white/5 text-[9px] font-black text-zinc-500 uppercase tracking-widest">Hi-Fi Collection</span>
-              </div>
-           </div>
-        </section>
-
         {/* 专辑展示 */}
         <section>
-          <div className="flex items-baseline gap-4 mb-6">
+          <div className="flex items-baseline gap-4 mb-8">
             <h2 className="text-2xl font-black text-white uppercase tracking-tighter">全部专辑</h2>
-            <span className="text-[10px] text-zinc-600 font-black uppercase tracking-widest">{albums.length} Albums Found</span>
+            <div className="h-px flex-1 bg-zinc-900" />
+            <span className="text-[10px] text-zinc-600 font-black uppercase tracking-widest">{albums.length} Albums</span>
           </div>
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-6 md:gap-8">
             {albums.map(([name, tracks]) => (
@@ -151,7 +153,7 @@ const ArtistProfile: React.FC<ArtistProfileProps> = ({
                 onClick={() => onNavigateToAlbum(name)}
                 className="group cursor-pointer"
               >
-                <div className="aspect-square rounded-2xl bg-zinc-900 border border-white/5 overflow-hidden shadow-lg group-hover:scale-105 group-hover:shadow-2xl transition-all duration-500 relative">
+                <div className="aspect-square rounded-[2rem] bg-zinc-900 border border-white/5 overflow-hidden shadow-lg group-hover:scale-105 group-hover:shadow-2xl transition-all duration-500 relative">
                   {tracks[0].coverUrl ? (
                     <img src={tracks[0].coverUrl} className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-opacity" alt={name} />
                   ) : (
@@ -172,19 +174,20 @@ const ArtistProfile: React.FC<ArtistProfileProps> = ({
 
         {/* 曲目列表 */}
         <section className="pb-32">
-           <div className="flex items-baseline gap-4 mb-6">
-            <h2 className="text-2xl font-black text-white uppercase tracking-tighter">库中曲目</h2>
-            <span className="text-[10px] text-zinc-600 font-black uppercase tracking-widest">{artistTracks.length} Songs Total</span>
+           <div className="flex items-baseline gap-4 mb-8">
+            <h2 className="text-2xl font-black text-white uppercase tracking-tighter">精选曲目</h2>
+            <div className="h-px flex-1 bg-zinc-900" />
+            <span className="text-[10px] text-zinc-600 font-black uppercase tracking-widest">{artistTracks.length} Items</span>
           </div>
-          <div className="bg-white/[0.02] border border-white/5 rounded-[2rem] overflow-hidden">
+          <div className="bg-white/[0.01] border border-white/5 rounded-[2.5rem] overflow-hidden backdrop-blur-sm">
             {artistTracks.map((track, i) => (
               <div 
                 key={track.id}
                 onClick={() => onPlayTrack(track)}
-                className="group flex items-center gap-4 p-4 hover:bg-white/5 border-b border-white/[0.03] last:border-0 cursor-pointer transition-all"
+                className="group flex items-center gap-4 p-4 md:px-6 hover:bg-white/5 border-b border-white/[0.03] last:border-0 cursor-pointer transition-all"
               >
                 <div className="w-6 text-center text-zinc-700 font-mono text-xs group-hover:text-yellow-500">{String(i+1).padStart(2, '0')}</div>
-                <div className="w-10 h-10 rounded-lg bg-zinc-800 overflow-hidden shrink-0">
+                <div className="w-10 h-10 rounded-xl bg-zinc-800 overflow-hidden shrink-0">
                   {track.coverUrl ? (
                     <img src={track.coverUrl} className="w-full h-full object-cover opacity-80" alt="" />
                   ) : (
@@ -192,8 +195,8 @@ const ArtistProfile: React.FC<ArtistProfileProps> = ({
                   )}
                 </div>
                 <div className="flex-1 min-w-0">
-                  <div className="text-white font-bold truncate text-sm uppercase tracking-tight">{track.name}</div>
-                  <div className="text-zinc-500 text-[10px] font-bold uppercase tracking-widest mt-0.5">{track.album}</div>
+                  <div className="text-white font-bold truncate text-sm uppercase tracking-tight group-hover:text-yellow-500 transition-colors">{track.name}</div>
+                  <div className="text-zinc-600 text-[10px] font-bold uppercase tracking-widest mt-0.5 truncate">{track.album === '未知专辑' ? 'Single' : track.album}</div>
                 </div>
                 <div className="hidden md:block text-zinc-700 font-mono text-xs">{formatTime(track.duration || 0)}</div>
                 <button 

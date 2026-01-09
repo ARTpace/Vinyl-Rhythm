@@ -44,7 +44,6 @@ const App: React.FC = () => {
   const audioContextRef = useRef<AudioContext | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
   const animationFrameRef = useRef<number | null>(null);
-  const fallbackInputRef = useRef<HTMLInputElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
 
   const [favorites, setFavorites] = useState<Set<string>>(() => {
@@ -66,6 +65,10 @@ const App: React.FC = () => {
   }, [tracks, searchQuery]);
 
   const currentTrack = currentTrackIndex !== null ? tracks[currentTrackIndex] : null;
+
+  const handleUpdateTrack = useCallback((trackId: string, updates: Partial<Track>) => {
+    setTracks(prev => prev.map(t => t.id === trackId ? { ...t, ...updates } : t));
+  }, []);
 
   const handleNavigate = useCallback((type: 'artists' | 'albums' | 'folders' | 'artistProfile', name: string) => {
     if (type === 'artistProfile' || (type === 'artists' && name)) {
@@ -321,11 +324,11 @@ const App: React.FC = () => {
         setIsImporting(false);
         setImportProgress(0);
       } else {
-        fallbackInputRef.current?.click();
+        alert("您的浏览器不支持文件夹选择，请使用最新版的 Chrome 或 Edge 浏览器。");
       }
     } catch (e) {
+      console.warn("导入已取消或失败", e);
       setIsImporting(false);
-      fallbackInputRef.current?.click();
     }
   };
 
@@ -425,46 +428,22 @@ const App: React.FC = () => {
 
   return (
     <div className="flex h-screen overflow-hidden font-sans selection:bg-yellow-500/30">
-      <input 
-        type="file" ref={fallbackInputRef} className="hidden" 
-        {...({ webkitdirectory: "true", directory: "", multiple: true } as any)} 
-        onChange={(e) => {
-          const files = Array.from(e.target.files || []) as File[];
-          if (files.length > 0) { 
-            setIsImporting(true);
-            const folderId = "手动导入-" + Date.now();
-            Promise.all(files.map(async (f) => {
-              if (SUPPORTED_FORMATS.some(ext => f.name.toLowerCase().endsWith(ext))) {
-                const t = await parseFileToTrack(f);
-                t.folderId = folderId;
-                return t;
-              }
-              return null;
-            })).then(ts => {
-              const validTracks = ts.filter(t => t !== null) as Track[];
-              setTracks(prev => [...prev, ...validTracks]);
-              setImportedFolders(prev => [...prev, { id: folderId, name: "手动导入文件", lastSync: Date.now(), trackCount: validTracks.length }]);
-              if (currentTrackIndex === null && validTracks.length > 0) {
-                setCurrentTrackIndex(0);
-                setView('player');
-                setIsPlaying(true);
-              }
-              setIsImporting(false);
-              setIsImportWindowOpen(false);
-            });
-          }
-          e.target.value = ''; 
-        }} 
-      />
-
       <ImportWindow 
         isOpen={isImportWindowOpen} onClose={() => setIsImportWindowOpen(false)} 
-        onImport={handleInitialImport} onFallbackImport={() => fallbackInputRef.current?.click()}
+        onImport={handleInitialImport} 
         onRemoveFolder={handleRemoveFolder} importedFolders={importedFolders} 
       />
       
       <div className="hidden md:flex flex-col h-full z-50">
-          <Sidebar activeView={view} onViewChange={(v) => { setView(v); setNavigationRequest(null); setSelectedArtist(null); }} trackCount={tracks.length} />
+          <Sidebar 
+            activeView={view} 
+            onViewChange={(v) => { 
+              setView(v); 
+              setNavigationRequest(null); 
+              setSelectedArtist(null); 
+            }} 
+            trackCount={tracks.length} 
+          />
       </div>
 
       <main className="flex-1 flex flex-col relative pb-32 md:pb-28 bg-gradient-to-br from-[#1c1c1c] via-[#121212] to-[#0a0a0a]">
@@ -482,7 +461,7 @@ const App: React.FC = () => {
                 </div>
                 <input
                   ref={searchInputRef}
-                  type="text" placeholder="搜索曲目、歌手、专辑..." value={searchQuery} 
+                  type="text" placeholder="搜索曲目、歌手..." value={searchQuery} 
                   onChange={(e) => { setSearchQuery(e.target.value); if(view === 'player' && e.target.value) setView('all'); }}
                   onKeyDown={(e) => { if(e.key === 'Escape') { setSearchQuery(''); searchInputRef.current?.blur(); }}}
                   className="w-full bg-white/5 border border-white/10 rounded-full py-2.5 px-11 text-sm text-white focus:border-yellow-500/50 focus:bg-white/10 outline-none backdrop-blur-md transition-all placeholder:text-zinc-600"
@@ -568,7 +547,10 @@ const App: React.FC = () => {
                   <ArtistProfile 
                     artistName={selectedArtist}
                     allTracks={tracks}
-                    onBack={() => setView('artists')}
+                    onBack={() => {
+                      setView('artists');
+                      setSelectedArtist(null);
+                    }}
                     onPlayTrack={playTrack}
                     onNavigateToAlbum={(album) => handleNavigate('albums', album)}
                     favorites={favorites}
@@ -580,6 +562,12 @@ const App: React.FC = () => {
                     navigationRequest={navigationRequest} onNavigationProcessed={() => setNavigationRequest(null)}
                     onNavigate={handleNavigate} isSearching={searchQuery.length > 0}
                     onToggleFavorite={handleToggleFavorite}
+                    onUpdateTrack={handleUpdateTrack}
+                    onBack={() => {
+                      if (selectedArtist && view === 'albums') {
+                        setView('artistProfile');
+                      }
+                    }}
                   />
                 )}
             </div>
@@ -597,7 +585,16 @@ const App: React.FC = () => {
           playbackMode={playbackMode} onTogglePlaybackMode={() => setPlaybackMode(p => p === 'normal' ? 'shuffle' : p === 'shuffle' ? 'loop' : 'normal')}
           onReorder={moveTrack} themeColor="#eab308" 
         />
-        <MobileNav activeView={view} onViewChange={(v) => { setView(v); setNavigationRequest(null); setSelectedArtist(null); }} trackCount={tracks.length} themeColor="#eab308" />
+        <MobileNav 
+          activeView={view} 
+          onViewChange={(v) => { 
+            setView(v); 
+            setNavigationRequest(null); 
+            setSelectedArtist(null); 
+          }} 
+          trackCount={tracks.length} 
+          themeColor="#eab308" 
+        />
       </main>
     </div>
   );

@@ -6,12 +6,11 @@ interface ImportWindowProps {
   isOpen: boolean;
   onClose: () => void;
   onImport: () => void;
-  onFallbackImport: () => void; // 新增：传统文件导入的回调
   onRemoveFolder: (id: string) => void;
   importedFolders: LibraryFolder[];
 }
 
-const ImportWindow: React.FC<ImportWindowProps> = ({ isOpen, onClose, onImport, onFallbackImport, onRemoveFolder, importedFolders }) => {
+const ImportWindow: React.FC<ImportWindowProps> = ({ isOpen, onClose, onImport, onRemoveFolder, importedFolders }) => {
   if (!isOpen) return null;
 
   return (
@@ -67,26 +66,16 @@ const ImportWindow: React.FC<ImportWindowProps> = ({ isOpen, onClose, onImport, 
           <div className="space-y-3 pt-4 border-t border-white/5">
             <button
               onClick={onImport}
-              className="w-full bg-yellow-500 hover:bg-yellow-400 text-black py-4 rounded-full font-black text-sm active:scale-95 transition-all shadow-xl flex items-center justify-center gap-3 group"
+              className="w-full bg-yellow-500 hover:bg-yellow-400 text-black py-5 rounded-full font-black text-sm active:scale-95 transition-all shadow-xl flex items-center justify-center gap-3 group"
             >
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" className="group-hover:rotate-90 transition-transform">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" className="group-hover:rotate-90 transition-transform">
                 <path d="M12 5v14M5 12h14"/>
               </svg>
               添加文件夹 (智能同步)
             </button>
             
-            <button
-              onClick={onFallbackImport}
-              className="w-full bg-white/5 hover:bg-white/10 text-white py-4 rounded-full font-black text-sm active:scale-95 transition-all border border-white/5 flex items-center justify-center gap-3"
-            >
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/>
-              </svg>
-              手动选择文件 (兼容模式)
-            </button>
-            
             <p className="text-center px-4 text-[9px] text-zinc-600 font-bold leading-relaxed uppercase tracking-widest">
-              提示：如果“添加文件夹”无效，可能是浏览器环境限制，请点击“手动选择文件”进行导入。
+              请选择包含音频文件的文件夹。播放器将自动扫描子目录并建立索引。
             </p>
           </div>
         </div>
