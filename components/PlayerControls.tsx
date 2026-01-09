@@ -20,6 +20,7 @@ interface PlayerControlsProps {
   onSeek: (val: number) => void;
   isFavorite: boolean;
   onToggleFavorite: (trackId?: string) => void;
+  onNavigate?: (type: 'artists' | 'albums' | 'folders', name: string) => void;
   favorites?: Set<string>;
   playbackMode: 'normal' | 'shuffle' | 'loop';
   onTogglePlaybackMode: () => void;
@@ -44,6 +45,7 @@ const PlayerControls: React.FC<PlayerControlsProps> = ({
   onSeek,
   isFavorite,
   onToggleFavorite,
+  onNavigate,
   favorites = new Set(),
   playbackMode,
   onTogglePlaybackMode,
@@ -55,7 +57,6 @@ const PlayerControls: React.FC<PlayerControlsProps> = ({
   const queueEndRef = useRef<HTMLDivElement>(null);
   const [isDraggingOverQueueBtn, setIsDraggingOverQueueBtn] = useState(false);
 
-  // 优化：如果库里有歌，即使还没选中（理论上不会发生），也渲染空状态
   if (!currentTrack && tracks.length === 0) return null;
 
   const progressPercent = (progress / duration) * 100 || 0;
@@ -112,7 +113,6 @@ const PlayerControls: React.FC<PlayerControlsProps> = ({
                     <span className={`text-[10px] font-mono text-center ${idx === currentIndex ? 'text-yellow-500' : 'text-zinc-700'}`}>{idx + 1}</span>
                   )}
               </div>
-              
               <div className="w-10 h-10 rounded-md bg-zinc-800 overflow-hidden shrink-0 relative">
                  {track.coverUrl ? (
                     <img src={track.coverUrl} className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-opacity" />
@@ -122,12 +122,16 @@ const PlayerControls: React.FC<PlayerControlsProps> = ({
                     </div>
                  )}
               </div>
-
               <div className="flex-1 min-w-0">
                 <div className={`font-bold text-xs truncate ${idx === currentIndex ? 'text-yellow-500' : 'text-zinc-300'}`}>{track.name}</div>
-                <div className="text-[10px] text-zinc-600 truncate font-medium">{track.artist}</div>
+                {/* 队列中的歌手名跳转 */}
+                <button 
+                  onClick={(e) => { e.stopPropagation(); onNavigate?.('artists', track.artist); setShowQueue(false); }}
+                  className="text-[10px] text-zinc-600 truncate font-medium hover:text-yellow-500 transition-colors"
+                >
+                  {track.artist}
+                </button>
               </div>
-
               <div className="flex items-center gap-2 shrink-0 pr-1">
                  <span className="text-[10px] font-mono text-zinc-700 group-hover:text-zinc-500 transition-colors">
                     {formatTime(track.duration || 0)}
@@ -154,7 +158,13 @@ const PlayerControls: React.FC<PlayerControlsProps> = ({
            </div>
            <div className="min-w-0 flex flex-col gap-1">
               <h4 className="font-medium truncate text-sm text-yellow-500">{currentTrack?.name || "等待选择曲目"}</h4>
-              <p className="text-zinc-500 text-[10px] font-bold uppercase tracking-wider truncate">{currentTrack?.artist || "Vinyl Rhythm"}</p>
+              {/* 底栏歌手名跳转 */}
+              <button 
+                onClick={() => onNavigate?.('artists', currentTrack?.artist || '')}
+                className="text-zinc-500 text-[10px] font-bold uppercase tracking-wider truncate text-left hover:text-yellow-500 transition-colors"
+              >
+                {currentTrack?.artist || "Vinyl Rhythm"}
+              </button>
            </div>
            <button onClick={() => onToggleFavorite()} disabled={!currentTrack} className={`w-8 h-8 ${insetButtonClass(isFavorite)} ${isFavorite ? 'text-yellow-500' : ''} disabled:opacity-30`}><svg width="14" height="14" viewBox="0 0 24 24" fill={isFavorite ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2.5"><path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"/></svg></button>
         </div>
@@ -204,7 +214,13 @@ const PlayerControls: React.FC<PlayerControlsProps> = ({
          </div>
          <div className="flex-1 min-w-0" onClick={() => onSelectTrack(currentIndex || 0)}>
             <span className="text-white text-xs font-bold truncate block">{currentTrack?.name || "未选中"}</span>
-            <span className="text-zinc-500 text-[10px] truncate block">{currentTrack?.artist || "请选择音乐"}</span>
+            {/* 移动端迷你播放器歌手跳转 */}
+            <button 
+              onClick={(e) => { e.stopPropagation(); onNavigate?.('artists', currentTrack?.artist || ''); }}
+              className="text-zinc-500 text-[10px] truncate block hover:text-yellow-500 transition-colors"
+            >
+              {currentTrack?.artist || "请选择音乐"}
+            </button>
          </div>
          <div className="flex items-center gap-3">
             <button onClick={onTogglePlay} disabled={tracks.length === 0} className="text-white">

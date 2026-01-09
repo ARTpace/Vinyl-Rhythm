@@ -52,6 +52,33 @@ const App: React.FC = () => {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const currentTrack = currentTrackIndex !== null ? tracks[currentTrackIndex] : null;
 
+  // 全局导航处理器
+  const handleNavigate = useCallback((type: 'artists' | 'albums' | 'folders', name: string) => {
+    setNavigationRequest({ type, name });
+    setView(type as ViewType);
+  }, []);
+
+  const getQualityInfo = (track: Track) => {
+    if (!track.bitrate) return { label: 'Audio', color: 'bg-zinc-600', shadow: 'rgba(113, 113, 122, 0.3)' };
+    const kbps = Math.round(track.bitrate / 1000);
+    const fileName = track.name.toLowerCase();
+    const isLosslessExt = fileName.endsWith('.flac') || fileName.endsWith('.wav') || fileName.endsWith('.alac');
+
+    if (kbps >= 1411 || (isLosslessExt && kbps > 1000)) {
+      return { label: 'Hi-Res Master', color: 'bg-yellow-500', shadow: 'rgba(234, 179, 8, 0.5)' };
+    }
+    if (isLosslessExt || kbps >= 700) {
+      return { label: 'Lossless', color: 'bg-green-500', shadow: 'rgba(34, 197, 94, 0.5)' };
+    }
+    if (kbps >= 320) {
+      return { label: 'HQ Audio', color: 'bg-blue-500', shadow: 'rgba(59, 130, 246, 0.5)' };
+    }
+    if (kbps >= 128) {
+      return { label: 'Standard', color: 'bg-zinc-400', shadow: 'rgba(161, 161, 170, 0.3)' };
+    }
+    return { label: 'Low-Res', color: 'bg-zinc-700', shadow: 'rgba(63, 63, 70, 0.2)' };
+  };
+
   useEffect(() => {
     const autoLoad = async () => {
       const savedFolders = await getAllLibraryFolders();
@@ -332,21 +359,28 @@ const App: React.FC = () => {
     setIsPlaying(true);
   }, [tracks.length, currentTrackIndex]);
 
+  // 修复：将 handleEnded 直接绑定到 audio 标签，避免 useEffect 依赖导致的问题
+  const handleAudioEnded = () => {
+    if (playbackMode === 'loop' && audioRef.current) {
+      audioRef.current.currentTime = 0;
+      audioRef.current.play();
+    } else {
+      nextTrack();
+    }
+  };
+
   useEffect(() => {
     const audio = audioRef.current;
     if (!audio) return;
     const handleTimeUpdate = () => setProgress(audio.currentTime);
     const handleLoadedMetadata = () => setDuration(audio.duration);
-    const handleEnded = () => (playbackMode === 'loop' ? (audio.currentTime = 0, audio.play()) : nextTrack());
     audio.addEventListener('timeupdate', handleTimeUpdate);
     audio.addEventListener('loadedmetadata', handleLoadedMetadata);
-    audio.addEventListener('ended', handleEnded);
     return () => {
       audio.removeEventListener('timeupdate', handleTimeUpdate);
       audio.removeEventListener('loadedmetadata', handleLoadedMetadata);
-      audio.removeEventListener('ended', handleEnded);
     };
-  }, [playbackMode, nextTrack]);
+  }, []);
 
   return (
     <div className="flex h-screen overflow-hidden font-sans selection:bg-yellow-500/30">
@@ -440,15 +474,14 @@ const App: React.FC = () => {
                       </h2>
                       <div className="flex flex-wrap items-center justify-center gap-x-2.5 gap-y-1.5 opacity-60">
                         <button 
-                          onClick={() => { setNavigationRequest({ type: 'artists', name: currentTrack?.artist || '' }); setView('artists'); }} 
+                          onClick={() => handleNavigate('artists', currentTrack?.artist || '')} 
                           className="text-zinc-400 font-bold uppercase tracking-[0.2em] text-[9px] md:text-[10px] hover:text-yellow-500 transition-colors"
                         >
                           {currentTrack?.artist || (tracks.length > 0 ? "等待开启旋律" : "享受纯净音质")}
                         </button>
                         {(currentTrack?.album || tracks.length > 0) && <span className="w-1 h-1 bg-zinc-700 rounded-full" />}
-                        {/* 优化：专辑名现在也是一个按钮，点击可跳转 */}
                         <button 
-                          onClick={() => { setNavigationRequest({ type: 'albums', name: currentTrack?.album || '' }); setView('albums'); }}
+                          onClick={() => handleNavigate('albums', currentTrack?.album || '')}
                           className="text-zinc-500 font-bold uppercase tracking-[0.1em] text-[9px] md:text-[10px] truncate max-w-[200px] hover:text-yellow-500 transition-colors"
                         >
                           {currentTrack?.album || (tracks.length > 0 ? "选一支喜欢的歌吧" : "请先添加音乐文件夹")}
@@ -474,11 +507,19 @@ const App: React.FC = () => {
 
                         {currentTrack?.bitrate && (
                           <div className="mt-8 px-4 py-1.5 rounded-full bg-white/5 border border-white/5 backdrop-blur-md flex items-center gap-3 animate-in fade-in slide-in-from-bottom-2 duration-1000">
-                            <div className={`w-1.5 h-1.5 rounded-full shadow-[0_0_8px_rgba(34,197,94,0.3)] ${isPlaying ? 'bg-green-500 animate-pulse' : 'bg-zinc-600'}`} />
-                            <div className="flex items-center gap-2 font-mono text-[9px] font-bold uppercase tracking-widest text-zinc-500">
+                            <div 
+                              className={`w-1.5 h-1.5 rounded-full transition-colors duration-500 ${getQualityInfo(currentTrack).color} ${isPlaying ? 'animate-pulse' : ''}`} 
+                              style={{ boxShadow: `0 0 8px ${getQualityInfo(currentTrack).shadow}` }}
+                            />
+                            <div className="flex items-center gap-2 font-mono text-[9px] font-bold uppercase tracking-widest">
                                <span className="text-zinc-400">{Math.round(currentTrack.bitrate / 1000)} KBPS</span>
-                               <span className="opacity-30">/</span>
-                               <span className="text-zinc-600">{currentTrack.name.toLowerCase().endsWith('.flac') ? 'Lossless' : 'Hifi Audio'}</span>
+                               <span className="opacity-20 text-white">/</span>
+                               <span 
+                                 className="transition-colors duration-500"
+                                 style={{ color: getQualityInfo(currentTrack).label !== 'Standard' ? rhythmColor.replace(', 1)', ', 0.8)') : '#71717a' }}
+                               >
+                                 {getQualityInfo(currentTrack).label}
+                               </span>
                             </div>
                           </div>
                         )}
@@ -492,6 +533,7 @@ const App: React.FC = () => {
                   <LibraryView 
                     view={view} tracks={tracks} onPlay={playTrack} favorites={favorites} 
                     navigationRequest={navigationRequest} onNavigationProcessed={() => setNavigationRequest(null)}
+                    onNavigate={handleNavigate}
                     onToggleFavorite={(id) => setFavorites(prev => {
                       const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id);
                       localStorage.setItem('vinyl_favorites', JSON.stringify(Array.from(n)));
@@ -501,7 +543,8 @@ const App: React.FC = () => {
                 )}
             </div>
         </div>
-        <audio ref={audioRef} src={currentTrack?.url} />
+        {/* 将 onEnded 显式绑定以确保自动切歌正常工作 */}
+        <audio ref={audioRef} src={currentTrack?.url} onEnded={handleAudioEnded} />
         <PlayerControls
           currentTrack={currentTrack} tracks={tracks} currentIndex={currentTrackIndex}
           isPlaying={isPlaying} onTogglePlay={() => { if (isPlaying) audioRef.current?.pause(); else audioRef.current?.play(); setIsPlaying(!isPlaying); }}
@@ -510,6 +553,7 @@ const App: React.FC = () => {
           onSeek={(val) => audioRef.current && (audioRef.current.currentTime = val)}
           isFavorite={currentTrack ? favorites.has(currentTrack.id) : false} 
           favorites={favorites}
+          onNavigate={handleNavigate}
           onToggleFavorite={(id) => {
             const targetId = id || currentTrack?.id;
             if (!targetId) return;

@@ -9,12 +9,13 @@ interface LibraryViewProps {
   onPlay: (track: Track) => void;
   favorites: Set<string>;
   onToggleFavorite: (trackId: string) => void;
+  onNavigate?: (type: 'artists' | 'albums' | 'folders', name: string) => void;
   navigationRequest?: { type: 'artists' | 'albums' | 'folders', name: string } | null;
   onNavigationProcessed?: () => void;
 }
 
 const LibraryView: React.FC<LibraryViewProps> = ({ 
-  view, tracks, onPlay, favorites, onToggleFavorite,
+  view, tracks, onPlay, favorites, onToggleFavorite, onNavigate,
   navigationRequest, onNavigationProcessed 
 }) => {
   const [activeGroup, setActiveGroup] = useState<string | null>(null);
@@ -60,14 +61,10 @@ const LibraryView: React.FC<LibraryViewProps> = ({
         onClick={() => setActiveGroup(name)}
         className="group relative cursor-pointer perspective-1000 z-10 hover:z-20"
       >
-        {/* 底层厚度模拟 (层叠感) */}
         <div className="absolute inset-0 bg-black/40 translate-x-1 translate-y-1 rounded-[3px] blur-[2px] opacity-0 group-hover:opacity-100 transition-all duration-500"></div>
         <div className="absolute inset-0 bg-[#0a0a0a] translate-x-[2px] translate-y-[2px] rounded-[3px] border border-white/5 opacity-0 group-hover:opacity-100 transition-all duration-500 delay-75"></div>
 
-        {/* 封套主体 */}
         <div className="relative z-10 aspect-square bg-[#1a1a1a] rounded-[3px] shadow-[0_4px_12px_rgba(0,0,0,0.5)] transition-all duration-500 ease-[cubic-bezier(0.34,1.56,0.64,1)] group-hover:-translate-y-2 group-hover:rotate-x-6 group-hover:rotate-y-[-6deg] group-hover:shadow-[20px_25px_50px_rgba(0,0,0,0.8)] overflow-hidden border border-white/10">
-          
-          {/* 封面图片 */}
           {coverUrl ? (
             <img src={coverUrl} className="w-full h-full object-cover select-none" alt={name} />
           ) : (
@@ -75,25 +72,13 @@ const LibraryView: React.FC<LibraryViewProps> = ({
               {name[0]?.toUpperCase()}
             </div>
           )}
-
-          {/* 拟物化细节：封套开口阴影 (右侧深邃感) */}
           <div className="absolute top-0 right-0 w-[4px] h-full bg-gradient-to-l from-black/60 to-transparent pointer-events-none"></div>
-
-          {/* 拟物化细节：模拟纸张/纸板纹理 */}
           <div className="absolute inset-0 pointer-events-none opacity-[0.08] bg-[url('https://www.transparenttextures.com/patterns/cardboard-flat.png')] mix-blend-overlay"></div>
-
-          {/* 动态扫光 (Glare Effect) - 模拟塑料保护套反射 */}
           <div className="absolute inset-0 pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity duration-700">
             <div className="absolute -inset-[100%] bg-gradient-to-tr from-transparent via-white/10 to-transparent translate-x-[-100%] translate-y-[100%] group-hover:translate-x-[100%] group-hover:translate-y-[-100%] transition-transform duration-1000 ease-in-out"></div>
           </div>
-
-          {/* 经典的环状磨损痕迹 (Ring Wear) */}
           <div className="absolute inset-0 pointer-events-none bg-[radial-gradient(circle_at_center,transparent_40%,rgba(255,255,255,0.015)_50%,transparent_60%)]"></div>
-
-          {/* 左侧书脊高亮线 */}
           <div className="absolute top-0 left-0 w-[1px] h-full bg-white/10 shadow-[1px_0_2px_rgba(255,255,255,0.05)]"></div>
-          
-          {/* 内部信息遮罩 - 采用更优雅的渐入方式 */}
           <div className="absolute bottom-0 left-0 right-0 p-3 bg-gradient-to-t from-black/90 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500">
              <div className="flex items-center justify-between text-white/80">
                 <span className="text-[7px] font-black uppercase tracking-[0.2em]">Collector's Edition</span>
@@ -102,7 +87,6 @@ const LibraryView: React.FC<LibraryViewProps> = ({
           </div>
         </div>
 
-        {/* 标题及歌手信息 */}
         <div className="mt-3 px-0.5 relative z-20">
           <h3 className="text-zinc-200 font-bold text-[11px] leading-tight truncate group-hover:text-yellow-500 transition-colors">
             {name === 'undefined' ? '未知专辑' : name}
@@ -115,7 +99,6 @@ const LibraryView: React.FC<LibraryViewProps> = ({
     );
   };
 
-  // 分组视图 (Level 1)
   if (groups && !activeGroup) {
     const isAlbumView = view === 'albums';
     return (
@@ -130,7 +113,6 @@ const LibraryView: React.FC<LibraryViewProps> = ({
            <div className="h-0.5 w-12 bg-yellow-500 mt-2 rounded-full shadow-[0_0_10px_rgba(234,179,8,0.5)]"></div>
         </header>
 
-        {/* 更加紧凑且均衡的网格布局 */}
         <div className={`grid gap-x-6 gap-y-10 ${isAlbumView 
           ? 'grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-7 2xl:grid-cols-9' 
           : 'grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-7 xl:grid-cols-9'}`}>
@@ -160,7 +142,6 @@ const LibraryView: React.FC<LibraryViewProps> = ({
     );
   }
 
-  // 歌曲列表视图 (Level 2 or 'all'/'favorites')
   return (
     <div className="flex flex-col h-full bg-[#111111]/30">
       <div className="p-4 md:p-8 pb-4 shrink-0 flex items-center gap-6">
@@ -198,9 +179,21 @@ const LibraryView: React.FC<LibraryViewProps> = ({
                  </div>
                  <div className="flex-1 min-w-0">
                     <div className="text-white font-black truncate text-sm md:text-base tracking-tight">{track.name}</div>
-                    <div className="text-zinc-500 text-[9px] md:text-xs font-bold uppercase tracking-widest mt-0.5">{track.artist}</div>
+                    {/* 歌手名跳转 */}
+                    <button 
+                      onClick={(e) => { e.stopPropagation(); onNavigate?.('artists', track.artist); }}
+                      className="text-zinc-500 text-[9px] md:text-xs font-bold uppercase tracking-widest mt-0.5 hover:text-yellow-500 transition-colors"
+                    >
+                      {track.artist}
+                    </button>
                  </div>
-                 <div className="hidden lg:block text-zinc-600 text-[10px] font-black uppercase tracking-widest max-w-[150px] truncate">{track.album}</div>
+                 {/* 专辑名跳转 */}
+                 <button 
+                   onClick={(e) => { e.stopPropagation(); onNavigate?.('albums', track.album); }}
+                   className="hidden lg:block text-zinc-600 text-[10px] font-black uppercase tracking-widest max-w-[150px] truncate hover:text-yellow-500 transition-colors"
+                 >
+                   {track.album}
+                 </button>
                  <div className="hidden md:block text-zinc-700 font-mono text-[10px] w-12 text-right">{formatTime(track.duration || 0)}</div>
                  <button 
                     onClick={(e) => { e.stopPropagation(); onToggleFavorite(track.id); }}
