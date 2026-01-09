@@ -29,6 +29,7 @@ const App: React.FC = () => {
   const [trackStory, setTrackStory] = useState<string>('');
   const [isStoryLoading, setIsStoryLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [themeColor, setThemeColor] = useState('rgba(234, 179, 8, 1)');
   
   const [isImporting, setIsImporting] = useState<boolean>(false);
   const [importProgress, setImportProgress] = useState<number>(0);
@@ -84,6 +85,48 @@ const App: React.FC = () => {
     if (isPlaying) animationFrameRef.current = requestAnimationFrame(updateIntensity);
     else if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
   }, [isPlaying, updateIntensity]);
+
+  // 核心：处理音频切换后的自动播放逻辑
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (isPlaying && audio && currentTrack) {
+      // 当 URL 改变且处于播放状态时，执行播放
+      audio.play().catch(err => {
+        console.warn("[Player] 自动播放被拦截:", err);
+        setIsPlaying(false);
+      });
+      initAudioAnalyzer();
+    }
+  }, [currentTrack?.url, isPlaying, initAudioAnalyzer]);
+
+  // 核心：提取当前曲目封面的主色调
+  useEffect(() => {
+    if (currentTrack?.coverUrl) {
+      const img = new Image();
+      img.src = currentTrack.coverUrl;
+      img.crossOrigin = "anonymous";
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          canvas.width = 1;
+          canvas.height = 1;
+          ctx.drawImage(img, 0, 0, 1, 1);
+          const [r, g, b] = ctx.getImageData(0, 0, 1, 1).data;
+          // 设置主题颜色，由于背景是黑色的，如果是太暗的颜色则稍微提亮
+          const brightness = (r * 299 + g * 587 + b * 114) / 1000;
+          if (brightness < 40) {
+            setThemeColor(`rgba(${Math.min(255, r + 40)}, ${Math.min(255, g + 40)}, ${Math.min(255, b + 40)}, 1)`);
+          } else {
+            setThemeColor(`rgba(${r}, ${g}, ${b}, 1)`);
+          }
+        }
+      };
+      img.onerror = () => setThemeColor('rgba(234, 179, 8, 1)');
+    } else {
+      setThemeColor('rgba(234, 179, 8, 1)');
+    }
+  }, [currentTrack?.coverUrl]);
 
   const scanDirectory = async (handle: FileSystemDirectoryHandle, folderId: string) => {
     const foundFiles: File[] = [];
@@ -227,13 +270,10 @@ const App: React.FC = () => {
       setCurrentTrackIndex(index);
       setView('player');
       setIsPlaying(true);
-      setTimeout(() => initAudioAnalyzer(), 100);
     }
-  }, [tracks, initAudioAnalyzer]);
+  }, [tracks]);
 
-  // 处理拖拽排序或添加
   const moveTrack = useCallback((draggedId: string, targetId: string | null) => {
-    // 使用当前 tracks 的引用来计算新顺序
     const prevTracks = [...tracks]; 
     const fromIndex = prevTracks.findIndex(t => t.id === draggedId);
     if (fromIndex === -1) return;
@@ -242,7 +282,7 @@ const App: React.FC = () => {
     
     let toIndex;
     if (targetId === null) {
-        toIndex = prevTracks.length; // 移动到末尾
+        toIndex = prevTracks.length;
     } else {
         const targetIndex = prevTracks.findIndex(t => t.id === targetId);
         toIndex = targetIndex === -1 ? prevTracks.length : targetIndex;
@@ -250,7 +290,6 @@ const App: React.FC = () => {
 
     prevTracks.splice(toIndex, 0, trackToMove);
     
-    // 更新 playing index，确保当前播放的索引跟随移动
     let newCurrentIndex = currentTrackIndex;
     if (currentTrackIndex !== null) {
          const playingTrackId = tracks[currentTrackIndex].id;
@@ -329,7 +368,6 @@ const App: React.FC = () => {
         importedFolders={importedFolders}
       />
       
-      {/* 桌面端侧边栏 */}
       <div className="hidden md:flex flex-col h-full z-50">
           <Sidebar activeView={view} onViewChange={(v) => { setView(v); setNavigationRequest(null); }} trackCount={tracks.length} />
       </div>
@@ -338,7 +376,7 @@ const App: React.FC = () => {
         
         {isImporting && (
           <div className="absolute top-0 left-0 right-0 z-[100] h-1.5 bg-zinc-900">
-            <div className="h-full bg-yellow-500 shadow-[0_0_20px_rgba(234,179,8,1)] transition-all duration-300" style={{ width: `${importProgress}%` }} />
+            <div className="h-full transition-all duration-300" style={{ width: `${importProgress}%`, backgroundColor: themeColor, boxShadow: `0 0 20px ${themeColor}` }} />
           </div>
         )}
 
@@ -348,12 +386,13 @@ const App: React.FC = () => {
                 <input
                   type="text" placeholder="搜索曲目..." value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  className="w-full bg-white/5 border border-white/10 rounded-full py-2 px-4 md:py-2.5 md:px-11 text-sm text-white focus:border-yellow-500 outline-none backdrop-blur-md transition-all"
+                  style={{ '--focus-color': themeColor } as any}
+                  className="w-full bg-white/5 border border-white/10 rounded-full py-2 px-4 md:py-2.5 md:px-11 text-sm text-white focus:border-[var(--focus-color)] outline-none backdrop-blur-md transition-all"
                 />
              </div>
              {isImporting && (
                <div className="hidden md:flex items-center gap-3 bg-black/40 backdrop-blur-md px-4 py-2 rounded-full border border-white/5">
-                  <div className="w-2 h-2 bg-yellow-500 rounded-full animate-pulse shadow-[0_0_8px_rgba(234,179,8,1)]"></div>
+                  <div className="w-2 h-2 rounded-full animate-pulse" style={{ backgroundColor: themeColor, boxShadow: `0 0 8px ${themeColor}` }}></div>
                   <span className="text-[10px] text-zinc-400 font-black uppercase tracking-widest whitespace-nowrap truncate max-w-[200px]">
                     同步中: {currentProcessingFile}
                   </span>
@@ -367,11 +406,11 @@ const App: React.FC = () => {
                 disabled={isImporting}
                 className="w-9 h-9 md:w-10 md:h-10 flex items-center justify-center bg-white/5 hover:bg-white/10 text-white border border-white/10 rounded-full transition-all active:scale-90 disabled:opacity-30 group"
             >
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" className={`${isImporting ? 'animate-spin text-yellow-500' : 'group-hover:rotate-180 transition-transform duration-700'}`}>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" className={`${isImporting ? 'animate-spin' : 'group-hover:rotate-180 transition-transform duration-700'}`} style={isImporting ? { color: themeColor } : {}}>
                 <path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.85.83 6.72 2.24L21 8"/><path d="M21 3v5h-5"/>
               </svg>
             </button>
-            <button onClick={() => setIsImportWindowOpen(true)} className="bg-yellow-500 text-black px-4 md:px-6 py-2 md:py-2.5 rounded-full font-black text-[10px] md:text-xs shadow-xl uppercase tracking-widest active:scale-95 transition-all whitespace-nowrap">
+            <button onClick={() => setIsImportWindowOpen(true)} style={{ backgroundColor: themeColor }} className="text-black px-4 md:px-6 py-2 md:py-2.5 rounded-full font-black text-[10px] md:text-xs shadow-xl uppercase tracking-widest active:scale-95 transition-all whitespace-nowrap">
               <span className="hidden md:inline">库管理</span>
               <span className="md:hidden">Manage</span>
             </button>
@@ -384,7 +423,7 @@ const App: React.FC = () => {
                   <div className="flex-1 flex flex-col items-center justify-center gap-6 md:gap-10 p-4 md:p-8">
                     <div className="text-center relative z-40">
                       <h2 className="text-2xl md:text-4xl font-black text-white mb-1 md:mb-2 truncate max-w-[80vw] md:max-w-xl">{currentTrack?.name || "黑胶时光"}</h2>
-                      <button onClick={() => { setNavigationRequest({ type: 'artists', name: currentTrack?.artist || '' }); setView('artists'); }} className="font-bold text-lg md:text-xl text-white hover:text-yellow-500 transition-all">{currentTrack?.artist || "享受纯净音质"}</button>
+                      <button onClick={() => { setNavigationRequest({ type: 'artists', name: currentTrack?.artist || '' }); setView('artists'); }} style={{ '--hover-color': themeColor } as any} className="font-bold text-lg md:text-xl text-white hover:text-[var(--hover-color)] transition-all">{currentTrack?.artist || "享受纯净音质"}</button>
                     </div>
                     
                     <div className="relative flex items-center justify-center">
@@ -393,12 +432,9 @@ const App: React.FC = () => {
                           onPrev={prevTrack} 
                           currentId={currentTrack?.id || 'empty'}
                         >
-                          <VinylRecord isPlaying={isPlaying} coverUrl={currentTrack?.coverUrl} intensity={audioIntensity} />
+                          <VinylRecord isPlaying={isPlaying} coverUrl={currentTrack?.coverUrl} intensity={audioIntensity} themeColor={themeColor} />
                         </SwipeableTrack>
                         
-                        {/* 唱针臂 ToneArm 固定在上方，不随唱片拖动。
-                            使用与 VinylRecord 相同的尺寸容器来确保定位准确。
-                        */}
                         <div className="absolute inset-0 pointer-events-none flex items-center justify-center z-30">
                             <div className="relative w-[70vw] h-[70vw] max-w-[18rem] max-h-[18rem] md:w-96 md:h-96 flex-shrink-0">
                                 <ToneArm isPlaying={isPlaying} progress={duration > 0 ? progress / duration : 0} />
@@ -426,7 +462,7 @@ const App: React.FC = () => {
         <audio ref={audioRef} src={currentTrack?.url} />
         <PlayerControls
           currentTrack={currentTrack} tracks={tracks} currentIndex={currentTrackIndex}
-          isPlaying={isPlaying} onTogglePlay={() => { initAudioAnalyzer(); if (isPlaying) audioRef.current?.pause(); else audioRef.current?.play(); setIsPlaying(!isPlaying); }}
+          isPlaying={isPlaying} onTogglePlay={() => { if (isPlaying) audioRef.current?.pause(); else audioRef.current?.play(); setIsPlaying(!isPlaying); }}
           onNext={nextTrack} onPrev={prevTrack} onSelectTrack={setCurrentTrackIndex} onRemoveTrack={(id) => setTracks(prev => prev.filter(t => t.id !== id))}
           progress={progress} duration={duration} volume={volume} onVolumeChange={(v) => { setVolume(v); if (audioRef.current) audioRef.current.volume = v; }}
           onSeek={(val) => audioRef.current && (audioRef.current.currentTime = val)}
@@ -438,10 +474,10 @@ const App: React.FC = () => {
           })}
           playbackMode={playbackMode} onTogglePlaybackMode={() => setPlaybackMode(p => p === 'normal' ? 'shuffle' : p === 'shuffle' ? 'loop' : 'normal')}
           onReorder={moveTrack}
+          themeColor={themeColor}
         />
         
-        {/* 移动端底部导航 */}
-        <MobileNav activeView={view} onViewChange={(v) => { setView(v); setNavigationRequest(null); }} trackCount={tracks.length} />
+        <MobileNav activeView={view} onViewChange={(v) => { setView(v); setNavigationRequest(null); }} trackCount={tracks.length} themeColor={themeColor} />
       </main>
     </div>
   );

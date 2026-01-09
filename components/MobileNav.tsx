@@ -6,9 +6,10 @@ interface MobileNavProps {
   activeView: ViewType;
   onViewChange: (view: ViewType) => void;
   trackCount: number;
+  themeColor?: string;
 }
 
-const MobileNav: React.FC<MobileNavProps> = ({ activeView, onViewChange, trackCount }) => {
+const MobileNav: React.FC<MobileNavProps> = ({ activeView, onViewChange, trackCount, themeColor = '#eab308' }) => {
   const navItems = [
     { 
       id: 'player' as ViewType, 
@@ -65,13 +66,14 @@ const MobileNav: React.FC<MobileNavProps> = ({ activeView, onViewChange, trackCo
           onClick={() => onViewChange(item.id)}
           className={`
             flex flex-col items-center justify-center w-full h-full gap-1 transition-all duration-300
-            ${activeView === item.id ? 'text-yellow-500' : 'text-zinc-500 hover:text-zinc-300'}
+            ${activeView === item.id ? '' : 'text-zinc-500 hover:text-zinc-300'}
           `}
+          style={activeView === item.id ? { color: themeColor } : {}}
         >
           <div className={`relative transition-transform duration-300 ${activeView === item.id ? '-translate-y-1' : ''}`}>
              {item.icon}
              {activeView === item.id && (
-                 <div className="absolute -bottom-2 left-1/2 -translate-x-1/2 w-1 h-1 bg-yellow-500 rounded-full shadow-[0_0_5px_rgba(234,179,8,0.8)]" />
+                 <div className="absolute -bottom-2 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full shadow-[0_0_5px_currentColor]" style={{ backgroundColor: themeColor }} />
              )}
           </div>
           <span className="text-[9px] font-bold tracking-widest uppercase scale-90">{item.label}</span>
