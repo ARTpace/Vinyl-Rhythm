@@ -52,12 +52,10 @@ const App: React.FC = () => {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const currentTrack = currentTrackIndex !== null ? tracks[currentTrackIndex] : null;
 
-  // 1. 启动时自动恢复已有的文件夹内容
   useEffect(() => {
     const autoLoad = async () => {
       const savedFolders = await getAllLibraryFolders();
       if (savedFolders.length > 0) {
-        // 静默同步：尝试读取权限并恢复列表
         handleSyncAll(true);
       }
     };
@@ -167,7 +165,6 @@ const App: React.FC = () => {
     for (const folder of savedFolders) {
       try {
         let permission = await folder.handle.queryPermission({ mode: 'read' });
-        // 如果是静默加载且没权限，跳过，不弹窗打扰用户
         if (permission !== 'granted' && isSilent) continue;
 
         if (permission !== 'granted') {
@@ -179,13 +176,11 @@ const App: React.FC = () => {
         const diskFiles = await scanDirectory(folder.handle);
         const diskFingerprints = new Set(diskFiles.map(f => `${f.name}-${f.size}`));
 
-        // 清理
         latestTracks = latestTracks.filter(t => {
           if (t.folderId !== folder.id) return true;
           return diskFingerprints.has(t.fingerprint);
         });
         
-        // 增量添加
         const existingFingerprints = new Set(latestTracks.map(t => t.fingerprint));
         const newFiles = diskFiles.filter(f => !existingFingerprints.has(`${f.name}-${f.size}`));
         
@@ -193,13 +188,11 @@ const App: React.FC = () => {
           const file = newFiles[i];
           setImportProgress(Math.round(((i + 1) / newFiles.length) * 100));
           setCurrentProcessingFile(`导入: ${file.name}`);
-          
           try {
             const track = await parseFileToTrack(file);
             track.folderId = folder.id;
             latestTracks.push(track);
           } catch (e) { console.warn(e); }
-          
           if (i % 5 === 0) await new Promise(r => setTimeout(r, 0));
         }
 
@@ -211,19 +204,15 @@ const App: React.FC = () => {
             trackCount: latestTracks.filter(t => t.folderId === folder.id).length
           };
         }
-
       } catch (e) { console.warn(`同步失败:`, e); }
     }
 
     setTracks(latestTracks);
     setImportedFolders(updatedFolders);
-    
-    // 逻辑优化：同步后如果没有选中歌曲，自动装载第一首，并跳转到播放页
     if (latestTracks.length > 0 && currentTrackIndex === null) {
       setCurrentTrackIndex(0);
       setView('player'); 
     }
-
     setIsImporting(false);
     setImportProgress(0);
     setCurrentProcessingFile('');
@@ -232,7 +221,10 @@ const App: React.FC = () => {
   const handleInitialImport = async () => {
     try {
       if ('showDirectoryPicker' in window) {
-        const handle = await window.showDirectoryPicker();
+        const handle = await window.showDirectoryPicker().catch(err => {
+          throw err;
+        });
+        
         const folderId = handle.name;
         await saveLibraryFolder(folderId, handle);
         
@@ -255,17 +247,21 @@ const App: React.FC = () => {
         setTracks(prev => [...prev, ...newTracks]);
         setImportedFolders(prev => [...prev, { id: folderId, name: handle.name, lastSync: Date.now(), trackCount: newTracks.length }]);
         
-        // 自动装载并跳转
         if (newTracks.length > 0) {
           setCurrentTrackIndex(0);
           setView('player');
-          setIsImportWindowOpen(false); // 导入成功后关闭库管理窗口
+          setIsImportWindowOpen(false);
         }
-        
         setIsImporting(false);
         setImportProgress(0);
+      } else {
+        fallbackInputRef.current?.click();
       }
-    } catch (e) { console.warn(e); setIsImporting(false); }
+    } catch (e) {
+      console.warn("现代文件 API 被禁用或被取消，切换到传统模式", e);
+      setIsImporting(false);
+      fallbackInputRef.current?.click();
+    }
   };
 
   const handleRemoveFolder = async (id: string) => {
@@ -354,32 +350,44 @@ const App: React.FC = () => {
 
   return (
     <div className="flex h-screen overflow-hidden font-sans selection:bg-yellow-500/30">
-      <input type="file" ref={fallbackInputRef} className="hidden" {...({ webkitdirectory: "true", directory: "" } as any)} onChange={(e) => {
+      <input 
+        type="file" 
+        ref={fallbackInputRef} 
+        className="hidden" 
+        {...({ webkitdirectory: "true", directory: "", multiple: true } as any)} 
+        onChange={(e) => {
           const files = Array.from(e.target.files || []) as File[];
           if (files.length > 0) { 
             setIsImporting(true);
-            const folderId = "本地导入-" + Date.now();
+            const folderId = "手动导入-" + Date.now();
             Promise.all(files.map(async (f) => {
-              const t = await parseFileToTrack(f);
-              t.folderId = folderId;
-              return t;
+              if (SUPPORTED_FORMATS.some(ext => f.name.toLowerCase().endsWith(ext))) {
+                const t = await parseFileToTrack(f);
+                t.folderId = folderId;
+                return t;
+              }
+              return null;
             })).then(ts => {
-              setTracks(prev => [...prev, ...ts]);
-              setImportedFolders(prev => [...prev, { id: folderId, name: "手动选择文件", lastSync: Date.now(), trackCount: ts.length }]);
-              if (currentTrackIndex === null) {
+              const validTracks = ts.filter(t => t !== null) as Track[];
+              setTracks(prev => [...prev, ...validTracks]);
+              setImportedFolders(prev => [...prev, { id: folderId, name: "手动导入文件", lastSync: Date.now(), trackCount: validTracks.length }]);
+              if (currentTrackIndex === null && validTracks.length > 0) {
                 setCurrentTrackIndex(0);
                 setView('player');
               }
               setIsImporting(false);
+              setIsImportWindowOpen(false);
             });
           }
           e.target.value = ''; 
-      }} />
+        }} 
+      />
 
       <ImportWindow 
         isOpen={isImportWindowOpen} 
         onClose={() => setIsImportWindowOpen(false)} 
         onImport={handleInitialImport} 
+        onFallbackImport={() => fallbackInputRef.current?.click()}
         onRemoveFolder={handleRemoveFolder} 
         importedFolders={importedFolders} 
       />
@@ -426,19 +434,20 @@ const App: React.FC = () => {
             <div key={view} className="absolute inset-0 flex flex-col animate-in fade-in duration-700">
                 {view === 'player' ? (
                   <div className="flex-1 flex flex-col items-center justify-center gap-6 md:gap-10 p-4 md:p-8">
-                    <div className="text-center relative z-40 px-4 max-w-2xl">
-                      <h2 className="text-3xl md:text-5xl font-black text-white mb-3 md:mb-5 truncate drop-shadow-2xl tracking-tighter">
+                    {/* 优化标题区域：移除 truncate，增加换行支持与艺术字样式 */}
+                    <div className="text-center relative z-40 px-4 max-w-3xl min-h-[120px] flex flex-col justify-center">
+                      <h2 className="text-3xl md:text-5xl lg:text-6xl font-black mb-4 leading-[1.1] md:leading-tight tracking-tighter text-transparent bg-clip-text bg-gradient-to-b from-white via-white to-zinc-500 drop-shadow-[0_10px_10px_rgba(0,0,0,0.5)] [text-wrap:balance] line-clamp-2">
                         {currentTrack?.name || (tracks.length > 0 ? "准备播放" : "黑胶时光")}
                       </h2>
-                      <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-2">
+                      <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-2 opacity-80">
                         <button 
                           onClick={() => { setNavigationRequest({ type: 'artists', name: currentTrack?.artist || '' }); setView('artists'); }} 
-                          className="text-zinc-400 font-black uppercase tracking-[0.2em] text-[10px] md:text-xs hover:text-yellow-500 transition-colors"
+                          className="text-zinc-400 font-black uppercase tracking-[0.25em] text-[10px] md:text-xs hover:text-yellow-500 transition-colors"
                         >
                           {currentTrack?.artist || (tracks.length > 0 ? "等待开启旋律" : "享受纯净音质")}
                         </button>
                         {(currentTrack?.album || tracks.length > 0) && <span className="w-1.5 h-1.5 bg-zinc-800 rounded-full" />}
-                        <span className="text-zinc-600 font-black uppercase tracking-[0.1em] text-[10px] md:text-xs truncate max-w-[200px]">
+                        <span className="text-zinc-500 font-black uppercase tracking-[0.15em] text-[10px] md:text-xs truncate max-w-[280px]">
                           {currentTrack?.album || (tracks.length > 0 ? "选一支喜欢的歌吧" : "请先添加音乐文件夹")}
                         </span>
                       </div>
@@ -461,12 +470,12 @@ const App: React.FC = () => {
                         </div>
 
                         {currentTrack?.bitrate && (
-                          <div className="mt-8 px-4 py-1.5 rounded-full bg-white/5 border border-white/5 backdrop-blur-md flex items-center gap-3 animate-in fade-in slide-in-from-bottom-2 duration-1000">
+                          <div className="mt-8 px-5 py-2 rounded-full bg-white/5 border border-white/5 backdrop-blur-md flex items-center gap-3 animate-in fade-in slide-in-from-bottom-2 duration-1000">
                             <div className={`w-1.5 h-1.5 rounded-full shadow-[0_0_8px_rgba(34,197,94,0.5)] ${isPlaying ? 'bg-green-500 animate-pulse' : 'bg-zinc-600'}`} />
-                            <div className="flex items-center gap-2 font-mono text-[9px] font-black uppercase tracking-widest text-zinc-500">
-                               <span className="text-zinc-400">{Math.round(currentTrack.bitrate / 1000)} KBPS</span>
+                            <div className="flex items-center gap-2 font-mono text-[10px] font-black uppercase tracking-widest text-zinc-500">
+                               <span className="text-zinc-300">{Math.round(currentTrack.bitrate / 1000)} KBPS</span>
                                <span className="opacity-30">/</span>
-                               <span className="text-zinc-600">{currentTrack.name.toLowerCase().endsWith('.flac') ? 'Lossless' : 'Hifi Audio'}</span>
+                               <span className="text-zinc-500">{currentTrack.name.toLowerCase().endsWith('.flac') ? 'Lossless' : 'Hifi Audio'}</span>
                             </div>
                           </div>
                         )}
