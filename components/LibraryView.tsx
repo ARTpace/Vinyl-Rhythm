@@ -36,10 +36,15 @@ const TrackRow = React.memo<{
         <div className="w-6 text-center text-zinc-700 font-mono text-xs group-hover:text-yellow-500">{String(index + 1).padStart(2, '0')}</div>
         <div className="w-10 h-10 md:w-12 md:h-12 rounded-lg md:rounded-xl bg-zinc-800 overflow-hidden relative shrink-0 shadow-lg group-hover:scale-110 transition-transform">
           {track.coverUrl ? (
-            <img src={track.coverUrl} className="w-full h-full object-cover animate-in fade-in duration-500" loading="lazy" />
+            <img key={track.coverUrl} src={track.coverUrl} className="w-full h-full object-cover animate-in fade-in duration-700" loading="lazy" />
           ) : (
             <div className="w-full h-full flex items-center justify-center text-zinc-600">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/></svg>
+            </div>
+          )}
+          {isScraping && (
+            <div className="absolute inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center">
+              <div className="w-4 h-4 border-2 border-red-500 border-t-transparent rounded-full animate-spin"></div>
             </div>
           )}
         </div>
@@ -56,11 +61,11 @@ const TrackRow = React.memo<{
           </button>
         </div>
         
-        {/* 刮削按钮 - 使用网易云风格的搜索补全图标 */}
+        {/* 刮削按钮 */}
         <button 
           onClick={(e) => { e.stopPropagation(); onScrape(track); }}
           title="从网易云匹配信息"
-          className={`hidden md:flex p-2 rounded-full transition-all hover:bg-white/10 ${isScraping ? 'animate-spin text-red-500' : 'text-zinc-700 hover:text-red-500 opacity-0 group-hover:opacity-100'}`}
+          className={`hidden md:flex p-2 rounded-full transition-all hover:bg-white/10 ${isScraping ? 'text-red-500' : 'text-zinc-700 hover:text-red-500 opacity-0 group-hover:opacity-100'}`}
         >
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <path d="M21 12a9 9 0 1 1-6.219-8.56"/><path d="M16 10l4 4 4-4"/><path d="M20 4v10"/>
@@ -103,8 +108,11 @@ const LibraryView: React.FC<LibraryViewProps> = ({
           name: newData.title,
           artist: newData.artist,
           album: newData.album,
-          coverUrl: newData.coverUrl // 更新封面
+          coverUrl: newData.coverUrl || track.coverUrl // 如果没抓到新封面，保留旧的
         });
+        if (!newData.coverUrl) {
+          alert('信息已更新，但该歌曲在网易云中没有封面图。');
+        }
       } else {
         alert('未在网易云音乐中找到精准匹配的结果。');
       }
@@ -168,7 +176,7 @@ const LibraryView: React.FC<LibraryViewProps> = ({
           {groups.map(([name, groupTracks]) => (
             <div key={name} onClick={() => isAlbumView ? setActiveGroup(name) : (view === 'artists' ? onNavigate?.('artistProfile', name) : setActiveGroup(name))} className="group cursor-pointer">
               <div className="relative aspect-square bg-zinc-900 rounded-2xl overflow-hidden border border-white/5 transition-all group-hover:scale-105">
-                {groupTracks[0]?.coverUrl ? <img src={groupTracks[0].coverUrl} className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center text-zinc-700 text-3xl font-black">{name[0]}</div>}
+                {groupTracks[0]?.coverUrl ? <img key={groupTracks[0].coverUrl} src={groupTracks[0].coverUrl} className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center text-zinc-700 text-3xl font-black">{name[0]}</div>}
               </div>
               <h3 className="mt-3 text-white font-bold text-[11px] truncate text-center group-hover:text-yellow-500 transition-colors uppercase">{name === 'undefined' ? '未知' : name}</h3>
             </div>

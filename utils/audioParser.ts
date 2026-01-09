@@ -9,7 +9,7 @@ import * as mm from 'music-metadata-browser';
 const cleanFileNameData = (fileName: string) => {
   let cleanName = fileName.replace(/\.[^/.]+$/, ""); // 移除扩展名
   
-  // 1. 移除常见的网站广告后缀
+  // 1. 移除常见的网站广告后缀和特殊字符
   const ads = [
     "【无损音乐网 www.wusuns.com】", 
     " - 更多精彩尽在www.it688.cn", 
@@ -17,11 +17,16 @@ const cleanFileNameData = (fileName: string) => {
     "[80s下载网]", 
     " (高清版)",
     " - 副本",
-    "-(www.music.com)"
+    "-(www.music.com)",
+    "(Live)",
+    "（Live）",
+    "[FLAC]",
+    "(Official Video)",
+    "- 单曲"
   ];
   ads.forEach(ad => cleanName = cleanName.split(ad).join(""));
 
-  // 2. 移除括号内的杂质内容
+  // 2. 移除括号内的杂质内容 (通常是 [FLAC] 或 (www.xxx.com) 等)
   cleanName = cleanName.replace(/[\[\(].*?[\]\)]/g, "").trim();
   
   // 3. 移除开头的数字序号（如 01. 歌曲名）
