@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Track } from '../types';
 import { formatTime } from '../utils/audioParser';
 
@@ -57,9 +57,16 @@ const PlayerControls: React.FC<PlayerControlsProps> = ({
   const queueEndRef = useRef<HTMLDivElement>(null);
   const [isDraggingOverQueueBtn, setIsDraggingOverQueueBtn] = useState(false);
 
+  // 进度条拖拽状态
+  const [isDraggingSeek, setIsDraggingSeek] = useState(false);
+  const [dragProgress, setDragProgress] = useState(0);
+  const progressBarRef = useRef<HTMLDivElement>(null);
+
   if (!currentTrack && tracks.length === 0) return null;
 
-  const progressPercent = (progress / duration) * 100 || 0;
+  // 计算显示的百分比：拖动中优先显示拖动进度
+  const currentProgress = isDraggingSeek ? dragProgress : progress;
+  const progressPercent = (currentProgress / duration) * 100 || 0;
 
   const handleToggleMute = () => {
     if (volume > 0) {
@@ -74,6 +81,29 @@ const PlayerControls: React.FC<PlayerControlsProps> = ({
     if (volume === 0) return <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M11 5L6 9H2v6h4l5 4V5zM23 9l-6 6M17 9l6 6"/></svg>;
     if (volume < 0.5) return <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M11 5L6 9H2v6h4l5 4V5zM15.54 8.46a5 5 0 0 1 0 7.75"/></svg>;
     return <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M11 5L6 9H2v6h4l5 4V5zM19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>;
+  };
+
+  // 进度条拖拽逻辑
+  const handleSeekStart = (e: React.PointerEvent) => {
+    if (!duration) return;
+    setIsDraggingSeek(true);
+    handleSeekMove(e);
+    (e.target as Element).setPointerCapture(e.pointerId);
+  };
+
+  const handleSeekMove = (e: React.PointerEvent | PointerEvent) => {
+    if (!isDraggingSeek || !progressBarRef.current || !duration) return;
+    const rect = progressBarRef.current.getBoundingClientRect();
+    const x = Math.max(0, Math.min(e.clientX - rect.left, rect.width));
+    const newProgress = (x / rect.width) * duration;
+    setDragProgress(newProgress);
+  };
+
+  const handleSeekEnd = (e: React.PointerEvent) => {
+    if (!isDraggingSeek) return;
+    onSeek(dragProgress);
+    setIsDraggingSeek(false);
+    (e.target as Element).releasePointerCapture(e.pointerId);
   };
 
   const metallicPanelClass = "bg-[#1a1a1a] border-t border-[#333] shadow-[0_-5px_20px_rgba(0,0,0,0.8),inset_0_1px_0_rgba(255,255,255,0.1)]";
@@ -124,7 +154,6 @@ const PlayerControls: React.FC<PlayerControlsProps> = ({
               </div>
               <div className="flex-1 min-w-0">
                 <div className={`font-bold text-xs truncate ${idx === currentIndex ? 'text-yellow-500' : 'text-zinc-300'}`}>{track.name}</div>
-                {/* 队列中的歌手名跳转 */}
                 <button 
                   onClick={(e) => { e.stopPropagation(); onNavigate?.('artists', track.artist); setShowQueue(false); }}
                   className="text-[10px] text-zinc-600 truncate font-medium hover:text-yellow-500 transition-colors"
@@ -158,7 +187,6 @@ const PlayerControls: React.FC<PlayerControlsProps> = ({
            </div>
            <div className="min-w-0 flex flex-col gap-1">
               <h4 className="font-medium truncate text-sm text-yellow-500">{currentTrack?.name || "等待选择曲目"}</h4>
-              {/* 底栏歌手名跳转 */}
               <button 
                 onClick={() => onNavigate?.('artists', currentTrack?.artist || '')}
                 className="text-zinc-500 text-[10px] font-bold uppercase tracking-wider truncate text-left hover:text-yellow-500 transition-colors"
@@ -171,10 +199,22 @@ const PlayerControls: React.FC<PlayerControlsProps> = ({
 
         <div className="flex flex-col items-center justify-center gap-1 w-2/4 h-full pt-1">
            <div className="w-full flex items-center gap-4 px-4 group select-none mb-1">
-              <span className="text-[10px] text-[#444] font-mono font-bold min-w-[35px] text-right">{formatTime(progress)}</span>
-              <div className={`flex-1 h-2 ${trackGrooveClass} relative cursor-pointer`} onClick={(e) => { if (!duration) return; const rect = e.currentTarget.getBoundingClientRect(); onSeek(((e.clientX - rect.left) / rect.width) * duration); }}>
+              <span className="text-[10px] text-[#444] font-mono font-bold min-w-[35px] text-right">{formatTime(currentProgress)}</span>
+              <div 
+                ref={progressBarRef}
+                onPointerDown={handleSeekStart}
+                onPointerMove={handleSeekMove}
+                onPointerUp={handleSeekEnd}
+                onPointerCancel={handleSeekEnd}
+                className={`flex-1 h-2 ${trackGrooveClass} relative cursor-pointer touch-none`}
+              >
                  <div className="absolute top-0 left-0 h-full bg-yellow-500 rounded-full opacity-80" style={{ width: `${progressPercent}%` }}></div>
-                 <div className={`absolute top-1/2 -translate-y-1/2 w-4 h-4 ${metallicThumbClass} -ml-2 cursor-grab active:cursor-grabbing hover:scale-110 transition-transform`} style={{ left: `${progressPercent}%` }}><div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-1.5 h-1.5 rounded-full bg-[#111]"></div></div>
+                 <div 
+                  className={`absolute top-1/2 -translate-y-1/2 w-4 h-4 ${metallicThumbClass} -ml-2 transition-transform ${isDraggingSeek ? 'scale-125 cursor-grabbing' : 'cursor-grab hover:scale-110'}`} 
+                  style={{ left: `${progressPercent}%` }}
+                 >
+                   <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-1.5 h-1.5 rounded-full bg-[#111]"></div>
+                 </div>
               </div>
               <span className="text-[10px] text-[#444] font-mono font-bold min-w-[35px]">{formatTime(duration)}</span>
            </div>
@@ -208,13 +248,20 @@ const PlayerControls: React.FC<PlayerControlsProps> = ({
       </div>
 
       <div className="flex md:hidden fixed bottom-16 left-0 right-0 h-14 bg-[#1e1e1e] border-t border-white/5 z-[60] items-center px-3">
-         <div className="absolute top-0 left-0 right-0 h-[2px] bg-zinc-800" onClick={(e) => { if (!duration) return; const rect = e.currentTarget.getBoundingClientRect(); onSeek(((e.clientX - rect.left) / rect.width) * duration); }}><div className="h-full bg-yellow-500" style={{ width: `${progressPercent}%` }}></div></div>
+         <div 
+          className="absolute top-0 left-0 right-0 h-[2px] bg-zinc-800" 
+          onPointerDown={handleSeekStart}
+          onPointerMove={handleSeekMove}
+          onPointerUp={handleSeekEnd}
+          onPointerCancel={handleSeekEnd}
+         >
+           <div className="h-full bg-yellow-500" style={{ width: `${progressPercent}%` }}></div>
+         </div>
          <div className="relative w-10 h-10 flex-shrink-0 mr-3 overflow-hidden rounded-full">
             {currentTrack?.coverUrl ? <img src={currentTrack.coverUrl} className="w-full h-full object-cover" /> : <div className="w-full h-full bg-zinc-800" />}
          </div>
          <div className="flex-1 min-w-0" onClick={() => onSelectTrack(currentIndex || 0)}>
             <span className="text-white text-xs font-bold truncate block">{currentTrack?.name || "未选中"}</span>
-            {/* 移动端迷你播放器歌手跳转 */}
             <button 
               onClick={(e) => { e.stopPropagation(); onNavigate?.('artists', currentTrack?.artist || ''); }}
               className="text-zinc-500 text-[10px] truncate block hover:text-yellow-500 transition-colors"

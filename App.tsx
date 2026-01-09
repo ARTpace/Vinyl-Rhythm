@@ -1,5 +1,5 @@
 
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import Sidebar from './components/Sidebar';
 import MobileNav from './components/MobileNav';
 import ImportWindow from './components/ImportWindow';
@@ -42,6 +42,7 @@ const App: React.FC = () => {
   const analyserRef = useRef<AnalyserNode | null>(null);
   const animationFrameRef = useRef<number | null>(null);
   const fallbackInputRef = useRef<HTMLInputElement>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
 
   const [favorites, setFavorites] = useState<Set<string>>(() => {
     const saved = localStorage.getItem('vinyl_favorites');
@@ -50,11 +51,23 @@ const App: React.FC = () => {
 
   const [playbackMode, setPlaybackMode] = useState<PlaybackMode>('normal');
   const audioRef = useRef<HTMLAudioElement | null>(null);
+
+  const filteredTracks = useMemo(() => {
+    if (!searchQuery.trim()) return tracks;
+    const q = searchQuery.toLowerCase();
+    return tracks.filter(t => 
+      t.name.toLowerCase().includes(q) || 
+      t.artist.toLowerCase().includes(q) || 
+      t.album.toLowerCase().includes(q)
+    );
+  }, [tracks, searchQuery]);
+
   const currentTrack = currentTrackIndex !== null ? tracks[currentTrackIndex] : null;
 
   const handleNavigate = useCallback((type: 'artists' | 'albums' | 'folders', name: string) => {
     setNavigationRequest({ type, name });
     setView(type as ViewType);
+    setSearchQuery('');
   }, []);
 
   const getQualityInfo = (track: Track) => {
@@ -122,16 +135,14 @@ const App: React.FC = () => {
     else if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
   }, [isPlaying, updateIntensity]);
 
-  // 优化：处理播放/暂停状态同步
   useEffect(() => {
     const audio = audioRef.current;
     if (!audio) return;
-    
     if (isPlaying) {
       const playPromise = audio.play();
       if (playPromise !== undefined) {
         playPromise.catch(error => {
-          console.warn("播放被浏览器拦截或加载失败:", error);
+          console.warn("播放受限:", error);
           if (error.name === 'NotAllowedError') setIsPlaying(false);
         });
       }
@@ -141,13 +152,9 @@ const App: React.FC = () => {
     }
   }, [isPlaying, initAudioAnalyzer]);
 
-  // 优化：处理曲目 URL 变化时的逻辑
   useEffect(() => {
     if (currentTrack?.url && isPlaying && audioRef.current) {
-      // 当 URL 变化且处于播放状态时，强制重新触发 play
-      audioRef.current.play().catch(() => {
-        // 尝试播放失败可能是因为 src 尚未完全更新，通常 play() 内部会自动处理 src 变化
-      });
+      audioRef.current.play().catch(() => {});
     }
   }, [currentTrack?.url]);
 
@@ -197,18 +204,16 @@ const App: React.FC = () => {
       if (!isSilent) handleInitialImport();
       return;
     }
-
     setIsImporting(true);
     setImportProgress(0);
     
-    let latestTracks = isSilent ? [] : [...tracks];
+    let allProcessedTracks: Track[] = isSilent ? [] : [...tracks];
     let updatedFolders = [...importedFolders];
 
     for (const folder of savedFolders) {
       try {
         let permission = await folder.handle.queryPermission({ mode: 'read' });
         if (permission !== 'granted' && isSilent) continue;
-
         if (permission !== 'granted') {
           try { permission = await folder.handle.requestPermission({ mode: 'read' }); } catch (err) { console.warn(err); }
         }
@@ -217,41 +222,51 @@ const App: React.FC = () => {
         setCurrentProcessingFile(`正在扫描: ${folder.name}`);
         const diskFiles = await scanDirectory(folder.handle);
         const diskFingerprints = new Set(diskFiles.map(f => `${f.name}-${f.size}`));
-
-        latestTracks = latestTracks.filter(t => {
-          if (t.folderId !== folder.id) return true;
-          return diskFingerprints.has(t.fingerprint);
-        });
         
-        const existingFingerprints = new Set(latestTracks.map(t => t.fingerprint));
+        // 过滤掉已失效的
+        allProcessedTracks = allProcessedTracks.filter(t => t.folderId !== folder.id || diskFingerprints.has(t.fingerprint));
+        
+        const existingFingerprints = new Set(allProcessedTracks.map(t => t.fingerprint));
         const newFiles = diskFiles.filter(f => !existingFingerprints.has(`${f.name}-${f.size}`));
         
+        const newlyParsed: Track[] = [];
+        // 分批处理新文件，避免一次性 setTracks 渲染压力
+        const BATCH_SIZE = 50;
         for (let i = 0; i < newFiles.length; i++) {
           const file = newFiles[i];
           setImportProgress(Math.round(((i + 1) / newFiles.length) * 100));
-          setCurrentProcessingFile(`导入: ${file.name}`);
+          setCurrentProcessingFile(`导入 (${i+1}/${newFiles.length}): ${file.name}`);
+          
           try {
             const track = await parseFileToTrack(file);
             track.folderId = folder.id;
-            latestTracks.push(track);
+            newlyParsed.push(track);
+            
+            // 每 50 首同步一次 UI，保证进度平滑
+            if (newlyParsed.length >= BATCH_SIZE) {
+              const batchToUpdate = [...newlyParsed];
+              allProcessedTracks = [...allProcessedTracks, ...batchToUpdate];
+              setTracks([...allProcessedTracks]);
+              newlyParsed.length = 0;
+            }
           } catch (e) { console.warn(e); }
-          if (i % 5 === 0) await new Promise(r => setTimeout(r, 0));
+          
+          if (i % 10 === 0) await new Promise(r => setTimeout(r, 0)); // 让出主线程
+        }
+        
+        // 最后剩余的也加入
+        if (newlyParsed.length > 0) {
+          allProcessedTracks = [...allProcessedTracks, ...newlyParsed];
+          setTracks([...allProcessedTracks]);
         }
 
         const fIdx = updatedFolders.findIndex(f => f.id === folder.id);
-        if (fIdx !== -1) {
-          updatedFolders[fIdx] = {
-            ...updatedFolders[fIdx],
-            lastSync: Date.now(),
-            trackCount: latestTracks.filter(t => t.folderId === folder.id).length
-          };
-        }
+        if (fIdx !== -1) updatedFolders[fIdx] = { ...updatedFolders[fIdx], lastSync: Date.now(), trackCount: allProcessedTracks.filter(t => t.folderId === folder.id).length };
       } catch (e) { console.warn(`同步失败:`, e); }
     }
 
-    setTracks(latestTracks);
     setImportedFolders(updatedFolders);
-    if (latestTracks.length > 0 && currentTrackIndex === null) {
+    if (allProcessedTracks.length > 0 && currentTrackIndex === null) {
       setCurrentTrackIndex(0);
       setView('player'); 
     }
@@ -263,45 +278,48 @@ const App: React.FC = () => {
   const handleInitialImport = async () => {
     try {
       if ('showDirectoryPicker' in window) {
-        const handle = await window.showDirectoryPicker().catch(err => {
-          throw err;
-        });
-        
+        const handle = await window.showDirectoryPicker();
         const folderId = handle.name;
         await saveLibraryFolder(folderId, handle);
-        
         setIsImporting(true);
         const files = await scanDirectory(handle);
         
-        let newTracks: Track[] = [];
+        let localBatch: Track[] = [];
+        const BATCH_SIZE = 50;
+        
         for (let i = 0; i < files.length; i++) {
           const file = files[i];
           setImportProgress(Math.round(((i + 1) / files.length) * 100));
-          setCurrentProcessingFile(`导入: ${file.name}`);
+          setCurrentProcessingFile(`导入 (${i+1}/${files.length}): ${file.name}`);
+          
           try {
             const track = await parseFileToTrack(file);
             track.folderId = folderId;
-            newTracks.push(track);
+            localBatch.push(track);
+            
+            if (localBatch.length >= BATCH_SIZE) {
+              setTracks(prev => [...prev, ...localBatch]);
+              localBatch = [];
+            }
           } catch (e) { console.warn(e); }
-          if (i % 5 === 0) await new Promise(r => setTimeout(r, 0));
+          
+          if (i % 10 === 0) await new Promise(r => setTimeout(r, 0));
         }
 
-        setTracks(prev => [...prev, ...newTracks]);
-        setImportedFolders(prev => [...prev, { id: folderId, name: handle.name, lastSync: Date.now(), trackCount: newTracks.length }]);
-        
-        if (newTracks.length > 0) {
-          setCurrentTrackIndex(0);
-          setView('player');
-          setIsImportWindowOpen(false);
-          setIsPlaying(true); // 导入后自动播放
+        if (localBatch.length > 0) {
+          setTracks(prev => [...prev, ...localBatch]);
         }
+
+        setImportedFolders(prev => [...prev, { id: folderId, name: handle.name, lastSync: Date.now(), trackCount: files.length }]);
+        setView('player');
+        setIsImportWindowOpen(false);
+        setIsPlaying(true);
         setIsImporting(false);
         setImportProgress(0);
       } else {
         fallbackInputRef.current?.click();
       }
     } catch (e) {
-      console.warn("现代文件 API 被禁用或被取消，切换到传统模式", e);
       setIsImporting(false);
       fallbackInputRef.current?.click();
     }
@@ -313,14 +331,9 @@ const App: React.FC = () => {
       setImportedFolders(prev => prev.filter(f => f.id !== id));
       setTracks(prev => {
         const newTracks = prev.filter(t => t.folderId !== id);
-        if (currentTrackIndex !== null) {
-          if (prev[currentTrackIndex].folderId === id) {
-            setIsPlaying(false);
-            setCurrentTrackIndex(newTracks.length > 0 ? 0 : null);
-          } else {
-            const currentlyPlayingId = prev[currentTrackIndex].id;
-            setCurrentTrackIndex(newTracks.findIndex(t => t.id === currentlyPlayingId));
-          }
+        if (currentTrackIndex !== null && prev[currentTrackIndex].folderId === id) {
+          setIsPlaying(false);
+          setCurrentTrackIndex(newTracks.length > 0 ? 0 : null);
         }
         return newTracks;
       });
@@ -400,9 +413,7 @@ const App: React.FC = () => {
   return (
     <div className="flex h-screen overflow-hidden font-sans selection:bg-yellow-500/30">
       <input 
-        type="file" 
-        ref={fallbackInputRef} 
-        className="hidden" 
+        type="file" ref={fallbackInputRef} className="hidden" 
         {...({ webkitdirectory: "true", directory: "", multiple: true } as any)} 
         onChange={(e) => {
           const files = Array.from(e.target.files || []) as File[];
@@ -434,12 +445,9 @@ const App: React.FC = () => {
       />
 
       <ImportWindow 
-        isOpen={isImportWindowOpen} 
-        onClose={() => setIsImportWindowOpen(false)} 
-        onImport={handleInitialImport} 
-        onFallbackImport={() => fallbackInputRef.current?.click()}
-        onRemoveFolder={handleRemoveFolder} 
-        importedFolders={importedFolders} 
+        isOpen={isImportWindowOpen} onClose={() => setIsImportWindowOpen(false)} 
+        onImport={handleInitialImport} onFallbackImport={() => fallbackInputRef.current?.click()}
+        onRemoveFolder={handleRemoveFolder} importedFolders={importedFolders} 
       />
       
       <div className="hidden md:flex flex-col h-full z-50">
@@ -456,14 +464,28 @@ const App: React.FC = () => {
         <header className="p-4 md:p-6 flex justify-between items-center z-50 relative gap-3">
           <div className="flex items-center gap-4 md:gap-6 flex-1 min-w-0">
              <div className="relative group max-w-md w-full">
+                <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-zinc-500 group-focus-within:text-yellow-500 transition-colors">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+                </div>
                 <input
-                  type="text" placeholder="搜索曲目..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)}
-                  className="w-full bg-white/5 border border-white/10 rounded-full py-2 px-4 md:py-2.5 md:px-11 text-sm text-white focus:border-yellow-500 outline-none backdrop-blur-md transition-all"
+                  ref={searchInputRef}
+                  type="text" placeholder="搜索曲目、歌手、专辑..." value={searchQuery} 
+                  onChange={(e) => { setSearchQuery(e.target.value); if(view === 'player' && e.target.value) setView('all'); }}
+                  onKeyDown={(e) => { if(e.key === 'Escape') { setSearchQuery(''); searchInputRef.current?.blur(); }}}
+                  className="w-full bg-white/5 border border-white/10 rounded-full py-2.5 px-11 text-sm text-white focus:border-yellow-500/50 focus:bg-white/10 outline-none backdrop-blur-md transition-all placeholder:text-zinc-600"
                 />
+                {searchQuery && (
+                  <button 
+                    onClick={() => { setSearchQuery(''); searchInputRef.current?.focus(); }}
+                    className="absolute inset-y-0 right-0 pr-4 flex items-center text-zinc-500 hover:text-white transition-colors"
+                  >
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><path d="M18 6 6 18M6 6l12 12"/></svg>
+                  </button>
+                )}
              </div>
              {isImporting && (
-               <div className="hidden md:flex items-center gap-3 bg-black/40 backdrop-blur-md px-4 py-2 rounded-full border border-white/5">
-                  <div className="w-2 h-2 bg-yellow-500 rounded-full animate-pulse shadow-[0_0_8px_rgba(234,179,8,1)]"></div>
+               <div className="hidden md:flex items-center gap-3 bg-black/40 backdrop-blur-md px-4 py-2 rounded-full border border-white/5 overflow-hidden">
+                  <div className="w-2 h-2 bg-yellow-500 rounded-full animate-pulse shadow-[0_0_8px_rgba(234,179,8,1)] flex-shrink-0"></div>
                   <span className="text-[10px] text-zinc-400 font-black uppercase tracking-widest whitespace-nowrap truncate max-w-[200px]"> 同步中: {currentProcessingFile} </span>
                </div>
              )}
@@ -507,49 +529,33 @@ const App: React.FC = () => {
                     
                     <div className="relative flex flex-col items-center justify-center">
                         <SwipeableTrack onNext={nextTrack} onPrev={prevTrack} currentId={currentTrack?.id || 'empty'}>
-                          <VinylRecord 
-                            isPlaying={isPlaying} 
-                            coverUrl={currentTrack?.coverUrl} 
-                            intensity={audioIntensity} 
-                            themeColor={rhythmColor} 
-                          />
+                          <VinylRecord isPlaying={isPlaying} coverUrl={currentTrack?.coverUrl} intensity={audioIntensity} themeColor={rhythmColor} />
                         </SwipeableTrack>
-                        
                         <div className="absolute inset-0 pointer-events-none flex items-center justify-center z-30">
                             <div className="relative w-[70vw] h-[70vw] max-w-[18rem] max-h-[18rem] md:w-96 md:h-96 flex-shrink-0">
                                 <ToneArm isPlaying={isPlaying} progress={duration > 0 ? progress / duration : 0} />
                             </div>
                         </div>
-
                         {currentTrack?.bitrate && (
                           <div className="mt-8 px-4 py-1.5 rounded-full bg-white/5 border border-white/5 backdrop-blur-md flex items-center gap-3 animate-in fade-in slide-in-from-bottom-2 duration-1000">
-                            <div 
-                              className={`w-1.5 h-1.5 rounded-full transition-colors duration-500 ${getQualityInfo(currentTrack).color} ${isPlaying ? 'animate-pulse' : ''}`} 
-                              style={{ boxShadow: `0 0 8px ${getQualityInfo(currentTrack).shadow}` }}
-                            />
+                            <div className={`w-1.5 h-1.5 rounded-full transition-colors duration-500 ${getQualityInfo(currentTrack).color} ${isPlaying ? 'animate-pulse' : ''}`} style={{ boxShadow: `0 0 8px ${getQualityInfo(currentTrack).shadow}` }} />
                             <div className="flex items-center gap-2 font-mono text-[9px] font-bold uppercase tracking-widest">
                                <span className="text-zinc-400">{Math.round(currentTrack.bitrate / 1000)} KBPS</span>
                                <span className="opacity-20 text-white">/</span>
-                               <span 
-                                 className="transition-colors duration-500"
-                                 style={{ color: getQualityInfo(currentTrack).label !== 'Standard' ? rhythmColor.replace(', 1)', ', 0.8)') : '#71717a' }}
-                               >
-                                 {getQualityInfo(currentTrack).label}
-                               </span>
+                               <span className="transition-colors duration-500" style={{ color: getQualityInfo(currentTrack).label !== 'Standard' ? rhythmColor.replace(', 1)', ', 0.8)') : '#71717a' }}>{getQualityInfo(currentTrack).label}</span>
                             </div>
                           </div>
                         )}
                     </div>
-                    
                     <div className={`max-w-xs md:max-w-2xl text-center px-4 italic text-zinc-500 text-sm md:text-base transition-opacity duration-1000 leading-relaxed ${isStoryLoading ? 'opacity-20' : 'opacity-100'}`}>
                       {trackStory || (currentTrack ? "正在为您解读..." : (tracks.length > 0 ? "黑胶唱片已准备就绪。" : "开启一段黑胶之旅。"))}
                     </div>
                   </div>
                 ) : (
                   <LibraryView 
-                    view={view} tracks={tracks} onPlay={playTrack} favorites={favorites} 
+                    view={view} tracks={filteredTracks} onPlay={playTrack} favorites={favorites} 
                     navigationRequest={navigationRequest} onNavigationProcessed={() => setNavigationRequest(null)}
-                    onNavigate={handleNavigate}
+                    onNavigate={handleNavigate} isSearching={searchQuery.length > 0}
                     onToggleFavorite={(id) => setFavorites(prev => {
                       const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id);
                       localStorage.setItem('vinyl_favorites', JSON.stringify(Array.from(n)));
@@ -559,12 +565,7 @@ const App: React.FC = () => {
                 )}
             </div>
         </div>
-        <audio 
-          ref={audioRef} 
-          src={currentTrack?.url} 
-          onEnded={handleAudioEnded} 
-          preload="auto"
-        />
+        <audio ref={audioRef} src={currentTrack?.url} onEnded={handleAudioEnded} preload="auto" />
         <PlayerControls
           currentTrack={currentTrack} tracks={tracks} currentIndex={currentTrackIndex}
           isPlaying={isPlaying} onTogglePlay={() => { if (isPlaying) setIsPlaying(false); else setIsPlaying(true); }}
@@ -572,8 +573,7 @@ const App: React.FC = () => {
           progress={progress} duration={duration} volume={volume} onVolumeChange={(v) => { setVolume(v); if (audioRef.current) audioRef.current.volume = v; }}
           onSeek={(val) => audioRef.current && (audioRef.current.currentTime = val)}
           isFavorite={currentTrack ? favorites.has(currentTrack.id) : false} 
-          favorites={favorites}
-          onNavigate={handleNavigate}
+          favorites={favorites} onNavigate={handleNavigate}
           onToggleFavorite={(id) => {
             const targetId = id || currentTrack?.id;
             if (!targetId) return;
@@ -585,8 +585,7 @@ const App: React.FC = () => {
             });
           }}
           playbackMode={playbackMode} onTogglePlaybackMode={() => setPlaybackMode(p => p === 'normal' ? 'shuffle' : p === 'shuffle' ? 'loop' : 'normal')}
-          onReorder={moveTrack}
-          themeColor="#eab308" 
+          onReorder={moveTrack} themeColor="#eab308" 
         />
         <MobileNav activeView={view} onViewChange={(v) => { setView(v); setNavigationRequest(null); }} trackCount={tracks.length} themeColor="#eab308" />
       </main>
