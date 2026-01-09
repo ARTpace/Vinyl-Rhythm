@@ -11,7 +11,7 @@ import { Track, ViewType, PlaybackMode, LibraryFolder } from './types';
 import { parseFileToTrack } from './utils/audioParser';
 import { SUPPORTED_FORMATS } from './constants';
 import { getTrackStory } from './services/geminiService';
-import { saveLibraryFolder, getAllLibraryFolders } from './utils/storage';
+import { saveLibraryFolder, getAllLibraryFolders, removeLibraryFolder } from './utils/storage';
 
 const App: React.FC = () => {
   const [view, setView] = useState<ViewType>('player');
@@ -29,7 +29,9 @@ const App: React.FC = () => {
   const [trackStory, setTrackStory] = useState<string>('');
   const [isStoryLoading, setIsStoryLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
-  const [themeColor, setThemeColor] = useState('rgba(234, 179, 8, 1)');
+  
+  // 仅用于黑胶律动特效的主题色
+  const [rhythmColor, setRhythmColor] = useState('rgba(234, 179, 8, 1)');
   
   const [isImporting, setIsImporting] = useState<boolean>(false);
   const [importProgress, setImportProgress] = useState<number>(0);
@@ -86,20 +88,23 @@ const App: React.FC = () => {
     else if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
   }, [isPlaying, updateIntensity]);
 
-  // 核心：处理音频切换后的自动播放逻辑
+  // 处理音频自动播放：当曲目 URL 变化且处于播放状态时
   useEffect(() => {
     const audio = audioRef.current;
-    if (isPlaying && audio && currentTrack) {
-      // 当 URL 改变且处于播放状态时，执行播放
-      audio.play().catch(err => {
-        console.warn("[Player] 自动播放被拦截:", err);
-        setIsPlaying(false);
-      });
+    if (audio && currentTrack?.url && isPlaying) {
+      // 显式触发播放
+      const playPromise = audio.play();
+      if (playPromise !== undefined) {
+        playPromise.catch(error => {
+          console.warn("[AutoPlay] 播放被拦截或失败:", error);
+          if (error.name === 'NotAllowedError') setIsPlaying(false);
+        });
+      }
       initAudioAnalyzer();
     }
   }, [currentTrack?.url, isPlaying, initAudioAnalyzer]);
 
-  // 核心：提取当前曲目封面的主色调
+  // 提取封面主色调用于律动特效
   useEffect(() => {
     if (currentTrack?.coverUrl) {
       const img = new Image();
@@ -113,18 +118,17 @@ const App: React.FC = () => {
           canvas.height = 1;
           ctx.drawImage(img, 0, 0, 1, 1);
           const [r, g, b] = ctx.getImageData(0, 0, 1, 1).data;
-          // 设置主题颜色，由于背景是黑色的，如果是太暗的颜色则稍微提亮
           const brightness = (r * 299 + g * 587 + b * 114) / 1000;
           if (brightness < 40) {
-            setThemeColor(`rgba(${Math.min(255, r + 40)}, ${Math.min(255, g + 40)}, ${Math.min(255, b + 40)}, 1)`);
+            setRhythmColor(`rgba(${Math.min(255, r + 50)}, ${Math.min(255, g + 50)}, ${Math.min(255, b + 50)}, 1)`);
           } else {
-            setThemeColor(`rgba(${r}, ${g}, ${b}, 1)`);
+            setRhythmColor(`rgba(${r}, ${g}, ${b}, 1)`);
           }
         }
       };
-      img.onerror = () => setThemeColor('rgba(234, 179, 8, 1)');
+      img.onerror = () => setRhythmColor('rgba(234, 179, 8, 1)');
     } else {
-      setThemeColor('rgba(234, 179, 8, 1)');
+      setRhythmColor('rgba(234, 179, 8, 1)');
     }
   }, [currentTrack?.coverUrl]);
 
@@ -152,7 +156,6 @@ const App: React.FC = () => {
     for (const file of files) {
       processedCount++;
       const fingerprint = `${file.name}-${file.size}`;
-      
       if (tracks.some(t => t.fingerprint === fingerprint)) continue;
       if (allNewTracks.some(t => t.fingerprint === fingerprint)) continue;
 
@@ -199,44 +202,25 @@ const App: React.FC = () => {
 
   const handleSyncAll = async () => {
     if (isImporting) return;
-    
     const savedFolders = await getAllLibraryFolders();
-    
     if (savedFolders.length === 0) {
       handleInitialImport();
       return;
     }
-
     setIsImporting(true);
     setImportProgress(0);
-
     for (const folder of savedFolders) {
       try {
         let permission = await folder.handle.queryPermission({ mode: 'read' });
-        
         if (permission !== 'granted') {
-             try {
-                permission = await folder.handle.requestPermission({ mode: 'read' });
-             } catch (err) {
-                console.warn("请求权限时出错 (可能是环境限制):", err);
-             }
+             try { permission = await folder.handle.requestPermission({ mode: 'read' }); } catch (err) { console.warn(err); }
         }
-
-        if (permission !== 'granted') {
-             console.warn(`跳过文件夹 ${folder.name}: 权限未授予`);
-             continue;
-        }
-
-        setCurrentProcessingFile(`扫描目录: ${folder.name}`);
+        if (permission !== 'granted') continue;
+        setCurrentProcessingFile(`扫描: ${folder.name}`);
         const files = await scanDirectory(folder.handle, folder.id);
-        
         await ingestFiles(files, folder.id, folder.name);
-
-      } catch (e) {
-        console.warn(`同步文件夹 ${folder.name} 失败:`, e);
-      }
+      } catch (e) { console.warn(e); }
     }
-    
     setIsImporting(false);
     setImportProgress(0);
     setCurrentProcessingFile('');
@@ -248,19 +232,44 @@ const App: React.FC = () => {
         const handle = await window.showDirectoryPicker();
         const folderId = handle.name;
         await saveLibraryFolder(folderId, handle);
-        
         setIsImporting(true);
         const files = await scanDirectory(handle, folderId);
         await ingestFiles(files, folderId, handle.name);
         setIsImporting(false);
         setImportProgress(0);
-        setCurrentProcessingFile('');
-      } else {
-        throw new Error('FileSystem Access API not supported');
-      }
-    } catch (e) {
-      console.warn('showDirectoryPicker 失败或被拦截，回退到标准文件选择器:', e);
-      fallbackInputRef.current?.click();
+      } else { fallbackInputRef.current?.click(); }
+    } catch (e) { fallbackInputRef.current?.click(); }
+  };
+
+  // 新增：移除文件夹及相关曲目的逻辑
+  const handleRemoveFolder = async (id: string) => {
+    if (confirm('确定要从库中移除此文件夹吗？(不会删除本地物理文件)')) {
+      // 1. 从 IndexedDB 中移除
+      await removeLibraryFolder(id);
+      
+      // 2. 更新文件夹列表状态
+      setImportedFolders(prev => prev.filter(f => f.id !== id));
+      
+      // 3. 移除关联的曲目，并重置播放状态（如果当前播放的歌被移除了）
+      const trackToRemoveIds = tracks.filter(t => t.folderId === id).map(t => t.id);
+      
+      setTracks(prev => {
+        const newTracks = prev.filter(t => t.folderId !== id);
+        
+        // 调整当前播放索引
+        if (currentTrackIndex !== null) {
+          const currentlyPlayingId = prev[currentTrackIndex].id;
+          if (trackToRemoveIds.includes(currentlyPlayingId)) {
+            // 当前播放曲目被移除，停止播放或切换
+            setIsPlaying(false);
+            setCurrentTrackIndex(newTracks.length > 0 ? 0 : null);
+          } else {
+            const newIdx = newTracks.findIndex(t => t.id === currentlyPlayingId);
+            setCurrentTrackIndex(newIdx !== -1 ? newIdx : null);
+          }
+        }
+        return newTracks;
+      });
     }
   };
 
@@ -277,25 +286,11 @@ const App: React.FC = () => {
     const prevTracks = [...tracks]; 
     const fromIndex = prevTracks.findIndex(t => t.id === draggedId);
     if (fromIndex === -1) return;
-    
     const [trackToMove] = prevTracks.splice(fromIndex, 1);
-    
-    let toIndex;
-    if (targetId === null) {
-        toIndex = prevTracks.length;
-    } else {
-        const targetIndex = prevTracks.findIndex(t => t.id === targetId);
-        toIndex = targetIndex === -1 ? prevTracks.length : targetIndex;
-    }
-
-    prevTracks.splice(toIndex, 0, trackToMove);
-    
-    let newCurrentIndex = currentTrackIndex;
-    if (currentTrackIndex !== null) {
-         const playingTrackId = tracks[currentTrackIndex].id;
-         newCurrentIndex = prevTracks.findIndex(t => t.id === playingTrackId);
-    }
-    
+    const toIndex = targetId === null ? prevTracks.length : prevTracks.findIndex(t => t.id === targetId);
+    prevTracks.splice(toIndex === -1 ? prevTracks.length : toIndex, 0, trackToMove);
+    const playingTrackId = currentTrackIndex !== null ? tracks[currentTrackIndex].id : null;
+    const newCurrentIndex = playingTrackId ? prevTracks.findIndex(t => t.id === playingTrackId) : currentTrackIndex;
     setTracks(prevTracks);
     setCurrentTrackIndex(newCurrentIndex);
   }, [tracks, currentTrackIndex]);
@@ -304,14 +299,12 @@ const App: React.FC = () => {
     if (currentTrack) {
       setIsStoryLoading(true);
       setTrackStory(''); 
-
       const timer = setTimeout(() => {
         getTrackStory(currentTrack.name, currentTrack.artist).then(story => {
           setTrackStory(story);
           setIsStoryLoading(false);
         });
       }, 1500);
-
       return () => clearTimeout(timer);
     }
   }, [currentTrack]);
@@ -346,26 +339,18 @@ const App: React.FC = () => {
 
   return (
     <div className="flex h-screen overflow-hidden font-sans selection:bg-yellow-500/30">
-      <input
-        type="file"
-        ref={fallbackInputRef}
-        className="hidden"
-        {...({ webkitdirectory: "true", directory: "" } as any)}
-        onChange={(e) => {
+      <input type="file" ref={fallbackInputRef} className="hidden" {...({ webkitdirectory: "true", directory: "" } as any)} onChange={(e) => {
           const files = Array.from(e.target.files || []) as File[];
-          if (files.length > 0) {
-            const folderName = (files[0] as any).webkitRelativePath?.split('/')[0] || "本地音乐";
-            handleManualFileSelect(files, folderName, folderName);
-          }
+          if (files.length > 0) { handleManualFileSelect(files, "本地音乐", "本地音乐"); }
           e.target.value = ''; 
-        }}
-      />
+      }} />
 
-      <ImportWindow
-        isOpen={isImportWindowOpen}
-        onClose={() => setIsImportWindowOpen(false)}
-        onImport={handleInitialImport}
-        importedFolders={importedFolders}
+      <ImportWindow 
+        isOpen={isImportWindowOpen} 
+        onClose={() => setIsImportWindowOpen(false)} 
+        onImport={handleInitialImport} 
+        onRemoveFolder={handleRemoveFolder} // 新增
+        importedFolders={importedFolders} 
       />
       
       <div className="hidden md:flex flex-col h-full z-50">
@@ -373,10 +358,9 @@ const App: React.FC = () => {
       </div>
 
       <main className="flex-1 flex flex-col relative pb-32 md:pb-28 bg-gradient-to-br from-[#1c1c1c] via-[#121212] to-[#0a0a0a]">
-        
         {isImporting && (
           <div className="absolute top-0 left-0 right-0 z-[100] h-1.5 bg-zinc-900">
-            <div className="h-full transition-all duration-300" style={{ width: `${importProgress}%`, backgroundColor: themeColor, boxShadow: `0 0 20px ${themeColor}` }} />
+            <div className="h-full bg-yellow-500 shadow-[0_0_20px_rgba(234,179,8,1)] transition-all duration-300" style={{ width: `${importProgress}%` }} />
           </div>
         )}
 
@@ -384,35 +368,25 @@ const App: React.FC = () => {
           <div className="flex items-center gap-4 md:gap-6 flex-1 min-w-0">
              <div className="relative group max-w-md w-full">
                 <input
-                  type="text" placeholder="搜索曲目..." value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  style={{ '--focus-color': themeColor } as any}
-                  className="w-full bg-white/5 border border-white/10 rounded-full py-2 px-4 md:py-2.5 md:px-11 text-sm text-white focus:border-[var(--focus-color)] outline-none backdrop-blur-md transition-all"
+                  type="text" placeholder="搜索曲目..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)}
+                  className="w-full bg-white/5 border border-white/10 rounded-full py-2 px-4 md:py-2.5 md:px-11 text-sm text-white focus:border-yellow-500 outline-none backdrop-blur-md transition-all"
                 />
              </div>
              {isImporting && (
                <div className="hidden md:flex items-center gap-3 bg-black/40 backdrop-blur-md px-4 py-2 rounded-full border border-white/5">
-                  <div className="w-2 h-2 rounded-full animate-pulse" style={{ backgroundColor: themeColor, boxShadow: `0 0 8px ${themeColor}` }}></div>
-                  <span className="text-[10px] text-zinc-400 font-black uppercase tracking-widest whitespace-nowrap truncate max-w-[200px]">
-                    同步中: {currentProcessingFile}
-                  </span>
+                  <div className="w-2 h-2 bg-yellow-500 rounded-full animate-pulse shadow-[0_0_8px_rgba(234,179,8,1)]"></div>
+                  <span className="text-[10px] text-zinc-400 font-black uppercase tracking-widest whitespace-nowrap truncate max-w-[200px]"> 同步中: {currentProcessingFile} </span>
                </div>
              )}
           </div>
           <div className="flex items-center gap-2 md:gap-3 shrink-0">
-            <button 
-                onClick={handleSyncAll}
-                title="一键同步库目录"
-                disabled={isImporting}
-                className="w-9 h-9 md:w-10 md:h-10 flex items-center justify-center bg-white/5 hover:bg-white/10 text-white border border-white/10 rounded-full transition-all active:scale-90 disabled:opacity-30 group"
-            >
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" className={`${isImporting ? 'animate-spin' : 'group-hover:rotate-180 transition-transform duration-700'}`} style={isImporting ? { color: themeColor } : {}}>
+            <button onClick={handleSyncAll} title="一键同步库目录" disabled={isImporting} className="w-9 h-9 md:w-10 md:h-10 flex items-center justify-center bg-white/5 hover:bg-white/10 text-white border border-white/10 rounded-full transition-all active:scale-90 disabled:opacity-30 group">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" className={`${isImporting ? 'animate-spin text-yellow-500' : 'group-hover:rotate-180 transition-transform duration-700'}`}>
                 <path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.85.83 6.72 2.24L21 8"/><path d="M21 3v5h-5"/>
               </svg>
             </button>
-            <button onClick={() => setIsImportWindowOpen(true)} style={{ backgroundColor: themeColor }} className="text-black px-4 md:px-6 py-2 md:py-2.5 rounded-full font-black text-[10px] md:text-xs shadow-xl uppercase tracking-widest active:scale-95 transition-all whitespace-nowrap">
-              <span className="hidden md:inline">库管理</span>
-              <span className="md:hidden">Manage</span>
+            <button onClick={() => setIsImportWindowOpen(true)} className="bg-yellow-500 text-black px-4 md:px-6 py-2 md:py-2.5 rounded-full font-black text-[10px] md:text-xs shadow-xl uppercase tracking-widest active:scale-95 transition-all whitespace-nowrap">
+              库管理
             </button>
           </div>
         </header>
@@ -423,18 +397,18 @@ const App: React.FC = () => {
                   <div className="flex-1 flex flex-col items-center justify-center gap-6 md:gap-10 p-4 md:p-8">
                     <div className="text-center relative z-40">
                       <h2 className="text-2xl md:text-4xl font-black text-white mb-1 md:mb-2 truncate max-w-[80vw] md:max-w-xl">{currentTrack?.name || "黑胶时光"}</h2>
-                      <button onClick={() => { setNavigationRequest({ type: 'artists', name: currentTrack?.artist || '' }); setView('artists'); }} style={{ '--hover-color': themeColor } as any} className="font-bold text-lg md:text-xl text-white hover:text-[var(--hover-color)] transition-all">{currentTrack?.artist || "享受纯净音质"}</button>
+                      <button onClick={() => { setNavigationRequest({ type: 'artists', name: currentTrack?.artist || '' }); setView('artists'); }} className="font-bold text-lg md:text-xl text-white hover:text-yellow-500 transition-all">{currentTrack?.artist || "享受纯净音质"}</button>
                     </div>
                     
                     <div className="relative flex items-center justify-center">
-                        <SwipeableTrack 
-                          onNext={nextTrack} 
-                          onPrev={prevTrack} 
-                          currentId={currentTrack?.id || 'empty'}
-                        >
-                          <VinylRecord isPlaying={isPlaying} coverUrl={currentTrack?.coverUrl} intensity={audioIntensity} themeColor={themeColor} />
+                        <SwipeableTrack onNext={nextTrack} onPrev={prevTrack} currentId={currentTrack?.id || 'empty'}>
+                          <VinylRecord 
+                            isPlaying={isPlaying} 
+                            coverUrl={currentTrack?.coverUrl} 
+                            intensity={audioIntensity} 
+                            themeColor={rhythmColor} 
+                          />
                         </SwipeableTrack>
-                        
                         <div className="absolute inset-0 pointer-events-none flex items-center justify-center z-30">
                             <div className="relative w-[70vw] h-[70vw] max-w-[18rem] max-h-[18rem] md:w-96 md:h-96 flex-shrink-0">
                                 <ToneArm isPlaying={isPlaying} progress={duration > 0 ? progress / duration : 0} />
@@ -474,10 +448,9 @@ const App: React.FC = () => {
           })}
           playbackMode={playbackMode} onTogglePlaybackMode={() => setPlaybackMode(p => p === 'normal' ? 'shuffle' : p === 'shuffle' ? 'loop' : 'normal')}
           onReorder={moveTrack}
-          themeColor={themeColor}
+          themeColor="#eab308" 
         />
-        
-        <MobileNav activeView={view} onViewChange={(v) => { setView(v); setNavigationRequest(null); }} trackCount={tracks.length} themeColor={themeColor} />
+        <MobileNav activeView={view} onViewChange={(v) => { setView(v); setNavigationRequest(null); }} trackCount={tracks.length} themeColor="#eab308" />
       </main>
     </div>
   );
