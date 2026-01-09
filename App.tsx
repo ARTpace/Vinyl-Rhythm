@@ -1,4 +1,3 @@
-
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import Sidebar from './components/Sidebar';
 import MobileNav from './components/MobileNav';
@@ -12,6 +11,7 @@ import { parseFileToTrack } from './utils/audioParser';
 import { SUPPORTED_FORMATS } from './constants';
 import { getTrackStory } from './services/geminiService';
 import { saveLibraryFolder, getAllLibraryFolders, removeLibraryFolder } from './utils/storage';
+import { normalizeChinese } from './utils/chineseConverter';
 
 const App: React.FC = () => {
   const [view, setView] = useState<ViewType>('player');
@@ -54,11 +54,11 @@ const App: React.FC = () => {
 
   const filteredTracks = useMemo(() => {
     if (!searchQuery.trim()) return tracks;
-    const q = searchQuery.toLowerCase();
+    const q = normalizeChinese(searchQuery);
     return tracks.filter(t => 
-      t.name.toLowerCase().includes(q) || 
-      t.artist.toLowerCase().includes(q) || 
-      t.album.toLowerCase().includes(q)
+      normalizeChinese(t.name).includes(q) || 
+      normalizeChinese(t.artist).includes(q) || 
+      normalizeChinese(t.album).includes(q)
     );
   }, [tracks, searchQuery]);
 
@@ -223,14 +223,12 @@ const App: React.FC = () => {
         const diskFiles = await scanDirectory(folder.handle);
         const diskFingerprints = new Set(diskFiles.map(f => `${f.name}-${f.size}`));
         
-        // 过滤掉已失效的
         allProcessedTracks = allProcessedTracks.filter(t => t.folderId !== folder.id || diskFingerprints.has(t.fingerprint));
         
         const existingFingerprints = new Set(allProcessedTracks.map(t => t.fingerprint));
         const newFiles = diskFiles.filter(f => !existingFingerprints.has(`${f.name}-${f.size}`));
         
         const newlyParsed: Track[] = [];
-        // 分批处理新文件，避免一次性 setTracks 渲染压力
         const BATCH_SIZE = 50;
         for (let i = 0; i < newFiles.length; i++) {
           const file = newFiles[i];
@@ -242,7 +240,6 @@ const App: React.FC = () => {
             track.folderId = folder.id;
             newlyParsed.push(track);
             
-            // 每 50 首同步一次 UI，保证进度平滑
             if (newlyParsed.length >= BATCH_SIZE) {
               const batchToUpdate = [...newlyParsed];
               allProcessedTracks = [...allProcessedTracks, ...batchToUpdate];
@@ -251,10 +248,9 @@ const App: React.FC = () => {
             }
           } catch (e) { console.warn(e); }
           
-          if (i % 10 === 0) await new Promise(r => setTimeout(r, 0)); // 让出主线程
+          if (i % 10 === 0) await new Promise(r => setTimeout(r, 0));
         }
         
-        // 最后剩余的也加入
         if (newlyParsed.length > 0) {
           allProcessedTracks = [...allProcessedTracks, ...newlyParsed];
           setTracks([...allProcessedTracks]);
