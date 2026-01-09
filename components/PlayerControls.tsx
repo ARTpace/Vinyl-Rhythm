@@ -61,20 +61,24 @@ const PlayerControls: React.FC<PlayerControlsProps> = ({
   const [isDraggingSeek, setIsDraggingSeek] = useState(false);
   const [localProgress, setLocalProgress] = useState(progress);
   const dragProgressRef = useRef(progress);
+  // 关键：记录最后一次手动操作的时间，用于屏蔽音频引擎的旧数据干扰
+  const lastInteractionTimeRef = useRef(0);
+  
   const progressBarRef = useRef<HTMLDivElement>(null);
   const mobileProgressBarRef = useRef<HTMLDivElement>(null);
 
-  // 同步外部 progress 到本地状态（非拖动时）
+  // 同步外部 progress 到本地状态
   useEffect(() => {
-    if (!isDraggingSeek) {
+    const now = Date.now();
+    // 逻辑：如果正在拖拽，或者刚完成跳转不到 500ms（等待音频引擎响应），则不接受外部进度更新
+    if (!isDraggingSeek && (now - lastInteractionTimeRef.current > 500)) {
       setLocalProgress(progress);
       dragProgressRef.current = progress;
     }
   }, [progress, isDraggingSeek]);
 
-  // 计算显示的进度：拖动中优先显示本地进度
-  const currentProgress = isDraggingSeek ? localProgress : progress;
-  const progressPercent = (currentProgress / duration) * 100 || 0;
+  // 计算显示的进度百分比
+  const progressPercent = (localProgress / duration) * 100 || 0;
 
   // 计算进度的辅助函数
   const getProgressFromPointer = (clientX: number) => {
@@ -103,6 +107,7 @@ const PlayerControls: React.FC<PlayerControlsProps> = ({
     if (!duration) return;
     e.preventDefault();
     setIsDraggingSeek(true);
+    lastInteractionTimeRef.current = Date.now(); // 记录交互开始
     const newProgress = getProgressFromPointer(e.clientX);
     if (newProgress !== null) {
       setLocalProgress(newProgress);
@@ -122,6 +127,7 @@ const PlayerControls: React.FC<PlayerControlsProps> = ({
 
   const handleSeekEnd = (e: React.PointerEvent) => {
     if (!isDraggingSeek) return;
+    lastInteractionTimeRef.current = Date.now(); // 更新最后交互时间
     onSeek(dragProgressRef.current);
     setIsDraggingSeek(false);
     (e.target as Element).releasePointerCapture(e.pointerId);
@@ -220,7 +226,7 @@ const PlayerControls: React.FC<PlayerControlsProps> = ({
 
         <div className="flex flex-col items-center justify-center gap-1 w-2/4 h-full pt-1">
            <div className="w-full flex items-center gap-4 px-4 group select-none mb-1">
-              <span className="text-[10px] text-[#444] font-mono font-bold min-w-[35px] text-right">{formatTime(currentProgress)}</span>
+              <span className="text-[10px] text-[#444] font-mono font-bold min-w-[35px] text-right">{formatTime(localProgress)}</span>
               <div 
                 ref={progressBarRef}
                 onPointerDown={handleSeekStart}

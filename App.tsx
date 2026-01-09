@@ -1,5 +1,5 @@
 
-import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import Sidebar from './components/Sidebar';
 import MobileNav from './components/MobileNav';
 import ImportWindow from './components/ImportWindow';
@@ -8,408 +8,34 @@ import ArtistProfile from './components/ArtistProfile';
 import PlayerControls from './components/PlayerControls';
 import VinylRecord, { ToneArm } from './components/VinylRecord';
 import SwipeableTrack from './components/SwipeableTrack';
-import { Track, ViewType, PlaybackMode, LibraryFolder } from './types';
-import { parseFileToTrack } from './utils/audioParser';
-import { SUPPORTED_FORMATS } from './constants';
+import { Track, ViewType } from './types';
 import { getTrackStory } from './services/geminiService';
-import { saveLibraryFolder, getAllLibraryFolders, removeLibraryFolder } from './utils/storage';
-import { normalizeChinese } from './utils/chineseConverter';
+import { saveLibraryFolder } from './utils/storage';
+
+// 导入模块化 Hooks
+import { useLibraryManager } from './hooks/useLibraryManager';
+import { useAudioPlayer } from './hooks/useAudioPlayer';
+import { useAudioAnalyzer } from './hooks/useAudioAnalyzer';
+import { useThemeColor } from './hooks/useThemeColor';
 
 const App: React.FC = () => {
+  // 1. 基础 UI 状态
   const [view, setView] = useState<ViewType>('player');
   const [selectedArtist, setSelectedArtist] = useState<string | null>(null);
-  const [tracks, setTracks] = useState<Track[]>([]);
-  const [importedFolders, setImportedFolders] = useState<LibraryFolder[]>(() => {
-    const saved = localStorage.getItem('vinyl_folders');
-    return saved ? JSON.parse(saved) : [];
-  });
+  const [isImportWindowOpen, setIsImportWindowOpen] = useState(false);
+  const [navigationRequest, setNavigationRequest] = useState<{ type: any, name: string } | null>(null);
 
-  const [currentTrackIndex, setCurrentTrackIndex] = useState<number | null>(null);
-  const [isPlaying, setIsPlaying] = useState(false);
-  const [progress, setProgress] = useState(0);
-  const [duration, setDuration] = useState(0);
-  const [volume, setVolume] = useState(0.8);
-  const [trackStory, setTrackStory] = useState<string>('');
-  const [isStoryLoading, setIsStoryLoading] = useState(false);
-  const [searchQuery, setSearchQuery] = useState('');
+  // 2. 核心功能 Hooks
+  const library = useLibraryManager();
+  const player = useAudioPlayer(library.tracks);
+  const { audioIntensity } = useAudioAnalyzer(player.audioRef, player.isPlaying);
   
-  const [rhythmColor, setRhythmColor] = useState('rgba(234, 179, 8, 1)');
-  const [isImporting, setIsImporting] = useState<boolean>(false);
-  const [importProgress, setImportProgress] = useState<number>(0);
-  const [currentProcessingFile, setCurrentProcessingFile] = useState<string>('');
-  const [isImportWindowOpen, setIsImportWindowOpen] = useState<boolean>(false);
+  const currentTrack = player.currentTrackIndex !== null ? library.tracks[player.currentTrackIndex] : null;
+  const { rhythmColor } = useThemeColor(currentTrack?.coverUrl);
 
-  const [navigationRequest, setNavigationRequest] = useState<{ type: 'artists' | 'albums' | 'folders', name: string } | null>(null);
-  const [audioIntensity, setAudioIntensity] = useState(0);
-  const audioContextRef = useRef<AudioContext | null>(null);
-  const analyserRef = useRef<AnalyserNode | null>(null);
-  const animationFrameRef = useRef<number | null>(null);
-  const searchInputRef = useRef<HTMLInputElement>(null);
-
-  const [favorites, setFavorites] = useState<Set<string>>(() => {
-    const saved = localStorage.getItem('vinyl_favorites');
-    return saved ? new Set(JSON.parse(saved)) : new Set();
-  });
-
-  const [playbackMode, setPlaybackMode] = useState<PlaybackMode>('normal');
-  const audioRef = useRef<HTMLAudioElement | null>(null);
-
-  const filteredTracks = useMemo(() => {
-    if (!searchQuery.trim()) return tracks;
-    const q = normalizeChinese(searchQuery);
-    return tracks.filter(t => 
-      normalizeChinese(t.name).includes(q) || 
-      normalizeChinese(t.artist).includes(q) || 
-      normalizeChinese(t.album).includes(q)
-    );
-  }, [tracks, searchQuery]);
-
-  const currentTrack = currentTrackIndex !== null ? tracks[currentTrackIndex] : null;
-
-  const handleUpdateTrack = useCallback((trackId: string, updates: Partial<Track>) => {
-    setTracks(prev => prev.map(t => t.id === trackId ? { ...t, ...updates } : t));
-  }, []);
-
-  const handleNavigate = useCallback((type: 'artists' | 'albums' | 'folders' | 'artistProfile', name: string) => {
-    if (type === 'artistProfile' || (type === 'artists' && name)) {
-      setSelectedArtist(name);
-      setView('artistProfile');
-    } else {
-      setNavigationRequest({ type: type as any, name });
-      setView(type as ViewType);
-    }
-    setSearchQuery('');
-  }, []);
-
-  const getQualityInfo = (track: Track) => {
-    if (!track.bitrate) return { label: 'Audio', color: 'bg-zinc-600', shadow: 'rgba(113, 113, 122, 0.3)' };
-    const kbps = Math.round(track.bitrate / 1000);
-    const fileName = track.name.toLowerCase();
-    const isLosslessExt = fileName.endsWith('.flac') || fileName.endsWith('.wav') || fileName.endsWith('.alac');
-
-    if (kbps >= 1411 || (isLosslessExt && kbps > 1000)) {
-      return { label: 'Hi-Res Master', color: 'bg-yellow-500', shadow: 'rgba(234, 179, 8, 0.5)' };
-    }
-    if (isLosslessExt || kbps >= 700) {
-      return { label: 'Lossless', color: 'bg-green-500', shadow: 'rgba(34, 197, 94, 0.5)' };
-    }
-    if (kbps >= 320) {
-      return { label: 'HQ Audio', color: 'bg-blue-500', shadow: 'rgba(59, 130, 246, 0.5)' };
-    }
-    if (kbps >= 128) {
-      return { label: 'Standard', color: 'bg-zinc-400', shadow: 'rgba(161, 161, 170, 0.3)' };
-    }
-    return { label: 'Low-Res', color: 'bg-zinc-700', shadow: 'rgba(63, 63, 70, 0.2)' };
-  };
-
-  useEffect(() => {
-    const autoLoad = async () => {
-      const savedFolders = await getAllLibraryFolders();
-      if (savedFolders.length > 0) {
-        handleSyncAll(true);
-      }
-    };
-    autoLoad();
-  }, []);
-
-  useEffect(() => {
-    localStorage.setItem('vinyl_folders', JSON.stringify(importedFolders));
-  }, [importedFolders]);
-
-  const initAudioAnalyzer = useCallback(() => {
-    if (!audioRef.current || audioContextRef.current) return;
-    try {
-      const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
-      const ctx = new AudioContextClass();
-      const analyser = ctx.createAnalyser();
-      analyser.fftSize = 256;
-      const source = ctx.createMediaElementSource(audioRef.current);
-      source.connect(analyser);
-      analyser.connect(ctx.destination);
-      audioContextRef.current = ctx;
-      analyserRef.current = analyser;
-    } catch (e) { console.error(e); }
-  }, []);
-
-  const updateIntensity = useCallback(() => {
-    if (!analyserRef.current || !isPlaying) { setAudioIntensity(0); return; }
-    const dataArray = new Uint8Array(analyserRef.current.frequencyBinCount);
-    analyserRef.current.getByteFrequencyData(dataArray);
-    let bass = 0; for (let i = 0; i < 3; i++) bass += dataArray[i];
-    const val = (bass / 3) / 255;
-    setAudioIntensity(Math.pow(val, 1.2) * 1.6);
-    animationFrameRef.current = requestAnimationFrame(updateIntensity);
-  }, [isPlaying]);
-
-  useEffect(() => {
-    if (isPlaying) animationFrameRef.current = requestAnimationFrame(updateIntensity);
-    else if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
-  }, [isPlaying, updateIntensity]);
-
-  useEffect(() => {
-    const audio = audioRef.current;
-    if (!audio) return;
-    if (isPlaying) {
-      const playPromise = audio.play();
-      if (playPromise !== undefined) {
-        playPromise.catch(error => {
-          console.warn("播放受限:", error);
-          if (error.name === 'NotAllowedError') setIsPlaying(false);
-        });
-      }
-      initAudioAnalyzer();
-    } else {
-      audio.pause();
-    }
-  }, [isPlaying, initAudioAnalyzer]);
-
-  useEffect(() => {
-    if (currentTrack?.url && isPlaying && audioRef.current) {
-      audioRef.current.play().catch(() => {});
-    }
-  }, [currentTrack?.url]);
-
-  useEffect(() => {
-    if (currentTrack?.coverUrl) {
-      const img = new Image();
-      img.src = currentTrack.coverUrl;
-      img.crossOrigin = "anonymous";
-      img.onload = () => {
-        const canvas = document.createElement('canvas');
-        const ctx = canvas.getContext('2d');
-        if (ctx) {
-          canvas.width = 1; canvas.height = 1;
-          ctx.drawImage(img, 0, 0, 1, 1);
-          const [r, g, b] = ctx.getImageData(0, 0, 1, 1).data;
-          const brightness = (r * 299 + g * 587 + b * 114) / 1000;
-          setRhythmColor(brightness < 40 ? `rgba(${Math.min(255, r + 50)}, ${Math.min(255, g + 50)}, ${Math.min(255, b + 50)}, 1)` : `rgba(${r}, ${g}, ${b}, 1)`);
-        }
-      };
-      img.onerror = () => setRhythmColor('rgba(234, 179, 8, 1)');
-    } else {
-      setRhythmColor('rgba(234, 179, 8, 1)');
-    }
-  }, [currentTrack?.coverUrl]);
-
-  const scanDirectory = async (handle: FileSystemDirectoryHandle) => {
-    const foundFiles: File[] = [];
-    async function recursiveScan(dirHandle: FileSystemDirectoryHandle) {
-      for await (const entry of (dirHandle as any).values()) {
-        if (entry.kind === 'file') {
-          if (SUPPORTED_FORMATS.some(ext => entry.name.toLowerCase().endsWith(ext))) {
-            foundFiles.push(await entry.getFile());
-          }
-        } else if (entry.kind === 'directory') {
-          await recursiveScan(entry);
-        }
-      }
-    }
-    await recursiveScan(handle);
-    return foundFiles;
-  };
-
-  const processFiles = async (files: File[], folderId: string) => {
-    setIsImporting(true);
-    let localBatch: Track[] = [];
-    const BATCH_SIZE = 50;
-    
-    for (let i = 0; i < files.length; i++) {
-      const file = files[i];
-      setImportProgress(Math.round(((i + 1) / files.length) * 100));
-      setCurrentProcessingFile(`导入 (${i+1}/${files.length}): ${file.name}`);
-      
-      try {
-        const track = await parseFileToTrack(file);
-        track.folderId = folderId;
-        localBatch.push(track);
-        
-        if (localBatch.length >= BATCH_SIZE) {
-          const currentBatch = [...localBatch];
-          setTracks(prev => [...prev, ...currentBatch]);
-          localBatch = [];
-        }
-      } catch (e) { console.warn(e); }
-      
-      if (i % 10 === 0) await new Promise(r => setTimeout(r, 0));
-    }
-
-    if (localBatch.length > 0) {
-      setTracks(prev => [...prev, ...localBatch]);
-    }
-    setIsImporting(false);
-    setImportProgress(0);
-  };
-
-  const handleManualFilesSelect = async (fileList: FileList) => {
-    const files = Array.from(fileList).filter(f => 
-      SUPPORTED_FORMATS.some(ext => f.name.toLowerCase().endsWith(ext))
-    );
-    
-    if (files.length === 0) {
-      alert("选中的文件夹中没有支持的音频文件。");
-      return;
-    }
-
-    const folderId = "manual_" + Date.now();
-    await processFiles(files, folderId);
-    
-    setImportedFolders(prev => [...prev, { 
-      id: folderId, 
-      name: "本地导入 (兼容模式)", 
-      lastSync: Date.now(), 
-      trackCount: files.length 
-    }]);
-    
-    setView('all');
-    setIsImportWindowOpen(false);
-  };
-
-  const handleSyncAll = async (isSilent: boolean = false) => {
-    if (isImporting) return;
-    const savedFolders = await getAllLibraryFolders();
-    if (savedFolders.length === 0) {
-      if (!isSilent) handleInitialImport();
-      return;
-    }
-    setIsImporting(true);
-    setImportProgress(0);
-    
-    let allProcessedTracks: Track[] = isSilent ? [] : [...tracks];
-    let updatedFolders = [...importedFolders];
-
-    for (const folder of savedFolders) {
-      try {
-        // 如果是兼容模式导入的，跳过自动同步
-        if (folder.id.startsWith('manual_')) continue;
-
-        let permission = await folder.handle.queryPermission({ mode: 'read' });
-        if (permission !== 'granted' && isSilent) continue;
-        if (permission !== 'granted') {
-          try { permission = await folder.handle.requestPermission({ mode: 'read' }); } catch (err) { console.warn(err); }
-        }
-        if (permission !== 'granted') continue;
-
-        setCurrentProcessingFile(`正在扫描: ${folder.name}`);
-        const diskFiles = await scanDirectory(folder.handle);
-        const diskFingerprints = new Set(diskFiles.map(f => `${f.name}-${f.size}`));
-        
-        allProcessedTracks = allProcessedTracks.filter(t => t.folderId !== folder.id || diskFingerprints.has(t.fingerprint));
-        
-        const existingFingerprints = new Set(allProcessedTracks.map(t => t.fingerprint));
-        const newFiles = diskFiles.filter(f => !existingFingerprints.has(`${f.name}-${f.size}`));
-        
-        const newlyParsed: Track[] = [];
-        const BATCH_SIZE = 50;
-        for (let i = 0; i < newFiles.length; i++) {
-          const file = newFiles[i];
-          setImportProgress(Math.round(((i + 1) / newFiles.length) * 100));
-          setCurrentProcessingFile(`导入 (${i+1}/${newFiles.length}): ${file.name}`);
-          
-          try {
-            const track = await parseFileToTrack(file);
-            track.folderId = folder.id;
-            newlyParsed.push(track);
-            
-            if (newlyParsed.length >= BATCH_SIZE) {
-              const batchToUpdate = [...newlyParsed];
-              allProcessedTracks = [...allProcessedTracks, ...batchToUpdate];
-              setTracks([...allProcessedTracks]);
-              newlyParsed.length = 0;
-            }
-          } catch (e) { console.warn(e); }
-          
-          if (i % 10 === 0) await new Promise(r => setTimeout(r, 0));
-        }
-        
-        if (newlyParsed.length > 0) {
-          allProcessedTracks = [...allProcessedTracks, ...newlyParsed];
-          setTracks([...allProcessedTracks]);
-        }
-
-        const fIdx = updatedFolders.findIndex(f => f.id === folder.id);
-        if (fIdx !== -1) updatedFolders[fIdx] = { ...updatedFolders[fIdx], lastSync: Date.now(), trackCount: allProcessedTracks.filter(t => t.folderId === folder.id).length };
-      } catch (e) { console.warn(`同步失败:`, e); }
-    }
-
-    setImportedFolders(updatedFolders);
-    if (allProcessedTracks.length > 0 && currentTrackIndex === null) {
-      setCurrentTrackIndex(0);
-      setView('player'); 
-    }
-    setIsImporting(false);
-    setImportProgress(0);
-    setCurrentProcessingFile('');
-  };
-
-  const handleInitialImport = async () => {
-    try {
-      if ('showDirectoryPicker' in window) {
-        const handle = await window.showDirectoryPicker().catch(err => {
-          // 如果是因为框架限制导致的错误，抛出特定的标记
-          if (err.name === 'SecurityError' || err.message.includes('sub frames')) {
-            throw new Error('FRAME_RESTRICTION');
-          }
-          throw err;
-        });
-
-        const folderId = handle.name;
-        await saveLibraryFolder(folderId, handle);
-        const files = await scanDirectory(handle);
-        await processFiles(files, folderId);
-
-        setImportedFolders(prev => [...prev, { id: folderId, name: handle.name, lastSync: Date.now(), trackCount: files.length }]);
-        setView('player');
-        setIsImportWindowOpen(false);
-        setIsPlaying(true);
-      } else {
-        throw new Error('NOT_SUPPORTED');
-      }
-    } catch (e: any) {
-      if (e.message === 'FRAME_RESTRICTION') {
-        alert("检测到当前处于受限的框架环境（如预览窗口），无法直接访问文件夹。请使用下方的“传统兼容模式”进行导入。");
-      } else if (e.name !== 'AbortError') {
-        console.warn("导入失败", e);
-      }
-      setIsImporting(false);
-    }
-  };
-
-  const handleRemoveFolder = async (id: string) => {
-    if (confirm('确定要从库中移除此文件夹吗？')) {
-      await removeLibraryFolder(id);
-      setImportedFolders(prev => prev.filter(f => f.id !== id));
-      setTracks(prev => {
-        const newTracks = prev.filter(t => t.folderId !== id);
-        if (currentTrackIndex !== null && prev[currentTrackIndex].folderId === id) {
-          setIsPlaying(false);
-          setCurrentTrackIndex(newTracks.length > 0 ? 0 : null);
-        }
-        return newTracks;
-      });
-    }
-  };
-
-  const playTrack = useCallback((track: Track) => {
-    const index = tracks.findIndex(t => t.id === track.id);
-    if (index !== -1) {
-      setCurrentTrackIndex(index);
-      setView('player');
-      setIsPlaying(true);
-    }
-  }, [tracks]);
-
-  const moveTrack = useCallback((draggedId: string, targetId: string | null) => {
-    const prevTracks = [...tracks]; 
-    const fromIndex = prevTracks.findIndex(t => t.id === draggedId);
-    if (fromIndex === -1) return;
-    const [trackToMove] = prevTracks.splice(fromIndex, 1);
-    const toIndex = targetId === null ? prevTracks.length : prevTracks.findIndex(t => t.id === targetId);
-    prevTracks.splice(toIndex === -1 ? prevTracks.length : toIndex, 0, trackToMove);
-    const playingTrackId = currentTrackIndex !== null ? tracks[currentTrackIndex].id : null;
-    const newCurrentIndex = playingTrackId ? prevTracks.findIndex(t => t.id === playingTrackId) : currentTrackIndex;
-    setTracks(prevTracks);
-    setCurrentTrackIndex(newCurrentIndex);
-  }, [tracks, currentTrackIndex]);
+  // 3. Gemini 故事解读
+  const [trackStory, setTrackStory] = useState('');
+  const [isStoryLoading, setIsStoryLoading] = useState(false);
 
   useEffect(() => {
     if (currentTrack) {
@@ -425,47 +51,69 @@ const App: React.FC = () => {
     }
   }, [currentTrack]);
 
-  const nextTrack = useCallback(() => {
-    if (tracks.length === 0 || currentTrackIndex === null) return;
-    setCurrentTrackIndex((currentTrackIndex + 1) % tracks.length);
-    setIsPlaying(true);
-  }, [tracks.length, currentTrackIndex]);
-
-  const prevTrack = useCallback(() => {
-    if (tracks.length === 0 || currentTrackIndex === null) return;
-    setCurrentTrackIndex((currentTrackIndex - 1 + tracks.length) % tracks.length);
-    setIsPlaying(true);
-  }, [tracks.length, currentTrackIndex]);
-
-  const handleAudioEnded = () => {
-    if (playbackMode === 'loop' && audioRef.current) {
-      audioRef.current.currentTime = 0;
-      audioRef.current.play();
-    } else {
-      nextTrack();
-    }
-  };
-
+  // 4. 初始化加载
   useEffect(() => {
-    const audio = audioRef.current;
-    if (!audio) return;
-    const handleTimeUpdate = () => setProgress(audio.currentTime);
-    const handleLoadedMetadata = () => setDuration(audio.duration);
-    audio.addEventListener('timeupdate', handleTimeUpdate);
-    audio.addEventListener('loadedmetadata', handleLoadedMetadata);
-    return () => {
-      audio.removeEventListener('timeupdate', handleTimeUpdate);
-      audio.removeEventListener('loadedmetadata', handleLoadedMetadata);
-    };
+    library.syncAll(true).then(hasData => {
+      if (hasData && player.currentTrackIndex === null && library.tracks.length > 0) {
+        player.setCurrentTrackIndex(0);
+      }
+    });
   }, []);
 
-  const handleToggleFavorite = (id: string) => {
-    setFavorites(prev => {
-      const n = new Set(prev);
-      if (n.has(id)) n.delete(id); else n.add(id);
-      localStorage.setItem('vinyl_favorites', JSON.stringify(Array.from(n)));
-      return n;
-    });
+  // 5. 交互处理器
+  const handleNavigate = useCallback((type: string, name: string) => {
+    if (type === 'artistProfile' || (type === 'artists' && name)) {
+      setSelectedArtist(name);
+      setView('artistProfile');
+    } else {
+      setNavigationRequest({ type: type as any, name });
+      setView(type as ViewType);
+    }
+    library.setSearchQuery('');
+  }, [library.setSearchQuery]);
+
+  const handleInitialImport = async () => {
+    if (!('showDirectoryPicker' in window)) {
+      alert("浏览器不支持文件夹选择，请使用兼容模式。");
+      return;
+    }
+    try {
+      const handle = await window.showDirectoryPicker();
+      await saveLibraryFolder(handle.name, handle);
+      // 调用 library hook 中的私有扫描逻辑比较复杂，这里直接触发同步
+      await library.syncAll();
+      if (player.currentTrackIndex === null) player.setCurrentTrackIndex(0);
+      setView('player');
+      setIsImportWindowOpen(false);
+    } catch (e) { console.warn(e); }
+  };
+
+  // 歌曲排序逻辑
+  const handleReorder = useCallback((draggedId: string, targetId: string | null) => {
+    const prevTracks = [...library.tracks];
+    const fromIndex = prevTracks.findIndex(t => t.id === draggedId);
+    if (fromIndex === -1) return;
+    
+    const [trackToMove] = prevTracks.splice(fromIndex, 1);
+    const toIndex = targetId === null ? prevTracks.length : prevTracks.findIndex(t => t.id === targetId);
+    prevTracks.splice(toIndex === -1 ? prevTracks.length : toIndex, 0, trackToMove);
+    
+    const playingTrackId = currentTrack?.id;
+    library.setTracks(prevTracks);
+    
+    if (playingTrackId) {
+      const newCurrentIndex = prevTracks.findIndex(t => t.id === playingTrackId);
+      player.setCurrentTrackIndex(newCurrentIndex);
+    }
+  }, [library.tracks, currentTrack, player.setCurrentTrackIndex]);
+
+  const getQualityInfo = (track: Track) => {
+    if (!track.bitrate) return { label: 'Audio', color: 'bg-zinc-600', shadow: 'rgba(113, 113, 122, 0.3)' };
+    const kbps = Math.round(track.bitrate / 1000);
+    if (kbps >= 1411) return { label: 'Hi-Res Master', color: 'bg-yellow-500', shadow: 'rgba(234, 179, 8, 0.5)' };
+    if (kbps >= 700) return { label: 'Lossless', color: 'bg-green-500', shadow: 'rgba(34, 197, 94, 0.5)' };
+    if (kbps >= 320) return { label: 'HQ Audio', color: 'bg-blue-500', shadow: 'rgba(59, 130, 246, 0.5)' };
+    return { label: 'Standard', color: 'bg-zinc-400', shadow: 'rgba(161, 161, 170, 0.3)' };
   };
 
   return (
@@ -473,171 +121,115 @@ const App: React.FC = () => {
       <ImportWindow 
         isOpen={isImportWindowOpen} onClose={() => setIsImportWindowOpen(false)} 
         onImport={handleInitialImport} 
-        onManualFilesSelect={handleManualFilesSelect}
-        onRemoveFolder={handleRemoveFolder} importedFolders={importedFolders} 
+        onManualFilesSelect={async (files) => {
+          const ok = await library.handleManualFilesSelect(files);
+          if (ok) {
+            if (player.currentTrackIndex === null) player.setCurrentTrackIndex(0);
+            setView('player');
+            setIsImportWindowOpen(false);
+          }
+        }}
+        onRemoveFolder={library.removeFolder} importedFolders={library.importedFolders} 
       />
       
       <div className="hidden md:flex flex-col h-full z-50">
           <Sidebar 
             activeView={view} 
-            onViewChange={(v) => { 
-              setView(v); 
-              setNavigationRequest(null); 
-              setSelectedArtist(null); 
-            }} 
-            trackCount={tracks.length} 
+            onViewChange={(v) => { setView(v); setNavigationRequest(null); setSelectedArtist(null); }} 
+            trackCount={library.tracks.length} 
           />
       </div>
 
       <main className="flex-1 flex flex-col relative pb-32 md:pb-28 bg-gradient-to-br from-[#1c1c1c] via-[#121212] to-[#0a0a0a]">
-        {isImporting && (
+        {library.isImporting && (
           <div className="absolute top-0 left-0 right-0 z-[100] h-1.5 bg-zinc-900">
-            <div className="h-full bg-yellow-500 shadow-[0_0_20px_rgba(234,179,8,1)] transition-all duration-300" style={{ width: `${importProgress}%` }} />
+            <div className="h-full bg-yellow-500 shadow-[0_0_20px_rgba(234,179,8,1)] transition-all duration-300" style={{ width: `${library.importProgress}%` }} />
           </div>
         )}
 
         <header className="p-4 md:p-6 flex justify-between items-center z-50 relative gap-3">
           <div className="flex items-center gap-4 md:gap-6 flex-1 min-w-0">
              <div className="relative group max-w-md w-full">
-                <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-zinc-500 group-focus-within:text-yellow-500 transition-colors">
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
-                </div>
+                <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-zinc-500 transition-colors"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg></div>
                 <input
-                  ref={searchInputRef}
-                  type="text" placeholder="搜索曲目、歌手..." value={searchQuery} 
-                  onChange={(e) => { setSearchQuery(e.target.value); if(view === 'player' && e.target.value) setView('all'); }}
-                  onKeyDown={(e) => { if(e.key === 'Escape') { setSearchQuery(''); searchInputRef.current?.blur(); }}}
-                  className="w-full bg-white/5 border border-white/10 rounded-full py-2.5 px-11 text-sm text-white focus:border-yellow-500/50 focus:bg-white/10 outline-none backdrop-blur-md transition-all placeholder:text-zinc-600"
+                  type="text" placeholder="搜索曲目、歌手..." value={library.searchQuery} 
+                  onChange={(e) => { library.setSearchQuery(e.target.value); if(view === 'player' && e.target.value) setView('all'); }}
+                  className="w-full bg-white/5 border border-white/10 rounded-full py-2.5 px-11 text-sm text-white focus:border-yellow-500/50 outline-none backdrop-blur-md transition-all"
                 />
-                {searchQuery && (
-                  <button 
-                    onClick={() => { setSearchQuery(''); searchInputRef.current?.focus(); }}
-                    className="absolute inset-y-0 right-0 pr-4 flex items-center text-zinc-500 hover:text-white transition-colors"
-                  >
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><path d="M18 6 6 18M6 6l12 12"/></svg>
-                  </button>
-                )}
              </div>
-             {isImporting && (
-               <div className="hidden md:flex items-center gap-3 bg-black/40 backdrop-blur-md px-4 py-2 rounded-full border border-white/5 overflow-hidden">
-                  <div className="w-2 h-2 bg-yellow-500 rounded-full animate-pulse shadow-[0_0_8px_rgba(234,179,8,1)] flex-shrink-0"></div>
-                  <span className="text-[10px] text-zinc-400 font-black uppercase tracking-widest whitespace-nowrap truncate max-w-[200px]"> 同步中: {currentProcessingFile} </span>
-               </div>
-             )}
+             {library.isImporting && <span className="hidden md:block text-[10px] text-zinc-400 font-black uppercase truncate max-w-[200px]">{library.currentProcessingFile}</span>}
           </div>
-          <div className="flex items-center gap-2 md:gap-3 shrink-0">
-            <button onClick={() => handleSyncAll()} title="同步并清理失效曲目" disabled={isImporting} className="w-9 h-9 md:w-10 md:h-10 flex items-center justify-center bg-white/5 hover:bg-white/10 text-white border border-white/10 rounded-full transition-all active:scale-90 disabled:opacity-30 group">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" className={`${isImporting ? 'animate-spin text-yellow-500' : 'group-hover:rotate-180 transition-transform duration-700'}`}>
-                <path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.85.83 6.72 2.24L21 8"/><path d="M21 3v5h-5"/>
-              </svg>
-            </button>
-            <button onClick={() => setIsImportWindowOpen(true)} className="bg-yellow-500 text-black px-4 md:px-6 py-2 md:py-2.5 rounded-full font-black text-[10px] md:text-xs shadow-xl uppercase tracking-widest active:scale-95 transition-all whitespace-nowrap">
-              库管理
-            </button>
+          <div className="flex items-center gap-3">
+            <button onClick={() => library.syncAll()} disabled={library.isImporting} className="w-10 h-10 flex items-center justify-center bg-white/5 hover:bg-white/10 text-white border border-white/10 rounded-full transition-all active:scale-90"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" className={library.isImporting ? 'animate-spin' : ''}><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.85.83 6.72 2.24L21 8"/><path d="M21 3v5h-5"/></svg></button>
+            <button onClick={() => setIsImportWindowOpen(true)} className="bg-yellow-500 text-black px-6 py-2.5 rounded-full font-black text-xs uppercase tracking-widest active:scale-95 transition-all">库管理</button>
           </div>
         </header>
 
         <div className="flex-1 relative overflow-hidden">
             <div key={view + (selectedArtist || '')} className="absolute inset-0 flex flex-col animate-in fade-in duration-700">
                 {view === 'player' ? (
-                  <div className="flex-1 flex flex-col items-center justify-center gap-6 md:gap-8 p-4 md:p-8 overflow-hidden">
+                  <div className="flex-1 flex flex-col items-center justify-center gap-8 p-8 overflow-hidden">
                     <div className="text-center relative z-40 px-6 max-w-4xl min-h-[100px] flex flex-col justify-center animate-in slide-in-from-top-4 duration-1000">
-                      <h2 className="text-xl md:text-3xl lg:text-4xl font-bold mb-3 leading-tight tracking-tight text-transparent bg-clip-text bg-gradient-to-b from-white to-zinc-400 drop-shadow-sm [text-wrap:balance] line-clamp-3 break-words">
-                        {currentTrack?.name || (tracks.length > 0 ? "准备播放" : "黑胶时光")}
+                      <h2 className="text-xl md:text-3xl lg:text-4xl font-bold mb-3 leading-tight tracking-tight text-transparent bg-clip-text bg-gradient-to-b from-white to-zinc-400 drop-shadow-sm line-clamp-3">
+                        {currentTrack?.name || "黑胶时光"}
                       </h2>
-                      <div className="flex flex-wrap items-center justify-center gap-x-2.5 gap-y-1.5 opacity-60">
-                        <button 
-                          onClick={() => handleNavigate('artistProfile', currentTrack?.artist || '')} 
-                          className="text-zinc-400 font-bold uppercase tracking-[0.2em] text-[9px] md:text-[10px] hover:text-yellow-500 transition-colors"
-                        >
-                          {currentTrack?.artist || (tracks.length > 0 ? "等待开启旋律" : "享受纯净音质")}
-                        </button>
-                        {(currentTrack?.album || tracks.length > 0) && <span className="w-1 h-1 bg-zinc-700 rounded-full" />}
-                        <button 
-                          onClick={() => handleNavigate('albums', currentTrack?.album || '')}
-                          className="text-zinc-500 font-bold uppercase tracking-[0.1em] text-[9px] md:text-[10px] truncate max-w-[200px] hover:text-yellow-500 transition-colors"
-                        >
-                          {currentTrack?.album || (tracks.length > 0 ? "选一支喜欢的歌吧" : "请先添加音乐文件夹")}
-                        </button>
+                      <div className="flex items-center justify-center gap-2 opacity-60">
+                        <button onClick={() => handleNavigate('artistProfile', currentTrack?.artist || '')} className="text-zinc-400 font-bold uppercase tracking-[0.2em] text-[10px] hover:text-yellow-500">{currentTrack?.artist || "享受纯净音质"}</button>
                       </div>
                     </div>
                     
                     <div className="relative flex flex-col items-center justify-center">
-                        <SwipeableTrack onNext={nextTrack} onPrev={prevTrack} currentId={currentTrack?.id || 'empty'}>
-                          <VinylRecord isPlaying={isPlaying} coverUrl={currentTrack?.coverUrl} intensity={audioIntensity} themeColor={rhythmColor} />
+                        <SwipeableTrack onNext={player.nextTrack} onPrev={player.prevTrack} currentId={currentTrack?.id || 'empty'}>
+                          <VinylRecord isPlaying={player.isPlaying} coverUrl={currentTrack?.coverUrl} intensity={audioIntensity} themeColor={rhythmColor} />
                         </SwipeableTrack>
                         <div className="absolute inset-0 pointer-events-none flex items-center justify-center z-30">
                             <div className="relative w-[70vw] h-[70vw] max-w-[18rem] max-h-[18rem] md:w-96 md:h-96 flex-shrink-0">
-                                <ToneArm isPlaying={isPlaying} progress={duration > 0 ? progress / duration : 0} />
+                                <ToneArm 
+                                  isPlaying={player.isPlaying} 
+                                  progress={player.duration > 0 ? player.progress / player.duration : 0} 
+                                  onClick={player.togglePlay}
+                                />
                             </div>
                         </div>
                         {currentTrack?.bitrate && (
                           <div className="mt-8 px-4 py-1.5 rounded-full bg-white/5 border border-white/5 backdrop-blur-md flex items-center gap-3 animate-in fade-in slide-in-from-bottom-2 duration-1000">
-                            <div className={`w-1.5 h-1.5 rounded-full transition-colors duration-500 ${getQualityInfo(currentTrack).color} ${isPlaying ? 'animate-pulse' : ''}`} style={{ boxShadow: `0 0 8px ${getQualityInfo(currentTrack).shadow}` }} />
-                            <div className="flex items-center gap-2 font-mono text-[9px] font-bold uppercase tracking-widest">
-                               <span className="text-zinc-400">{Math.round(currentTrack.bitrate / 1000)} KBPS</span>
-                               <span className="opacity-20 text-white">/</span>
-                               <span className="transition-colors duration-500" style={{ color: getQualityInfo(currentTrack).label !== 'Standard' ? rhythmColor.replace(', 1)', ', 0.8)') : '#71717a' }}>{getQualityInfo(currentTrack).label}</span>
-                            </div>
+                            <div className={`w-1.5 h-1.5 rounded-full ${getQualityInfo(currentTrack).color}`} style={{ boxShadow: `0 0 8px ${getQualityInfo(currentTrack).shadow}` }} />
+                            <span className="font-mono text-[9px] font-bold uppercase tracking-widest text-zinc-400">{getQualityInfo(currentTrack).label}</span>
                           </div>
                         )}
                     </div>
-                    <div className={`max-w-xs md:max-w-2xl text-center px-4 italic text-zinc-500 text-sm md:text-base transition-opacity duration-1000 leading-relaxed ${isStoryLoading ? 'opacity-20' : 'opacity-100'}`}>
-                      {trackStory || (currentTrack ? "正在为您解读..." : (tracks.length > 0 ? "黑胶唱片已准备就绪。" : "开启一段黑胶之旅。"))}
+                    <div className={`max-w-2xl text-center px-4 italic text-zinc-500 text-base transition-opacity duration-1000 leading-relaxed ${isStoryLoading ? 'opacity-20' : 'opacity-100'}`}>
+                      {trackStory || (currentTrack ? "正在为您解读..." : "开启一段黑胶之旅。")}
                     </div>
                   </div>
                 ) : view === 'artistProfile' && selectedArtist ? (
-                  <ArtistProfile 
-                    artistName={selectedArtist}
-                    allTracks={tracks}
-                    onBack={() => {
-                      setView('artists');
-                      setSelectedArtist(null);
-                    }}
-                    onPlayTrack={playTrack}
-                    onNavigateToAlbum={(album) => handleNavigate('albums', album)}
-                    favorites={favorites}
-                    onToggleFavorite={handleToggleFavorite}
-                  />
+                  <ArtistProfile artistName={selectedArtist} allTracks={library.tracks} onBack={() => { setView('artists'); setSelectedArtist(null); }} onPlayTrack={(t) => { const idx = library.tracks.findIndex(item => item.id === t.id); if(idx !== -1) player.setCurrentTrackIndex(idx); setView('player'); player.setIsPlaying(true); }} onNavigateToAlbum={(album) => handleNavigate('albums', album)} favorites={library.favorites} onToggleFavorite={library.handleToggleFavorite} />
                 ) : (
                   <LibraryView 
-                    view={view} tracks={filteredTracks} onPlay={playTrack} favorites={favorites} 
+                    view={view} tracks={library.filteredTracks} onPlay={(t) => { const idx = library.tracks.findIndex(item => item.id === t.id); player.setCurrentTrackIndex(idx); setView('player'); player.setIsPlaying(true); }} favorites={library.favorites} 
                     navigationRequest={navigationRequest} onNavigationProcessed={() => setNavigationRequest(null)}
-                    onNavigate={handleNavigate} isSearching={searchQuery.length > 0}
-                    onToggleFavorite={handleToggleFavorite}
-                    onUpdateTrack={handleUpdateTrack}
-                    onBack={() => {
-                      if (selectedArtist && view === 'albums') {
-                        setView('artistProfile');
-                      }
-                    }}
+                    onNavigate={handleNavigate} isSearching={library.searchQuery.length > 0}
+                    onToggleFavorite={library.handleToggleFavorite} onUpdateTrack={library.handleUpdateTrack}
                   />
                 )}
             </div>
         </div>
-        <audio ref={audioRef} src={currentTrack?.url} onEnded={handleAudioEnded} preload="auto" />
+        
+        <audio ref={player.audioRef} src={currentTrack?.url} preload="auto" />
+        
         <PlayerControls
-          currentTrack={currentTrack} tracks={tracks} currentIndex={currentTrackIndex}
-          isPlaying={isPlaying} onTogglePlay={() => { if (isPlaying) setIsPlaying(false); else setIsPlaying(true); }}
-          onNext={nextTrack} onPrev={prevTrack} onSelectTrack={setCurrentTrackIndex} onRemoveTrack={(id) => setTracks(prev => prev.filter(t => t.id !== id))}
-          progress={progress} duration={duration} volume={volume} onVolumeChange={(v) => { setVolume(v); if (audioRef.current) audioRef.current.volume = v; }}
-          onSeek={(val) => audioRef.current && (audioRef.current.currentTime = val)}
-          isFavorite={currentTrack ? favorites.has(currentTrack.id) : false} 
-          favorites={favorites} onNavigate={handleNavigate}
-          onToggleFavorite={(id) => handleToggleFavorite(id || currentTrack?.id || '')}
-          playbackMode={playbackMode} onTogglePlaybackMode={() => setPlaybackMode(p => p === 'normal' ? 'shuffle' : p === 'shuffle' ? 'loop' : 'normal')}
-          onReorder={moveTrack} themeColor="#eab308" 
+          currentTrack={currentTrack} tracks={library.tracks} currentIndex={player.currentTrackIndex}
+          isPlaying={player.isPlaying} onTogglePlay={player.togglePlay}
+          onNext={player.nextTrack} onPrev={player.prevTrack} onSelectTrack={player.setCurrentTrackIndex} onRemoveTrack={(id) => library.setTracks(prev => prev.filter(t => t.id !== id))}
+          progress={player.progress} duration={player.duration} volume={player.volume} onVolumeChange={player.setVolume}
+          onSeek={player.seek} isFavorite={currentTrack ? library.favorites.has(currentTrack.id) : false} 
+          favorites={library.favorites} onNavigate={handleNavigate} 
+          onToggleFavorite={(id) => library.handleToggleFavorite(id || currentTrack?.id || '')}
+          playbackMode={player.playbackMode} onTogglePlaybackMode={() => player.setPlaybackMode(p => p === 'normal' ? 'shuffle' : p === 'shuffle' ? 'loop' : 'normal')}
+          onReorder={handleReorder} themeColor="#eab308" 
         />
-        <MobileNav 
-          activeView={view} 
-          onViewChange={(v) => { 
-            setView(v); 
-            setNavigationRequest(null); 
-            setSelectedArtist(null); 
-          }} 
-          trackCount={tracks.length} 
-          themeColor="#eab308" 
-        />
+        
+        <MobileNav activeView={view} onViewChange={(v) => { setView(v); setNavigationRequest(null); setSelectedArtist(null); }} trackCount={library.tracks.length} themeColor="#eab308" />
       </main>
     </div>
   );
