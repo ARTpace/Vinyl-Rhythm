@@ -52,7 +52,6 @@ const App: React.FC = () => {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const currentTrack = currentTrackIndex !== null ? tracks[currentTrackIndex] : null;
 
-  // 全局导航处理器
   const handleNavigate = useCallback((type: 'artists' | 'albums' | 'folders', name: string) => {
     setNavigationRequest({ type, name });
     setView(type as ViewType);
@@ -123,18 +122,34 @@ const App: React.FC = () => {
     else if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
   }, [isPlaying, updateIntensity]);
 
+  // 优化：处理播放/暂停状态同步
   useEffect(() => {
     const audio = audioRef.current;
-    if (audio && currentTrack?.url && isPlaying) {
+    if (!audio) return;
+    
+    if (isPlaying) {
       const playPromise = audio.play();
       if (playPromise !== undefined) {
         playPromise.catch(error => {
+          console.warn("播放被浏览器拦截或加载失败:", error);
           if (error.name === 'NotAllowedError') setIsPlaying(false);
         });
       }
       initAudioAnalyzer();
+    } else {
+      audio.pause();
     }
-  }, [currentTrack?.url, isPlaying, initAudioAnalyzer]);
+  }, [isPlaying, initAudioAnalyzer]);
+
+  // 优化：处理曲目 URL 变化时的逻辑
+  useEffect(() => {
+    if (currentTrack?.url && isPlaying && audioRef.current) {
+      // 当 URL 变化且处于播放状态时，强制重新触发 play
+      audioRef.current.play().catch(() => {
+        // 尝试播放失败可能是因为 src 尚未完全更新，通常 play() 内部会自动处理 src 变化
+      });
+    }
+  }, [currentTrack?.url]);
 
   useEffect(() => {
     if (currentTrack?.coverUrl) {
@@ -278,6 +293,7 @@ const App: React.FC = () => {
           setCurrentTrackIndex(0);
           setView('player');
           setIsImportWindowOpen(false);
+          setIsPlaying(true); // 导入后自动播放
         }
         setIsImporting(false);
         setImportProgress(0);
@@ -359,7 +375,6 @@ const App: React.FC = () => {
     setIsPlaying(true);
   }, [tracks.length, currentTrackIndex]);
 
-  // 修复：将 handleEnded 直接绑定到 audio 标签，避免 useEffect 依赖导致的问题
   const handleAudioEnded = () => {
     if (playbackMode === 'loop' && audioRef.current) {
       audioRef.current.currentTime = 0;
@@ -408,6 +423,7 @@ const App: React.FC = () => {
               if (currentTrackIndex === null && validTracks.length > 0) {
                 setCurrentTrackIndex(0);
                 setView('player');
+                setIsPlaying(true);
               }
               setIsImporting(false);
               setIsImportWindowOpen(false);
@@ -543,11 +559,15 @@ const App: React.FC = () => {
                 )}
             </div>
         </div>
-        {/* 将 onEnded 显式绑定以确保自动切歌正常工作 */}
-        <audio ref={audioRef} src={currentTrack?.url} onEnded={handleAudioEnded} />
+        <audio 
+          ref={audioRef} 
+          src={currentTrack?.url} 
+          onEnded={handleAudioEnded} 
+          preload="auto"
+        />
         <PlayerControls
           currentTrack={currentTrack} tracks={tracks} currentIndex={currentTrackIndex}
-          isPlaying={isPlaying} onTogglePlay={() => { if (isPlaying) audioRef.current?.pause(); else audioRef.current?.play(); setIsPlaying(!isPlaying); }}
+          isPlaying={isPlaying} onTogglePlay={() => { if (isPlaying) setIsPlaying(false); else setIsPlaying(true); }}
           onNext={nextTrack} onPrev={prevTrack} onSelectTrack={setCurrentTrackIndex} onRemoveTrack={(id) => setTracks(prev => prev.filter(t => t.id !== id))}
           progress={progress} duration={duration} volume={volume} onVolumeChange={(v) => { setVolume(v); if (audioRef.current) audioRef.current.volume = v; }}
           onSeek={(val) => audioRef.current && (audioRef.current.currentTime = val)}
