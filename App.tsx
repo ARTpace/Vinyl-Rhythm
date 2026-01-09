@@ -191,9 +191,17 @@ const App: React.FC = () => {
                             </div>
                         </div>
                         {currentTrack?.bitrate && (
-                          <div className="mt-8 px-4 py-1.5 rounded-full bg-white/5 border border-white/5 backdrop-blur-md flex items-center gap-3 animate-in fade-in slide-in-from-bottom-2 duration-1000">
-                            <div className={`w-1.5 h-1.5 rounded-full ${getQualityInfo(currentTrack).color}`} style={{ boxShadow: `0 0 8px ${getQualityInfo(currentTrack).shadow}` }} />
-                            <span className="font-mono text-[9px] font-bold uppercase tracking-widest text-zinc-400">{getQualityInfo(currentTrack).label}</span>
+                          <div className="mt-8 px-5 py-2 rounded-full bg-white/5 border border-white/5 backdrop-blur-md flex items-center gap-3 animate-in fade-in slide-in-from-bottom-2 duration-1000">
+                            <div className={`w-2 h-2 rounded-full ${getQualityInfo(currentTrack).color}`} style={{ boxShadow: `0 0 10px ${getQualityInfo(currentTrack).shadow}` }} />
+                            <div className="flex items-center gap-2.5">
+                              <span className="font-mono text-[10px] font-black uppercase tracking-widest text-zinc-200">
+                                {getQualityInfo(currentTrack).label}
+                              </span>
+                              <div className="w-[1px] h-3 bg-white/10"></div>
+                              <span className="font-mono text-[9px] text-zinc-500 font-bold tracking-tighter">
+                                {Math.round(currentTrack.bitrate / 1000)} KBPS
+                              </span>
+                            </div>
                           </div>
                         )}
                     </div>
