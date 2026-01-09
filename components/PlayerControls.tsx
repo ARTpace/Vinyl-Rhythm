@@ -59,14 +59,30 @@ const PlayerControls: React.FC<PlayerControlsProps> = ({
 
   // 进度条拖拽状态
   const [isDraggingSeek, setIsDraggingSeek] = useState(false);
-  const [dragProgress, setDragProgress] = useState(0);
+  const [localProgress, setLocalProgress] = useState(progress);
+  const dragProgressRef = useRef(progress);
   const progressBarRef = useRef<HTMLDivElement>(null);
+  const mobileProgressBarRef = useRef<HTMLDivElement>(null);
 
-  if (!currentTrack && tracks.length === 0) return null;
+  // 同步外部 progress 到本地状态（非拖动时）
+  useEffect(() => {
+    if (!isDraggingSeek) {
+      setLocalProgress(progress);
+      dragProgressRef.current = progress;
+    }
+  }, [progress, isDraggingSeek]);
 
-  // 计算显示的百分比：拖动中优先显示拖动进度
-  const currentProgress = isDraggingSeek ? dragProgress : progress;
+  // 计算显示的进度：拖动中优先显示本地进度
+  const currentProgress = isDraggingSeek ? localProgress : progress;
   const progressPercent = (currentProgress / duration) * 100 || 0;
+
+  // 计算进度的辅助函数
+  const getProgressFromPointer = (clientX: number) => {
+    const rect = progressBarRef.current?.getBoundingClientRect() || mobileProgressBarRef.current?.getBoundingClientRect();
+    if (!rect) return null;
+    const x = Math.max(0, Math.min(clientX - rect.left, rect.width));
+    return Math.min(Math.max(0, (x / rect.width) * duration), duration);
+  };
 
   const handleToggleMute = () => {
     if (volume > 0) {
@@ -83,25 +99,30 @@ const PlayerControls: React.FC<PlayerControlsProps> = ({
     return <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M11 5L6 9H2v6h4l5 4V5zM19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>;
   };
 
-  // 进度条拖拽逻辑
   const handleSeekStart = (e: React.PointerEvent) => {
     if (!duration) return;
+    e.preventDefault();
     setIsDraggingSeek(true);
-    handleSeekMove(e);
+    const newProgress = getProgressFromPointer(e.clientX);
+    if (newProgress !== null) {
+      setLocalProgress(newProgress);
+      dragProgressRef.current = newProgress;
+    }
     (e.target as Element).setPointerCapture(e.pointerId);
   };
 
   const handleSeekMove = (e: React.PointerEvent | PointerEvent) => {
-    if (!isDraggingSeek || !progressBarRef.current || !duration) return;
-    const rect = progressBarRef.current.getBoundingClientRect();
-    const x = Math.max(0, Math.min(e.clientX - rect.left, rect.width));
-    const newProgress = (x / rect.width) * duration;
-    setDragProgress(newProgress);
+    if (!isDraggingSeek || !duration) return;
+    const newProgress = getProgressFromPointer(e.clientX);
+    if (newProgress !== null) {
+      setLocalProgress(newProgress);
+      dragProgressRef.current = newProgress;
+    }
   };
 
   const handleSeekEnd = (e: React.PointerEvent) => {
     if (!isDraggingSeek) return;
-    onSeek(dragProgress);
+    onSeek(dragProgressRef.current);
     setIsDraggingSeek(false);
     (e.target as Element).releasePointerCapture(e.pointerId);
   };

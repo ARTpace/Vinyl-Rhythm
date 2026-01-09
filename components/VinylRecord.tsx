@@ -9,13 +9,21 @@ interface VinylRecordProps {
 }
 
 export const ToneArm: React.FC<{ isPlaying: boolean; progress: number }> = ({ isPlaying, progress }) => {
-  const startAngle = 20;
-  const endAngle = 36;
-  const currentAngle = isPlaying ? startAngle + (progress * (endAngle - startAngle)) : 0;
+  // 唱片结构：
+  // - 静止位置 (restAngle)：唱臂在唱片右上方，不接触唱片
+  // - 起始位置 (startAngle)：唱臂针头落在唱片最外圈
+  // - 结束位置 (endAngle)：唱臂针头移动到唱片中心封面区域
+  const restAngle = -15;
+  const startAngle = 8;
+  const endAngle = 28;
+
+  const currentAngle = isPlaying
+    ? startAngle + (progress * (endAngle - startAngle))
+    : restAngle;
 
   return (
-    <div 
-        className={`absolute -top-6 -right-8 md:-right-12 w-32 h-40 md:w-44 md:h-52 transition-transform duration-[1200ms] cubic-bezier(0.34, 1.56, 0.64, 1) origin-[85%_10%] pointer-events-none z-30`}
+    <div
+        className={`absolute -top-6 -right-8 md:-right-12 w-32 h-40 md:w-44 md:h-52 transition-transform duration-700 ease-out origin-[75%_8%] pointer-events-none z-30`}
         style={{ transform: `rotate(${currentAngle}deg)` }}
       >
         <div className="absolute top-2 right-4 w-10 h-10 md:w-14 md:h-14 bg-gradient-to-br from-zinc-400 to-zinc-800 rounded-full shadow-2xl border-4 border-zinc-900 flex items-center justify-center">
