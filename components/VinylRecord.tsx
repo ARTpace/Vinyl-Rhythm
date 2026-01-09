@@ -5,15 +5,35 @@ interface VinylRecordProps {
   isPlaying: boolean;
   coverUrl?: string;
   intensity?: number;
-  progress?: number;
   themeColor?: string; 
 }
+
+export const ToneArm: React.FC<{ isPlaying: boolean; progress: number }> = ({ isPlaying, progress }) => {
+  const startAngle = 20;
+  const endAngle = 36;
+  const currentAngle = isPlaying ? startAngle + (progress * (endAngle - startAngle)) : 0;
+
+  return (
+    <div 
+        className={`absolute -top-6 -right-8 md:-right-12 w-32 h-40 md:w-44 md:h-52 transition-transform duration-[1200ms] cubic-bezier(0.34, 1.56, 0.64, 1) origin-[85%_10%] pointer-events-none z-30`}
+        style={{ transform: `rotate(${currentAngle}deg)` }}
+      >
+        <div className="absolute top-2 right-4 w-10 h-10 md:w-14 md:h-14 bg-gradient-to-br from-zinc-400 to-zinc-800 rounded-full shadow-2xl border-4 border-zinc-900 flex items-center justify-center">
+            <div className="w-4 h-4 md:w-5 md:h-5 bg-zinc-900 rounded-full border-2 border-zinc-600"></div>
+        </div>
+        <div className="absolute top-8 right-8 md:top-10 md:right-10 w-2 md:w-2.5 h-36 md:h-48 bg-gradient-to-b from-zinc-300 via-zinc-400 to-zinc-600 rounded-full origin-top rotate-[5deg] shadow-2xl">
+            <div className="absolute bottom-0 -left-1.5 w-5 h-9 md:w-6 md:h-11 bg-gradient-to-br from-zinc-700 to-zinc-900 rounded-sm rotate-[-10deg] shadow-lg border border-zinc-800">
+                <div className="absolute bottom-1 left-1/2 -translate-x-1/2 w-0.5 h-3.5 bg-zinc-400 rounded-full"></div>
+            </div>
+        </div>
+    </div>
+  );
+};
 
 const VinylRecord: React.FC<VinylRecordProps> = ({ 
   isPlaying, 
   coverUrl, 
   intensity = 0, 
-  progress = 0,
   themeColor = 'rgba(234, 179, 8, 1)'
 }) => {
   // 生成随机粒子属性
@@ -34,10 +54,6 @@ const VinylRecord: React.FC<VinylRecordProps> = ({
   const auraOpacity = isPlaying ? (0.1 + intensity * 0.4) : 0;
   const waveScale = 1.0 + intensity * 0.35;
   const waveOpacity = 0.05 + intensity * 0.2;
-
-  const startAngle = 20;
-  const endAngle = 36;
-  const currentAngle = isPlaying ? startAngle + (progress * (endAngle - startAngle)) : 0;
 
   const snappyTransition = "all 75ms cubic-bezier(0.2, 0.8, 0.2, 1)";
 
@@ -129,21 +145,6 @@ const VinylRecord: React.FC<VinylRecordProps> = ({
         </div>
 
         <div className="absolute inset-0 rounded-full vinyl-reflection pointer-events-none mix-blend-screen opacity-15"></div>
-      </div>
-
-      {/* 唱针臂 - 移动端调整位置和缩放 */}
-      <div 
-        className={`absolute -top-6 -right-8 md:-right-12 w-32 h-40 md:w-44 md:h-52 transition-transform duration-[1200ms] cubic-bezier(0.34, 1.56, 0.64, 1) origin-[85%_10%] pointer-events-none z-30`}
-        style={{ transform: `rotate(${currentAngle}deg)` }}
-      >
-        <div className="absolute top-2 right-4 w-10 h-10 md:w-14 md:h-14 bg-gradient-to-br from-zinc-400 to-zinc-800 rounded-full shadow-2xl border-4 border-zinc-900 flex items-center justify-center">
-            <div className="w-4 h-4 md:w-5 md:h-5 bg-zinc-900 rounded-full border-2 border-zinc-600"></div>
-        </div>
-        <div className="absolute top-8 right-8 md:top-10 md:right-10 w-2 md:w-2.5 h-36 md:h-48 bg-gradient-to-b from-zinc-300 via-zinc-400 to-zinc-600 rounded-full origin-top rotate-[5deg] shadow-2xl">
-            <div className="absolute bottom-0 -left-1.5 w-5 h-9 md:w-6 md:h-11 bg-gradient-to-br from-zinc-700 to-zinc-900 rounded-sm rotate-[-10deg] shadow-lg border border-zinc-800">
-                <div className="absolute bottom-1 left-1/2 -translate-x-1/2 w-0.5 h-3.5 bg-zinc-400 rounded-full"></div>
-            </div>
-        </div>
       </div>
     </div>
   );

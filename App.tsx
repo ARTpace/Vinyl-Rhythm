@@ -5,7 +5,8 @@ import MobileNav from './components/MobileNav';
 import ImportWindow from './components/ImportWindow';
 import LibraryView from './components/LibraryView';
 import PlayerControls from './components/PlayerControls';
-import VinylRecord from './components/VinylRecord';
+import VinylRecord, { ToneArm } from './components/VinylRecord';
+import SwipeableTrack from './components/SwipeableTrack';
 import { Track, ViewType, PlaybackMode, LibraryFolder } from './types';
 import { parseFileToTrack } from './utils/audioParser';
 import { SUPPORTED_FORMATS } from './constants';
@@ -385,7 +386,26 @@ const App: React.FC = () => {
                       <h2 className="text-2xl md:text-4xl font-black text-white mb-1 md:mb-2 truncate max-w-[80vw] md:max-w-xl">{currentTrack?.name || "黑胶时光"}</h2>
                       <button onClick={() => { setNavigationRequest({ type: 'artists', name: currentTrack?.artist || '' }); setView('artists'); }} className="font-bold text-lg md:text-xl text-white hover:text-yellow-500 transition-all">{currentTrack?.artist || "享受纯净音质"}</button>
                     </div>
-                    <VinylRecord isPlaying={isPlaying} coverUrl={currentTrack?.coverUrl} intensity={audioIntensity} progress={duration > 0 ? progress / duration : 0} />
+                    
+                    <div className="relative flex items-center justify-center">
+                        <SwipeableTrack 
+                          onNext={nextTrack} 
+                          onPrev={prevTrack} 
+                          currentId={currentTrack?.id || 'empty'}
+                        >
+                          <VinylRecord isPlaying={isPlaying} coverUrl={currentTrack?.coverUrl} intensity={audioIntensity} />
+                        </SwipeableTrack>
+                        
+                        {/* 唱针臂 ToneArm 固定在上方，不随唱片拖动。
+                            使用与 VinylRecord 相同的尺寸容器来确保定位准确。
+                        */}
+                        <div className="absolute inset-0 pointer-events-none flex items-center justify-center z-30">
+                            <div className="relative w-[70vw] h-[70vw] max-w-[18rem] max-h-[18rem] md:w-96 md:h-96 flex-shrink-0">
+                                <ToneArm isPlaying={isPlaying} progress={duration > 0 ? progress / duration : 0} />
+                            </div>
+                        </div>
+                    </div>
+                    
                     <div className={`max-w-xs md:max-w-2xl text-center px-4 italic text-zinc-500 text-sm md:text-lg transition-opacity duration-1000 ${isStoryLoading ? 'opacity-20' : 'opacity-100'}`}>
                       {trackStory || (currentTrack ? "正在为您解读..." : "开始一段黑胶之旅。")}
                     </div>
