@@ -192,14 +192,14 @@ const App: React.FC = () => {
              </div>
           </div>
           <div className="flex items-center gap-3">
-            {library.isImporting && library.currentProcessingFile && (
+            {library.isImporting && (
               <div className="hidden md:flex items-center gap-3 px-4 py-2 bg-black/40 border border-white/5 rounded-2xl backdrop-blur-md animate-in fade-in">
                 <div className="flex flex-col items-end min-w-0 max-w-[120px]">
-                  <span className="text-white text-[10px] font-black italic">{library.importProgress}%</span>
+                  <span className="text-white text-[10px] font-black italic">{Math.round(library.importProgress)}%</span>
                   <span className="text-zinc-500 text-[8px] font-bold uppercase tracking-tighter truncate w-full text-right">{library.currentProcessingFile}</span>
                 </div>
-                <div className="w-16 h-1 bg-white/5 rounded-full overflow-hidden">
-                  <div className="h-full bg-yellow-500 shadow-[0_0_8px_rgba(234,179,8,0.5)] transition-all duration-300" style={{ width: `${library.importProgress}%` }} />
+                <div className="w-16 h-1.5 bg-white/5 rounded-full overflow-hidden">
+                  <div className="h-full bg-yellow-500 shadow-[0_0_8px_rgba(234,179,8,0.5)] transition-all duration-500 ease-out" style={{ width: `${library.importProgress}%` }} />
                 </div>
               </div>
             )}

@@ -112,37 +112,42 @@ export const useLibraryManager = () => {
     setIsImporting(true);
     setImportProgress(0);
     const newTracks: Track[] = [];
-    const total = files.length;
+    const validFiles = Array.from(files).filter(f => SUPPORTED_FORMATS.some(ext => f.name.toLowerCase().endsWith(ext)));
+    const total = validFiles.length;
+
+    if (total === 0) {
+      setIsImporting(false);
+      return false;
+    }
 
     // 分批处理，每批10个文件，避免主线程阻塞
     const batchSize = 10;
     for (let i = 0; i < total; i += batchSize) {
-      const batch = Array.from(files).slice(i, i + batchSize);
+      const batch = validFiles.slice(i, i + batchSize);
       
       for (const file of batch) {
-        if (SUPPORTED_FORMATS.some(ext => file.name.toLowerCase().endsWith(ext))) {
-          setCurrentProcessingFile(file.name);
-          try {
-            const track = await parseFileToTrack(file);
-            newTracks.push(track);
-          } catch (e) {
-            console.error("解析文件元数据失败:", file.name, e);
-          }
+        setCurrentProcessingFile(file.name);
+        try {
+          const track = await parseFileToTrack(file);
+          newTracks.push(track);
+        } catch (e) {
+          console.error("解析文件元数据失败:", file.name, e);
         }
       }
       
-      setImportProgress(Math.round(Math.min(((i + batchSize) / total) * 100, 99)));
+      // 使用 Math.floor 确保没有小数点
+      setImportProgress(Math.floor(((i + batch.length) / total) * 100));
       // 给主线程喘息的机会
       await new Promise(resolve => setTimeout(resolve, 0));
     }
 
     if (newTracks.length > 0) {
-            setTracks(prev => {
-              const next = [...prev, ...newTracks];
-              saveTracksToCache(next);
-              return next;
-            });
-          }
+      setTracks(prev => {
+        const next = [...prev, ...newTracks];
+        saveTracksToCache(next);
+        return next;
+      });
+    }
 
     setImportProgress(100);
     setIsImporting(false);
@@ -152,7 +157,7 @@ export const useLibraryManager = () => {
   const syncAll = useCallback(async () => {
     setIsImporting(true);
     setImportProgress(0);
-    setCurrentProcessingFile('正在扫描...');
+    setCurrentProcessingFile('正在计算文件总数...');
 
     const savedFolders = await getAllLibraryFolders();
     if (savedFolders.length === 0) {
@@ -162,7 +167,10 @@ export const useLibraryManager = () => {
 
     const currentTracksMap = new Map<string, Track>(tracks.map(t => [t.fingerprint, t]));
     let allUpdatedTracks: Track[] = tracks.filter(t => !t.folderId); 
-    let processedCount = 0;
+    
+    // --- 第一阶段：预扫描计数 ---
+    let totalFilesCount = 0;
+    const filesToProcess: { handle: FileSystemFileHandle, folderId: string }[] = [];
 
     for (const folder of savedFolders) {
       try {
@@ -173,54 +181,67 @@ export const useLibraryManager = () => {
 
         if (permission === 'granted') {
           setNeedsPermission(false);
-          const scan = async (dirHandle: FileSystemDirectoryHandle) => {
-            const entries = [];
+          const fastScan = async (dirHandle: FileSystemDirectoryHandle) => {
             for await (const entry of (dirHandle as any).values()) {
-              entries.push(entry);
-            }
-            
-            // 分批处理目录条目
-            const batchSize = 10;
-            for (let i = 0; i < entries.length; i += batchSize) {
-              const batch = entries.slice(i, i + batchSize);
-              
-              for (const entry of batch) {
-                if (entry.kind === 'file' && SUPPORTED_FORMATS.some(ext => entry.name.toLowerCase().endsWith(ext))) {
-                  processedCount++;
-                  setCurrentProcessingFile(entry.name);
-                  const file = await entry.getFile();
-                  const fingerprint = `${file.name}-${file.size}`;
-                  const cached = currentTracksMap.get(fingerprint);
-                  
-                  if (cached) {
-                    allUpdatedTracks.push({ ...cached, fileName: file.name } as any);
-                  } else {
-                    const t = await parseFileToTrack(file);
-                    t.folderId = folder.id;
-                    (t as any).fileName = file.name;
-                    allUpdatedTracks.push(t);
-                  }
-                  setImportProgress(prev => Math.min(99, prev + 0.1));
-                } else if (entry.kind === 'directory') {
-                  await scan(entry);
-                }
+              if (entry.kind === 'file' && SUPPORTED_FORMATS.some(ext => entry.name.toLowerCase().endsWith(ext))) {
+                totalFilesCount++;
+                filesToProcess.push({ handle: entry as FileSystemFileHandle, folderId: folder.id });
+              } else if (entry.kind === 'directory') {
+                await fastScan(entry);
               }
-              
-              // 给主线程喘息的机会
-              await new Promise(resolve => setTimeout(resolve, 0));
             }
           };
-          await scan(folder.handle);
+          await fastScan(folder.handle);
         } else {
           setNeedsPermission(true);
         }
       } catch (e) { console.error(e); }
     }
 
+    if (totalFilesCount === 0) {
+      setIsImporting(false);
+      return false;
+    }
+
+    // --- 第二阶段：正式解析元数据 ---
+    let processedCount = 0;
+    const batchSize = 8; // 每组解析的数量
+    
+    for (let i = 0; i < filesToProcess.length; i += batchSize) {
+      const batch = filesToProcess.slice(i, i + batchSize);
+      
+      await Promise.all(batch.map(async (item) => {
+        try {
+          const file = await item.handle.getFile();
+          setCurrentProcessingFile(file.name);
+          const fingerprint = `${file.name}-${file.size}`;
+          const cached = currentTracksMap.get(fingerprint);
+          
+          if (cached) {
+            allUpdatedTracks.push({ ...cached, fileName: file.name } as any);
+          } else {
+            const t = await parseFileToTrack(file);
+            t.folderId = item.folderId;
+            (t as any).fileName = file.name;
+            allUpdatedTracks.push(t);
+          }
+        } catch (err) {
+          console.error("解析文件失败:", err);
+        } finally {
+          processedCount++;
+        }
+      }));
+
+      // 精确整数百分比
+      setImportProgress(Math.floor((processedCount / totalFilesCount) * 100));
+      // 释放主线程，让 UI 更新
+      await new Promise(resolve => setTimeout(resolve, 0));
+    }
+
     setTracks(allUpdatedTracks);
     await saveTracksToCache(allUpdatedTracks);
     setImportProgress(100);
-    setIsImporting(false);
+    setTimeout(() => setIsImporting(false), 500);
     return true;
   }, [tracks]);
 
