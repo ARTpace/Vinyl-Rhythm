@@ -44,6 +44,29 @@ const App: React.FC = () => {
   const [trackStory, setTrackStory] = useState('');
   const [isStoryLoading, setIsStoryLoading] = useState(false);
 
+  // 音质等级计算
+  const qualityInfo = useMemo(() => {
+    if (!currentTrack) return null;
+    const br = currentTrack.bitrate ? currentTrack.bitrate / 1000 : 0;
+    const ext = currentTrack.file.name.toLowerCase();
+    
+    let label = 'SD';
+    let color = 'text-zinc-500';
+    let border = 'border-zinc-800';
+
+    if (ext.endsWith('.flac') || ext.endsWith('.wav') || br > 800) {
+      label = br > 2000 ? 'HI-RES' : 'LOSSLESS';
+      color = 'text-yellow-500';
+      border = 'border-yellow-500/30';
+    } else if (br >= 320) {
+      label = 'HQ';
+      color = 'text-emerald-500';
+      border = 'border-emerald-500/30';
+    }
+
+    return { label, bitrate: br ? `${Math.round(br)}kbps` : null, color, border };
+  }, [currentTrack]);
+
   useEffect(() => {
     if (currentTrack) {
       if (!settings.enableAI) {
@@ -86,7 +109,6 @@ const App: React.FC = () => {
       setSelectedArtist(name);
       setView('artistProfile');
     } else if (type === 'albums') {
-      // 如果是进入专辑详情，重定向到 LibraryView 的过滤视图
       setNavigationRequest({ type: 'albums', name });
       setView('all');
     }
@@ -168,20 +190,64 @@ const App: React.FC = () => {
         <div className="flex-1 relative overflow-hidden">
             <div key={view + (selectedArtist || '')} className="absolute inset-0 flex flex-col animate-in fade-in duration-700">
                 {view === 'player' ? (
-                  <div className="flex-1 flex flex-col items-center justify-center gap-8 p-8 overflow-hidden">
-                    <div className="text-center relative z-40 px-6 max-w-4xl min-h-[100px] flex flex-col justify-center">
-                      <h2 className="text-xl md:text-3xl lg:text-4xl font-bold mb-3 tracking-tight text-white drop-shadow-sm">{processDisplayString(currentTrack?.name || "黑胶时光")}</h2>
-                      <button onClick={() => handleNavigate('artistProfile', currentTrack?.artist || '')} className="text-zinc-400 font-bold uppercase tracking-[0.2em] text-[10px] hover:text-yellow-500">{processDisplayString(currentTrack?.artist || "享受纯净音质")}</button>
-                    </div>
-                    <SwipeableTrack onNext={player.nextTrack} onPrev={player.prevTrack} currentId={currentTrack?.id || 'empty'}>
-                      <VinylRecord isPlaying={player.isPlaying} coverUrl={currentTrack?.coverUrl} intensity={audioIntensity} themeColor={rhythmColor} spinSpeed={settings.spinSpeed} showParticles={settings.showParticles} />
-                    </SwipeableTrack>
-                    <div className="absolute inset-0 pointer-events-none flex items-center justify-center z-30">
-                        <div className="relative w-[60vw] h-[60vw] max-w-[16rem] max-h-[16rem] sm:w-[70vw] sm:h-[70vw] sm:max-w-[18rem] sm:max-h-[18rem] md:w-96 md:h-96 flex-shrink-0">
-                            <ToneArm trackId={currentTrack?.id} isPlaying={player.isPlaying} progress={player.duration > 0 ? player.progress / player.duration : 0} onClick={player.togglePlay} />
+                  <div className="flex-1 flex flex-col items-center justify-center gap-6 p-8 overflow-hidden relative">
+                    
+                    {/* 信息展示区 */}
+                    <div className="text-center relative z-40 px-6 max-w-4xl flex flex-col items-center">
+                      
+                      {/* 音质显示 */}
+                      {settings.showQualityTag && qualityInfo && (
+                        <div className={`mb-6 flex items-center gap-3 animate-in fade-in zoom-in duration-1000`}>
+                          <span className={`px-2.5 py-0.5 border ${qualityInfo.border} ${qualityInfo.color} rounded text-[9px] font-black tracking-widest shadow-lg`}>
+                            {qualityInfo.label}
+                          </span>
+                          {qualityInfo.bitrate && (
+                            <span className="text-[9px] text-zinc-600 font-mono tracking-tighter">
+                              {qualityInfo.bitrate}
+                            </span>
+                          )}
                         </div>
+                      )}
+
+                      <h2 className="text-2xl md:text-3xl lg:text-5xl font-bold mb-4 tracking-tight text-white drop-shadow-xl">
+                        {processDisplayString(currentTrack?.name || "黑胶时光")}
+                      </h2>
+
+                      <div className="flex items-center gap-2 mb-2">
+                        <button onClick={() => handleNavigate('artistProfile', currentTrack?.artist || '')} className="text-zinc-400 font-bold uppercase tracking-[0.15em] text-[11px] md:text-xs hover:text-yellow-500 transition-colors">
+                          {processDisplayString(currentTrack?.artist || "享受纯净音质")}
+                        </button>
+                        {currentTrack?.album && (
+                          <>
+                            <span className="text-zinc-800 font-black">•</span>
+                            <button onClick={() => handleNavigate('albums', currentTrack.album)} className="text-zinc-500 font-bold uppercase tracking-[0.15em] text-[11px] md:text-xs hover:text-white transition-colors">
+                              {processDisplayString(currentTrack.album)}
+                            </button>
+                          </>
+                        )}
+                      </div>
                     </div>
-                    {settings.enableAI && <div className={`max-w-2xl text-center px-4 italic text-zinc-500 text-base transition-opacity duration-1000 ${isStoryLoading ? 'opacity-20' : 'opacity-100'}`}>{trackStory || (currentTrack ? processDisplayString("正在为您解读...") : processDisplayString("开启一段黑胶之旅。"))}</div>}
+
+                    {/* 黑胶区域 */}
+                    <div className="relative mt-4">
+                      <SwipeableTrack onNext={player.nextTrack} onPrev={player.prevTrack} currentId={currentTrack?.id || 'empty'}>
+                        <VinylRecord isPlaying={player.isPlaying} coverUrl={currentTrack?.coverUrl} intensity={audioIntensity} themeColor={rhythmColor} spinSpeed={settings.spinSpeed} showParticles={settings.showParticles} />
+                      </SwipeableTrack>
+                      
+                      {/* 唱臂层 - 需要在 SwipeableTrack 之外以保持位置稳定 */}
+                      <div className="absolute inset-0 pointer-events-none flex items-center justify-center z-30">
+                          <div className="relative w-[60vw] h-[60vw] max-w-[16rem] max-h-[16rem] sm:w-[70vw] sm:h-[70vw] sm:max-w-[18rem] sm:max-h-[18rem] md:w-96 md:h-96 flex-shrink-0">
+                              <ToneArm trackId={currentTrack?.id} isPlaying={player.isPlaying} progress={player.duration > 0 ? player.progress / player.duration : 0} onClick={player.togglePlay} />
+                          </div>
+                      </div>
+                    </div>
+
+                    {/* AI 解读区 */}
+                    {settings.enableAI && (
+                      <div className={`mt-8 max-w-2xl text-center px-4 italic text-zinc-500 text-sm md:text-base transition-opacity duration-1000 leading-relaxed ${isStoryLoading ? 'opacity-20' : 'opacity-100'}`}>
+                        {trackStory || (currentTrack ? processDisplayString("正在为您解读...") : processDisplayString("开启一段黑胶之旅。"))}
+                      </div>
+                    )}
                   </div>
                 ) : view === 'artistProfile' && selectedArtist ? (
                   <ArtistProfile artistName={selectedArtist} allTracks={library.tracks} onBack={() => { setView('collection'); setSelectedArtist(null); }} onPlayTrack={(t) => { const idx = library.tracks.findIndex(item => item.id === t.id); player.setCurrentTrackIndex(idx); setView('player'); player.setIsPlaying(true); }} onNavigateToAlbum={(album) => handleNavigate('albums', album)} favorites={library.favorites} onToggleFavorite={library.handleToggleFavorite} />
