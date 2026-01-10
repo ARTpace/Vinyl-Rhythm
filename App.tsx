@@ -51,20 +51,23 @@ const App: React.FC = () => {
     const ext = currentTrack.file.name.toLowerCase();
     
     let label = 'SD';
-    let color = 'text-zinc-500';
-    let border = 'border-zinc-800';
+    let colorClass = 'text-zinc-500';
+    let glowClass = 'shadow-zinc-500/20';
+    let borderClass = 'border-zinc-800';
 
-    if (ext.endsWith('.flac') || ext.endsWith('.wav') || br > 800) {
+    if (ext.endsWith('.flac') || ext.endsWith('.wav') || br > 1000) {
       label = br > 2000 ? 'HI-RES' : 'LOSSLESS';
-      color = 'text-yellow-500';
-      border = 'border-yellow-500/30';
+      colorClass = 'text-yellow-500';
+      glowClass = 'shadow-yellow-500/40';
+      borderClass = 'border-yellow-500/40';
     } else if (br >= 320) {
       label = 'HQ';
-      color = 'text-emerald-500';
-      border = 'border-emerald-500/30';
+      colorClass = 'text-emerald-500';
+      glowClass = 'shadow-emerald-500/30';
+      borderClass = 'border-emerald-500/30';
     }
 
-    return { label, bitrate: br ? `${Math.round(br)}kbps` : null, color, border };
+    return { label, bitrate: br ? `${Math.round(br)}` : null, colorClass, borderClass, glowClass };
   }, [currentTrack]);
 
   useEffect(() => {
@@ -190,25 +193,10 @@ const App: React.FC = () => {
         <div className="flex-1 relative overflow-hidden">
             <div key={view + (selectedArtist || '')} className="absolute inset-0 flex flex-col animate-in fade-in duration-700">
                 {view === 'player' ? (
-                  <div className="flex-1 flex flex-col items-center justify-center gap-6 p-8 overflow-hidden relative">
+                  <div className="flex-1 flex flex-col items-center justify-center gap-4 p-8 overflow-hidden relative">
                     
                     {/* 信息展示区 */}
                     <div className="text-center relative z-40 px-6 max-w-4xl flex flex-col items-center">
-                      
-                      {/* 音质显示 */}
-                      {settings.showQualityTag && qualityInfo && (
-                        <div className={`mb-6 flex items-center gap-3 animate-in fade-in zoom-in duration-1000`}>
-                          <span className={`px-2.5 py-0.5 border ${qualityInfo.border} ${qualityInfo.color} rounded text-[9px] font-black tracking-widest shadow-lg`}>
-                            {qualityInfo.label}
-                          </span>
-                          {qualityInfo.bitrate && (
-                            <span className="text-[9px] text-zinc-600 font-mono tracking-tighter">
-                              {qualityInfo.bitrate}
-                            </span>
-                          )}
-                        </div>
-                      )}
-
                       <h2 className="text-2xl md:text-3xl lg:text-5xl font-bold mb-4 tracking-tight text-white drop-shadow-xl">
                         {processDisplayString(currentTrack?.name || "黑胶时光")}
                       </h2>
@@ -219,7 +207,7 @@ const App: React.FC = () => {
                         </button>
                         {currentTrack?.album && (
                           <>
-                            <span className="text-zinc-800 font-black">•</span>
+                            <span className="text-zinc-800 font-black mx-1">•</span>
                             <button onClick={() => handleNavigate('albums', currentTrack.album)} className="text-zinc-500 font-bold uppercase tracking-[0.15em] text-[11px] md:text-xs hover:text-white transition-colors">
                               {processDisplayString(currentTrack.album)}
                             </button>
@@ -229,12 +217,11 @@ const App: React.FC = () => {
                     </div>
 
                     {/* 黑胶区域 */}
-                    <div className="relative mt-4">
+                    <div className="relative mt-2">
                       <SwipeableTrack onNext={player.nextTrack} onPrev={player.prevTrack} currentId={currentTrack?.id || 'empty'}>
                         <VinylRecord isPlaying={player.isPlaying} coverUrl={currentTrack?.coverUrl} intensity={audioIntensity} themeColor={rhythmColor} spinSpeed={settings.spinSpeed} showParticles={settings.showParticles} />
                       </SwipeableTrack>
                       
-                      {/* 唱臂层 - 需要在 SwipeableTrack 之外以保持位置稳定 */}
                       <div className="absolute inset-0 pointer-events-none flex items-center justify-center z-30">
                           <div className="relative w-[60vw] h-[60vw] max-w-[16rem] max-h-[16rem] sm:w-[70vw] sm:h-[70vw] sm:max-w-[18rem] sm:max-h-[18rem] md:w-96 md:h-96 flex-shrink-0">
                               <ToneArm trackId={currentTrack?.id} isPlaying={player.isPlaying} progress={player.duration > 0 ? player.progress / player.duration : 0} onClick={player.togglePlay} />
@@ -242,9 +229,35 @@ const App: React.FC = () => {
                       </div>
                     </div>
 
+                    {/* Hi-Fi 仪表盘 (音质显示在黑胶下面) */}
+                    {settings.showQualityTag && qualityInfo && (
+                      <div className="mt-6 flex flex-col items-center gap-2 animate-in fade-in slide-in-from-top-2 duration-1000">
+                        <div className="flex items-center gap-4 bg-black/40 px-5 py-2 rounded-2xl border border-white/5 backdrop-blur-md shadow-2xl">
+                          <div className="flex flex-col items-start">
+                             <span className="text-[7px] text-zinc-600 font-black uppercase tracking-widest mb-0.5">SIGNAL QUALITY</span>
+                             <span className={`px-2 py-0.5 border ${qualityInfo.borderClass} ${qualityInfo.colorClass} rounded-sm text-[9px] font-black tracking-[0.15em] shadow-lg ${qualityInfo.glowClass}`}>
+                                {qualityInfo.label}
+                             </span>
+                          </div>
+                          
+                          <div className="w-px h-6 bg-zinc-800/50" />
+                          
+                          <div className="flex flex-col items-end">
+                             <span className="text-[7px] text-zinc-600 font-black uppercase tracking-widest mb-0.5">BITRATE</span>
+                             <div className="flex items-baseline gap-1">
+                                <span className={`text-lg font-mono font-bold leading-none tracking-tighter transition-all duration-500 ${player.isPlaying ? qualityInfo.colorClass : 'text-zinc-800'}`}>
+                                  {qualityInfo.bitrate || '000'}
+                                </span>
+                                <span className="text-[8px] text-zinc-700 font-black">kbps</span>
+                             </div>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
                     {/* AI 解读区 */}
                     {settings.enableAI && (
-                      <div className={`mt-8 max-w-2xl text-center px-4 italic text-zinc-500 text-sm md:text-base transition-opacity duration-1000 leading-relaxed ${isStoryLoading ? 'opacity-20' : 'opacity-100'}`}>
+                      <div className={`mt-6 max-w-2xl text-center px-4 italic text-zinc-500 text-sm md:text-base transition-opacity duration-1000 leading-relaxed ${isStoryLoading ? 'opacity-20' : 'opacity-100'}`}>
                         {trackStory || (currentTrack ? processDisplayString("正在为您解读...") : processDisplayString("开启一段黑胶之旅。"))}
                       </div>
                     )}

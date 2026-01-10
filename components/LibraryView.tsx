@@ -91,6 +91,7 @@ const LibraryView: React.FC<LibraryViewProps> = ({
   navigationRequest, onNavigationProcessed, isSearching = false, displayConverter
 }) => {
   const [activeGroup, setActiveGroup] = useState<string | null>(null);
+  const [activeAlbum, setActiveAlbum] = useState<string | null>(null);
   const [displayLimit, setDisplayLimit] = useState(100);
   const [scrapingId, setScrapingId] = useState<string | null>(null);
   const [subTab, setSubTab] = useState<'all' | 'fav' | 'folders'>('all');
@@ -106,6 +107,12 @@ const LibraryView: React.FC<LibraryViewProps> = ({
       if (navigationRequest.type === 'folders') {
          setSubTab('folders');
          setActiveGroup(navigationRequest.name);
+         setActiveAlbum(null);
+         onNavigationProcessed?.();
+      } else if (navigationRequest.type === 'albums') {
+         setSubTab('all');
+         setActiveAlbum(navigationRequest.name);
+         setActiveGroup(null);
          onNavigationProcessed?.();
       }
     }
@@ -113,10 +120,13 @@ const LibraryView: React.FC<LibraryViewProps> = ({
 
   useEffect(() => {
     if (view === 'all') {
-      setActiveGroup(null);
-      setSubTab('all');
+      if (!navigationRequest) {
+        setActiveGroup(null);
+        setActiveAlbum(null);
+        setSubTab('all');
+      }
     }
-  }, [view]);
+  }, [view, navigationRequest]);
 
   const handleScrape = async (track: Track) => {
     if (scrapingId) return;
@@ -141,10 +151,10 @@ const LibraryView: React.FC<LibraryViewProps> = ({
   useEffect(() => {
     setDisplayLimit(100);
     if (scrollRef.current) scrollRef.current.scrollTop = 0;
-  }, [view, activeGroup, isSearching, sortKey, sortOrder, subTab]);
+  }, [view, activeGroup, activeAlbum, isSearching, sortKey, sortOrder, subTab]);
 
   const groups = useMemo(() => {
-    if (view !== 'all' || subTab !== 'folders' || activeGroup || isSearching) return null;
+    if (view !== 'all' || subTab !== 'folders' || activeGroup || activeAlbum || isSearching) return null;
 
     const map = new Map<string, Track[]>();
     tracks.forEach(track => {
@@ -153,7 +163,7 @@ const LibraryView: React.FC<LibraryViewProps> = ({
       map.get(key)!.push(track);
     });
     return Array.from(map.entries()).sort((a, b) => a[0].localeCompare(b[0]));
-  }, [tracks, view, subTab, activeGroup, isSearching]);
+  }, [tracks, view, subTab, activeGroup, activeAlbum, isSearching]);
 
   const filteredAndSortedTracks = useMemo(() => {
     let list = [...tracks];
@@ -164,6 +174,10 @@ const LibraryView: React.FC<LibraryViewProps> = ({
     
     if (activeGroup) {
       list = list.filter(t => (t.folderId || '默认导入') === activeGroup);
+    }
+
+    if (activeAlbum) {
+      list = list.filter(t => t.album === activeAlbum);
     }
     
     list.sort((a, b) => {
@@ -176,19 +190,26 @@ const LibraryView: React.FC<LibraryViewProps> = ({
     });
 
     return list;
-  }, [tracks, favorites, subTab, activeGroup, sortKey, sortOrder, isSearching]);
+  }, [tracks, favorites, subTab, activeGroup, activeAlbum, sortKey, sortOrder, isSearching]);
+
+  const pageTitle = useMemo(() => {
+    if (activeGroup) return activeGroup;
+    if (activeAlbum) return activeAlbum;
+    if (view === 'history') return '最近播放';
+    return '本地曲库';
+  }, [activeGroup, activeAlbum, view]);
 
   return (
     <div className="flex flex-col h-full bg-zinc-950/20 overflow-hidden animate-in fade-in duration-500">
       <header className="p-4 md:p-8 flex flex-col md:flex-row md:items-end justify-between gap-6 shrink-0">
         <div className="space-y-1">
           <h2 className="text-2xl md:text-4xl font-black text-white tracking-tighter uppercase italic">
-            {activeGroup ? convert(activeGroup) : convert(view === 'history' ? '最近播放' : '本地曲库')}
+            {convert(pageTitle)}
           </h2>
           <div className="h-0.5 w-12 bg-yellow-500 rounded-full shadow-[0_0_10px_rgba(234,179,8,0.5)]"></div>
         </div>
 
-        {!activeGroup && view !== 'history' && !isSearching && (
+        {!activeGroup && !activeAlbum && view !== 'history' && !isSearching && (
           <div className="flex bg-black/40 p-1.5 rounded-2xl border border-white/5 backdrop-blur-md">
             {[
               { id: 'all', label: '全部' },
@@ -206,9 +227,9 @@ const LibraryView: React.FC<LibraryViewProps> = ({
           </div>
         )}
         
-        {activeGroup && (
+        {(activeGroup || activeAlbum) && (
           <button 
-            onClick={() => setActiveGroup(null)}
+            onClick={() => { setActiveGroup(null); setActiveAlbum(null); }}
             className="flex items-center gap-2 text-zinc-500 hover:text-yellow-500 transition-colors uppercase font-black text-[10px] tracking-widest"
           >
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><path d="m15 18-6-6 6-6"/></svg>
@@ -218,7 +239,7 @@ const LibraryView: React.FC<LibraryViewProps> = ({
       </header>
 
       <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 md:px-8 pb-32 custom-scrollbar">
-        {groups && !activeGroup ? (
+        {groups && !activeGroup && !activeAlbum ? (
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-6">
             {groups.map(([name, groupTracks]) => (
               <div 
