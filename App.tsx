@@ -145,7 +145,12 @@ const App: React.FC = () => {
         isOpen={isImportWindowOpen} 
         onClose={() => setIsImportWindowOpen(false)} 
         onImport={async () => {
-           try { const handle = await window.showDirectoryPicker(); await library.registerFolder(handle); library.syncAll(); } catch (e) {}
+           try { 
+             const handle = await window.showDirectoryPicker(); 
+             const newFolderId = await library.registerFolder(handle); 
+             // 优化：仅同步新文件夹，不影响旧的
+             library.syncFolder(newFolderId); 
+           } catch (e) {}
         }} 
         onReconnectFolder={library.reconnectFolder}
         onManualFilesSelect={async (files) => {

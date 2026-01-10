@@ -17,7 +17,6 @@ import { normalizeChinese } from '../utils/chineseConverter';
 export const useLibraryManager = () => {
   const [tracks, setTracks] = useState<Track[]>([]);
   const [historyEntries, setHistoryEntries] = useState<HistoryEntry[]>([]);
-  // 修复: 明确 importedFolders 为数组类型，以匹配初始值 [] 和后续的 setter 调用，这同时修复了 App.tsx 中组件传参的类型错误
   const [importedFolders, setImportedFolders] = useState<(LibraryFolder & { hasHandle: boolean })[]>([]);
   const [isImporting, setIsImporting] = useState(false);
   const [importProgress, setImportProgress] = useState(0);
@@ -34,7 +33,6 @@ export const useLibraryManager = () => {
     const cached = await getCachedTracks();
     const foldersFromDB = await getAllLibraryFolders();
     
-    // 标记哪些文件夹是“断链”的（通常是还原备份后产生的）
     setImportedFolders(foldersFromDB.map(f => ({
       id: f.id,
       name: f.name,
@@ -44,7 +42,7 @@ export const useLibraryManager = () => {
     })));
 
     if (cached && cached.length > 0) {
-      setTracks(cached.map(t => ({ ...t, file: null as any, url: '' })));
+      setTracks(cached.map(t => ({ ...t, file: t.file || null as any, url: t.url || '' })));
     }
 
     if (foldersFromDB.length > 0 && foldersFromDB.some(f => !f.handle)) {
@@ -149,7 +147,11 @@ export const useLibraryManager = () => {
     return true;
   }, []);
 
-  const syncAll = useCallback(async () => {
+  /**
+   * 核心重构：支持局部文件夹同步
+   * @param specificFolderId 如果传入 ID，则仅扫描该文件夹
+   */
+  const syncFolders = useCallback(async (specificFolderId?: string) => {
     setIsImporting(true);
     setImportProgress(0);
     setCurrentProcessingFile('正在盘点曲目...');
@@ -157,19 +159,25 @@ export const useLibraryManager = () => {
     const savedFolders = await getAllLibraryFolders();
     if (savedFolders.length === 0) { setIsImporting(false); return false; }
 
-    const missingHandleFolders = savedFolders.filter(f => !f.handle);
+    // 确定本次需要扫描的文件夹范围
+    const foldersToScan = specificFolderId 
+      ? savedFolders.filter(f => f.id === specificFolderId)
+      : savedFolders;
+
+    const missingHandleFolders = foldersToScan.filter(f => !f.handle);
     if (missingHandleFolders.length > 0) {
-      alert(`检测到 ${missingHandleFolders.length} 个断开的文件夹记录，请先在“管理库”中重新选择它们以恢复访问。`);
+      alert(`检测到断开的文件夹记录，请先在“管理库”中重新选择它们以恢复访问。`);
       setIsImporting(false);
       return false;
     }
 
+    // 建立现有曲目映射，用于缓存对比
     const currentTracksMap = new Map<string, Track>(tracks.map(t => [t.fingerprint, t]));
-    let allUpdatedTracks: Track[] = []; 
+    let folderTracks: Track[] = []; 
     let totalFilesCount = 0;
     const filesToProcess: { handle: FileSystemFileHandle, folderId: string }[] = [];
 
-    for (const folder of savedFolders) {
+    for (const folder of foldersToScan) {
       if (!folder.handle) continue;
       try {
         let permission = await folder.handle.queryPermission({ mode: 'read' });
@@ -190,10 +198,17 @@ export const useLibraryManager = () => {
       } catch (e) { console.error(e); }
     }
 
-    if (totalFilesCount === 0) { setIsImporting(false); return false; }
+    if (totalFilesCount === 0) { 
+        // 如果是特定文件夹且没东西，需要清空该文件夹记录
+        if (specificFolderId) {
+            setTracks(prev => prev.filter(t => t.folderId !== specificFolderId));
+        }
+        setIsImporting(false); 
+        return true; 
+    }
 
     let processedCount = 0;
-    const batchSize = 5;
+    const batchSize = 10;
     for (let i = 0; i < filesToProcess.length; i += batchSize) {
       const batch = filesToProcess.slice(i, i + batchSize);
       await Promise.all(batch.map(async (item) => {
@@ -204,13 +219,13 @@ export const useLibraryManager = () => {
           const cached = currentTracksMap.get(fingerprint);
           
           if (cached && cached.coverBlob) {
-            allUpdatedTracks.push({ ...cached, fileName: file.name, folderId: item.folderId } as any);
+            folderTracks.push({ ...cached, fileName: file.name, folderId: item.folderId } as any);
           } else {
             const t = await parseFileToTrack(file);
             t.folderId = item.folderId;
             (t as any).fileName = file.name;
             if (cached) t.id = cached.id;
-            allUpdatedTracks.push(t);
+            folderTracks.push(t);
           }
         } catch (err) { console.error(err); }
         finally { processedCount++; }
@@ -219,10 +234,31 @@ export const useLibraryManager = () => {
       await new Promise(r => setTimeout(r, 0));
     }
 
-    setTracks(allUpdatedTracks);
-    await saveTracksToCache(allUpdatedTracks);
+    // 增量合并逻辑：
+    // 如果是同步特定文件夹，则保留其他文件夹的曲目，仅更新当前的
+    setTracks(prev => {
+      let finalTracks: Track[];
+      if (specificFolderId) {
+        const otherTracks = prev.filter(t => t.folderId !== specificFolderId);
+        finalTracks = [...otherTracks, ...folderTracks];
+      } else {
+        finalTracks = folderTracks;
+      }
+      
+      // 去重
+      const seen = new Set();
+      const unique = finalTracks.filter(t => {
+        if (seen.has(t.fingerprint)) return false;
+        seen.add(t.fingerprint);
+        return true;
+      });
+      
+      saveTracksToCache(unique);
+      return unique;
+    });
+
     setImportProgress(100);
-    await loadData(); // 刷新 UI 状态
+    await loadData(); 
     setTimeout(() => setIsImporting(false), 500);
     return true;
   }, [tracks, loadData]);
@@ -231,20 +267,21 @@ export const useLibraryManager = () => {
     const id = handle.name + "_" + Date.now();
     await saveLibraryFolder(id, handle);
     await loadData();
-    return id;
+    return id; // 返回新生成的 ID 以供定向同步使用
   };
 
   const reconnectFolder = async (folderId: string, handle: FileSystemDirectoryHandle) => {
     await saveLibraryFolder(folderId, handle);
     await loadData();
-    // 成功重连后，由于权限已获得，自动触发一次同步来恢复封面和元数据
-    syncAll();
+    // 成功重连后，仅同步该文件夹
+    syncFolders(folderId);
   };
 
   const handleRemoveFolder = useCallback(async (id: string) => {
     if(confirm("确定要移除该文件夹吗？其下的曲目记录也将被从曲库移除。")) {
         await removeLibraryFolder(id);
         await loadData();
+        setTracks(prev => prev.filter(t => t.folderId !== id));
     }
   }, [loadData]);
 
@@ -297,7 +334,9 @@ export const useLibraryManager = () => {
     isImporting, importProgress, currentProcessingFile,
     searchQuery, setSearchQuery, filteredTracks,
     favorites, handleToggleFavorite, handleUpdateTrack, reorderTracks,
-    syncAll, registerFolder, reconnectFolder, removeFolder: handleRemoveFolder, resolveTrackFile,
+    syncAll: () => syncFolders(), // 默认全量
+    syncFolder: (id: string) => syncFolders(id), // 定向同步
+    registerFolder, reconnectFolder, removeFolder: handleRemoveFolder, resolveTrackFile,
     handleManualFilesSelect,
     historyTracks: historyEntries.map(e => tracks.find(t => t.fingerprint === e.fingerprint)).filter(Boolean) as Track[],
     fetchHistory, clearHistory, needsPermission
