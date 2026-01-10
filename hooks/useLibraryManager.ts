@@ -45,7 +45,6 @@ export const useLibraryManager = () => {
     setHistoryEntries([]);
   }, []);
 
-  // 映射历史记录到当前库中的 Track 对象
   const historyTracks = useMemo(() => {
     return historyEntries.map(entry => {
       const match = tracks.find(t => t.fingerprint === entry.fingerprint);
@@ -122,87 +121,120 @@ export const useLibraryManager = () => {
     return foundFiles;
   };
 
+  /**
+   * 仅注册文件夹，不进行扫描
+   */
+  const registerFolder = async (handle: FileSystemDirectoryHandle) => {
+    const id = handle.name + "_" + Date.now();
+    await saveLibraryFolder(id, handle);
+    const newFolder: LibraryFolder = {
+      id: id,
+      name: handle.name,
+      lastSync: 0, // 0 表示从未同步
+      trackCount: 0
+    };
+    setImportedFolders(prev => [...prev, newFolder]);
+    return id;
+  };
+
   const syncAll = async (isSilent: boolean = false) => {
     const savedFolders = await getAllLibraryFolders();
     if (savedFolders.length === 0) {
-      // 如果 IndexedDB 里没有任何句柄，且当前列表里也没 manual 导入，则清空
       setImportedFolders(prev => prev.filter(f => f.id.startsWith('manual_')));
       return false;
     }
 
     setIsImporting(true);
-    let allProcessedTracks: Track[] = isSilent ? [] : [...tracks];
+    setImportProgress(0);
     
-    // 初始化新的文件夹列表，先保留原有的手动导入项
+    // 如果不是静默同步（手动点刷新），则保留现有曲目并追加新曲目
+    // 如果是静默同步（初始化），则清空重新扫描
+    let allProcessedTracks: Track[] = isSilent ? [] : [...tracks];
     let newImportedFolders: LibraryFolder[] = importedFolders.filter(f => f.id.startsWith('manual_'));
+
+    // 第一步：先统计总文件数
+    let totalFilesToScan: File[] = [];
+    const folderFilesMap = new Map<string, File[]>();
 
     for (const folder of savedFolders) {
       try {
-        // 检查权限
         let permission = await folder.handle.queryPermission({ mode: 'read' });
         if (permission !== 'granted' && !isSilent) {
           permission = await folder.handle.requestPermission({ mode: 'read' });
         }
-        
-        if (permission !== 'granted') {
-          // 如果没有权限，仍然保留在列表里但无法同步歌曲
+        if (permission === 'granted') {
+          const diskFiles = await scanDirectory(folder.handle);
+          folderFilesMap.set(folder.id, diskFiles);
+          
+          const existingFingerprints = new Set(allProcessedTracks.map(t => t.fingerprint));
+          const newFiles = diskFiles.filter(f => !existingFingerprints.has(`${f.name}-${f.size}`));
+          totalFilesToScan = totalFilesToScan.concat(newFiles);
+        } else {
+          // 权限未授予且不是静默模式，视为同步失败或跳过
           const existing = importedFolders.find(f => f.id === folder.id);
           if (existing) newImportedFolders.push(existing);
-          else newImportedFolders.push({ id: folder.id, name: folder.name, lastSync: Date.now(), trackCount: 0 });
-          continue;
         }
-
-        const localMetadata = await readLocalFolderMetadata(folder.handle);
-        const diskFiles = await scanDirectory(folder.handle);
-        const diskFingerprints = new Set(diskFiles.map(f => `${f.name}-${f.size}`));
-        
-        // 过滤掉已不存在的文件
-        allProcessedTracks = allProcessedTracks.filter(t => t.folderId !== folder.id || diskFingerprints.has(t.fingerprint));
-        
-        const existingFingerprints = new Set(allProcessedTracks.map(t => t.fingerprint));
-        const newFiles = diskFiles.filter(f => !existingFingerprints.has(`${f.name}-${f.size}`));
-        
-        if (newFiles.length > 0) {
-          for (let i = 0; i < newFiles.length; i++) {
-            const file = newFiles[i];
-            const fingerprint = `${file.name}-${file.size}`;
-            setCurrentProcessingFile(`扫描: ${file.name}`);
-            
-            try {
-              const track = await parseFileToTrack(file);
-              track.folderId = folder.id;
-              // 应用本地缓存的元数据修改
-              if (localMetadata?.tracks?.[fingerprint]) {
-                const saved = localMetadata.tracks[fingerprint];
-                track.name = saved.name || track.name;
-                track.artist = saved.artist || track.artist;
-                track.album = saved.album || track.album;
-              }
-              allProcessedTracks.push(track);
-              // 每20首更新一下 UI 进度
-              if (i % 20 === 0) setTracks([...allProcessedTracks]);
-            } catch (e) {}
-          }
-        }
-        
-        setTracks([...allProcessedTracks]);
-        const currentFolderTracks = allProcessedTracks.filter(t => t.folderId === folder.id);
-
-        // 添加或更新文件夹信息到 UI 列表
-        newImportedFolders.push({
-          id: folder.id,
-          name: folder.name,
-          lastSync: Date.now(),
-          trackCount: currentFolderTracks.length
-        });
-
-      } catch (e) {
-        console.error(`同步文件夹 ${folder.name} 失败:`, e);
-      }
+      } catch (e) { console.error(e); }
     }
 
+    let processedCount = 0;
+    const totalCount = totalFilesToScan.length;
+
+    // 第二步：逐个处理并更新进度
+    for (const folder of savedFolders) {
+      const diskFiles = folderFilesMap.get(folder.id);
+      if (!diskFiles) continue;
+
+      const diskFingerprints = new Set(diskFiles.map(f => `${f.name}-${f.size}`));
+      // 移除磁盘上已不存在的曲目
+      allProcessedTracks = allProcessedTracks.filter(t => t.folderId !== folder.id || diskFingerprints.has(t.fingerprint));
+      
+      const localMetadata = await readLocalFolderMetadata(folder.handle);
+      const existingFingerprints = new Set(allProcessedTracks.map(t => t.fingerprint));
+      const newFiles = diskFiles.filter(f => !existingFingerprints.has(`${f.name}-${f.size}`));
+
+      for (let i = 0; i < newFiles.length; i++) {
+        const file = newFiles[i];
+        const fingerprint = `${file.name}-${file.size}`;
+        setCurrentProcessingFile(file.name);
+        
+        try {
+          const track = await parseFileToTrack(file);
+          track.folderId = folder.id;
+          if (localMetadata?.tracks?.[fingerprint]) {
+            const saved = localMetadata.tracks[fingerprint];
+            track.name = saved.name || track.name;
+            track.artist = saved.artist || track.artist;
+            track.album = saved.album || track.album;
+          }
+          allProcessedTracks.push(track);
+          
+          processedCount++;
+          if (totalCount > 0) {
+            setImportProgress(Math.round((processedCount / totalCount) * 100));
+          }
+          
+          if (processedCount % 5 === 0) setTracks([...allProcessedTracks]);
+        } catch (e) {}
+      }
+      
+      const currentFolderTracks = allProcessedTracks.filter(t => t.folderId === folder.id);
+      newImportedFolders.push({
+        id: folder.id,
+        name: folder.name,
+        lastSync: Date.now(),
+        trackCount: currentFolderTracks.length
+      });
+    }
+
+    setTracks([...allProcessedTracks]);
     setImportedFolders(newImportedFolders);
-    setIsImporting(false);
+    setImportProgress(100);
+    setTimeout(() => {
+      setIsImporting(false);
+      setImportProgress(0);
+      setCurrentProcessingFile('');
+    }, 500);
     return true;
   };
 
@@ -210,16 +242,25 @@ export const useLibraryManager = () => {
     const files = Array.from(fileList).filter(f => SUPPORTED_FORMATS.some(ext => f.name.toLowerCase().endsWith(ext)));
     if (files.length === 0) return;
     setIsImporting(true);
+    setImportProgress(0);
     const folderId = "manual_" + Date.now();
     const newTracks: Track[] = [];
-    for (const f of files) {
+    for (let i = 0; i < files.length; i++) {
+      const f = files[i];
+      setCurrentProcessingFile(f.name);
       const t = await parseFileToTrack(f);
       t.folderId = folderId;
       newTracks.push(t);
+      setImportProgress(Math.round(((i + 1) / files.length) * 100));
     }
     setTracks(prev => [...prev, ...newTracks]);
     setImportedFolders(prev => [...prev, { id: folderId, name: "本地导入", lastSync: Date.now(), trackCount: files.length }]);
-    setIsImporting(false);
+    setImportProgress(100);
+    setTimeout(() => {
+      setIsImporting(false);
+      setImportProgress(0);
+      setCurrentProcessingFile('');
+    }, 500);
     return true;
   };
 
@@ -234,7 +275,7 @@ export const useLibraryManager = () => {
     isImporting, importProgress, currentProcessingFile,
     searchQuery, setSearchQuery, filteredTracks,
     favorites, handleToggleFavorite, handleUpdateTrack,
-    syncAll, removeFolder, handleManualFilesSelect, persistFolderMetadataToDisk,
+    syncAll, registerFolder, removeFolder, handleManualFilesSelect, persistFolderMetadataToDisk,
     historyTracks, fetchHistory, clearHistory
   };
 };

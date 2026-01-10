@@ -12,7 +12,6 @@ import VinylRecord, { ToneArm } from './components/VinylRecord';
 import SwipeableTrack from './components/SwipeableTrack';
 import { Track, ViewType } from './types';
 import { getTrackStory } from './services/geminiService';
-import { saveLibraryFolder } from './utils/storage';
 import { s2t } from './utils/chineseConverter';
 
 // 导入模块化 Hooks
@@ -95,6 +94,7 @@ const App: React.FC = () => {
   }, [player.isPlaying, player.currentTrackIndex]);
 
   useEffect(() => {
+    // 初始静默同步，仅恢复已记录曲目
     library.syncAll(true).then(hasData => {
       if (hasData && player.currentTrackIndex === null && library.tracks.length > 0) {
         player.setCurrentTrackIndex(0);
@@ -140,15 +140,13 @@ const App: React.FC = () => {
   return (
     <div className="flex h-screen overflow-hidden font-sans selection:bg-yellow-500/30">
       <ImportWindow 
-        isOpen={isImportWindowOpen} onClose={() => setIsImportWindowOpen(false)} 
+        isOpen={isImportWindowOpen} 
+        onClose={() => setIsImportWindowOpen(false)} 
         onImport={async () => {
            try {
+             // 仅注册文件夹，不自动同步，不关闭窗口
              const handle = await window.showDirectoryPicker();
-             await saveLibraryFolder(handle.name, handle);
-             await library.syncAll();
-             if (player.currentTrackIndex === null) player.setCurrentTrackIndex(0);
-             setView('player');
-             setIsImportWindowOpen(false);
+             await library.registerFolder(handle);
            } catch (e) {}
         }} 
         onManualFilesSelect={async (files) => {
@@ -159,7 +157,11 @@ const App: React.FC = () => {
             setIsImportWindowOpen(false);
           }
         }}
-        onRemoveFolder={library.removeFolder} importedFolders={library.importedFolders} 
+        onRemoveFolder={library.removeFolder} 
+        importedFolders={library.importedFolders} 
+        isImporting={library.isImporting}
+        importProgress={library.importProgress}
+        currentProcessingFile={library.currentProcessingFile}
       />
       
       <div className="hidden md:flex flex-col h-full z-50">
@@ -181,7 +183,16 @@ const App: React.FC = () => {
              </div>
           </div>
           <div className="flex items-center gap-3">
-            <button onClick={() => library.syncAll()} disabled={library.isImporting} className="w-10 h-10 flex items-center justify-center bg-white/5 hover:bg-white/10 text-white border border-white/10 rounded-full transition-all active:scale-90"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" className={library.isImporting ? 'animate-spin' : ''}><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.85.83 6.72 2.24L21 8"/><path d="M21 3v5h-5"/></svg></button>
+            <button 
+              onClick={() => library.syncAll()} 
+              disabled={library.isImporting} 
+              title="手动同步所有文件夹内容"
+              className="w-10 h-10 flex items-center justify-center bg-white/5 hover:bg-white/10 text-white border border-white/10 rounded-full transition-all active:scale-90 group"
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" className={`${library.isImporting ? 'animate-spin' : 'group-hover:rotate-180 transition-transform duration-500'}`}>
+                <path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.85.83 6.72 2.24L21 8"/><path d="M21 3v5h-5"/>
+              </svg>
+            </button>
             <button onClick={() => setIsImportWindowOpen(true)} className="bg-yellow-500 text-black px-6 py-2.5 rounded-full font-black text-xs uppercase tracking-widest active:scale-95 transition-all">{processDisplayString("管理库")}</button>
           </div>
         </header>
@@ -191,7 +202,7 @@ const App: React.FC = () => {
                 {view === 'player' ? (
                   <div className="flex-1 flex flex-col items-center justify-center gap-2 p-6 md:p-8 overflow-hidden relative">
                     
-                    {/* 信息展示区 - 增加垂直空间 */}
+                    {/* 信息展示区 */}
                     <div className="text-center relative z-40 px-6 w-full max-w-4xl flex flex-col items-center mb-4">
                       <div className="w-full px-4 pb-4 md:pb-6">
                         <h2 className="text-2xl md:text-3xl lg:text-5xl font-black tracking-tight w-full truncate select-none leading-snug pb-2 bg-gradient-to-b from-white via-zinc-200 to-zinc-400 bg-clip-text text-transparent drop-shadow-[0_4px_12px_rgba(0,0,0,0.4)]">
@@ -214,7 +225,7 @@ const App: React.FC = () => {
                       </div>
                     </div>
 
-                    {/* 黑胶区域 - 增加顶边距防止遮挡 */}
+                    {/* 黑胶区域 */}
                     <div className="relative mt-4">
                       <SwipeableTrack onNext={player.nextTrack} onPrev={player.prevTrack} currentId={currentTrack?.id || 'empty'}>
                         <VinylRecord isPlaying={player.isPlaying} coverUrl={currentTrack?.coverUrl} intensity={audioIntensity} themeColor={rhythmColor} spinSpeed={settings.spinSpeed} showParticles={settings.showParticles} />
@@ -227,7 +238,7 @@ const App: React.FC = () => {
                       </div>
                     </div>
 
-                    {/* 简约音质显示 (黑胶下方) */}
+                    {/* 简约音质显示 */}
                     {settings.showQualityTag && qualityInfo && (
                       <div className="mt-8 flex items-center gap-3 animate-in fade-in zoom-in duration-1000">
                         <div className="flex items-center gap-2 px-4 py-1 rounded-full bg-white/5 border border-white/5 backdrop-blur-sm">
