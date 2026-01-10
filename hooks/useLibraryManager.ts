@@ -1,6 +1,6 @@
 
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import { Track, LibraryFolder } from '../types';
+import { Track, LibraryFolder, HistoryEntry } from '../types';
 import { parseFileToTrack } from '../utils/audioParser';
 import { SUPPORTED_FORMATS } from '../constants';
 import { 
@@ -8,12 +8,15 @@ import {
   getAllLibraryFolders, 
   removeLibraryFolder, 
   readLocalFolderMetadata, 
-  writeLocalFolderMetadata 
+  writeLocalFolderMetadata,
+  getPlaybackHistory,
+  clearPlaybackHistory
 } from '../utils/storage';
 import { normalizeChinese } from '../utils/chineseConverter';
 
 export const useLibraryManager = () => {
   const [tracks, setTracks] = useState<Track[]>([]);
+  const [historyEntries, setHistoryEntries] = useState<HistoryEntry[]>([]);
   const [importedFolders, setImportedFolders] = useState<LibraryFolder[]>(() => {
     const saved = localStorage.getItem('vinyl_folders');
     return saved ? JSON.parse(saved) : [];
@@ -32,6 +35,25 @@ export const useLibraryManager = () => {
     localStorage.setItem('vinyl_folders', JSON.stringify(importedFolders));
   }, [importedFolders]);
 
+  const fetchHistory = useCallback(async () => {
+    const data = await getPlaybackHistory();
+    setHistoryEntries(data);
+  }, []);
+
+  const clearHistory = useCallback(async () => {
+    await clearPlaybackHistory();
+    setHistoryEntries([]);
+  }, []);
+
+  // 映射历史记录到当前库中的 Track 对象
+  const historyTracks = useMemo(() => {
+    return historyEntries.map(entry => {
+      const match = tracks.find(t => t.fingerprint === entry.fingerprint);
+      if (match) return { ...match, historyTime: entry.timestamp };
+      return null;
+    }).filter(t => t !== null) as (Track & { historyTime: number })[];
+  }, [tracks, historyEntries]);
+
   const filteredTracks = useMemo(() => {
     if (!searchQuery.trim()) return tracks;
     const q = normalizeChinese(searchQuery);
@@ -42,7 +64,6 @@ export const useLibraryManager = () => {
     );
   }, [tracks, searchQuery]);
 
-  // 新增：手动触发将当前内存中的某个文件夹数据同步到它的本地 JSON 文件
   const persistFolderMetadataToDisk = useCallback(async (folderId: string) => {
     const folders = await getAllLibraryFolders();
     const target = folders.find(f => f.id === folderId);
@@ -60,7 +81,6 @@ export const useLibraryManager = () => {
         name: t.name,
         artist: t.artist,
         album: t.album,
-        // 这里可以扩展存储更多信息，如 AI 故事（如果想实现故事也随歌走）
       };
     });
 
@@ -70,7 +90,6 @@ export const useLibraryManager = () => {
   const handleUpdateTrack = useCallback((trackId: string, updates: Partial<Track>) => {
     setTracks(prev => {
       const next = prev.map(t => t.id === trackId ? { ...t, ...updates } : t);
-      // 检查被更新的歌曲所属文件夹，并尝试异步同步到磁盘
       const updatedTrack = next.find(t => t.id === trackId);
       if (updatedTrack?.folderId) {
         persistFolderMetadataToDisk(updatedTrack.folderId);
@@ -118,15 +137,11 @@ export const useLibraryManager = () => {
         if (permission !== 'granted' && !isSilent) permission = await folder.handle.requestPermission({ mode: 'read' });
         if (permission !== 'granted') continue;
 
-        // 1. 尝试读取本地 JSON 配置文件
         const localMetadata = await readLocalFolderMetadata(folder.handle);
-        
         const diskFiles = await scanDirectory(folder.handle);
         const diskFingerprints = new Set(diskFiles.map(f => `${f.name}-${f.size}`));
         
-        // 2. 移除不存在的文件
         allProcessedTracks = allProcessedTracks.filter(t => t.folderId !== folder.id || diskFingerprints.has(t.fingerprint));
-        
         const existingFingerprints = new Set(allProcessedTracks.map(t => t.fingerprint));
         const newFiles = diskFiles.filter(f => !existingFingerprints.has(`${f.name}-${f.size}`));
         
@@ -139,15 +154,12 @@ export const useLibraryManager = () => {
             try {
               const track = await parseFileToTrack(file);
               track.folderId = folder.id;
-
-              // 3. 如果本地 JSON 里有这首歌的记录，覆盖解析出的元数据
               if (localMetadata?.tracks?.[fingerprint]) {
                 const saved = localMetadata.tracks[fingerprint];
                 track.name = saved.name || track.name;
                 track.artist = saved.artist || track.artist;
                 track.album = saved.album || track.album;
               }
-
               allProcessedTracks.push(track);
               if (i % 20 === 0) setTracks([...allProcessedTracks]);
             } catch (e) {}
@@ -155,8 +167,6 @@ export const useLibraryManager = () => {
         }
         
         setTracks([...allProcessedTracks]);
-
-        // 4. 更新完成后，将最新的状态同步回本地 JSON
         const currentFolderTracks = allProcessedTracks.filter(t => t.folderId === folder.id);
         const newMetadata = {
           folderId: folder.id,
@@ -211,6 +221,7 @@ export const useLibraryManager = () => {
     isImporting, importProgress, currentProcessingFile,
     searchQuery, setSearchQuery, filteredTracks,
     favorites, handleToggleFavorite, handleUpdateTrack,
-    syncAll, removeFolder, handleManualFilesSelect, persistFolderMetadataToDisk
+    syncAll, removeFolder, handleManualFilesSelect, persistFolderMetadataToDisk,
+    historyTracks, fetchHistory, clearHistory
   };
 };

@@ -1,7 +1,7 @@
 
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 
-// 使用全局标识记录是否已连接，因为 createMediaElementSource 只能对同一个 HTMLAudioElement 调用一次
+// 使用全局标识记录是否已连接
 const connectedElements = new WeakSet<HTMLAudioElement>();
 
 export const useAudioAnalyzer = (audioRef: React.RefObject<HTMLAudioElement | null>, isPlaying: boolean) => {
@@ -11,25 +11,26 @@ export const useAudioAnalyzer = (audioRef: React.RefObject<HTMLAudioElement | nu
   const gainNodeRef = useRef<GainNode | null>(null);
   const animationFrameRef = useRef<number | null>(null);
 
-  const initAnalyzer = useCallback(() => {
+  // 灵敏度控制参数
+  const lastIntensity = useRef(0);
+  const movingAverage = useRef(0.1); // 动态音量基准
+
+  const initAnalyzer = useCallback((initialVolume?: number) => {
     const audio = audioRef.current;
     if (!audio) return null;
     
-    // 如果已经存在实例且未关闭，复用它
     if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
       return audioContextRef.current;
     }
 
     try {
-      // 检查全局单例
       if ((window as any).audioContextInstance) {
         audioContextRef.current = (window as any).audioContextInstance;
         analyserRef.current = (window as any).analyserInstance;
         gainNodeRef.current = (window as any).gainNodeInstance;
         
-        // 关键修复：即便 Context 存在，如果当前 audio 没连接过也要连接
         if (!connectedElements.has(audio)) {
-          const source = audioContextRef.current.createMediaElementSource(audio);
+          const source = audioContextRef.current!.createMediaElementSource(audio);
           source.connect(analyserRef.current!);
           connectedElements.add(audio);
         }
@@ -40,13 +41,15 @@ export const useAudioAnalyzer = (audioRef: React.RefObject<HTMLAudioElement | nu
       const ctx = new AudioContextClass();
       
       const analyser = ctx.createAnalyser();
-      analyser.fftSize = 512;
-      analyser.smoothingTimeConstant = 0.75; // 增加平滑度
+      // fftSize 保持 256 提供足够频段参考
+      analyser.fftSize = 256; 
+      // 增加平滑常数 (从 0.5 提高到 0.7)，让波形更平缓
+      analyser.smoothingTimeConstant = 0.7;
 
       const gainNode = ctx.createGain();
-      gainNode.gain.setValueAtTime(0, ctx.currentTime);
+      const startVol = (initialVolume !== undefined) ? initialVolume : 0.8;
+      gainNode.gain.setValueAtTime(startVol, ctx.currentTime);
 
-      // 核心修复：防止 InvalidStateError
       if (!connectedElements.has(audio)) {
         const source = ctx.createMediaElementSource(audio);
         source.connect(analyser);
@@ -60,7 +63,6 @@ export const useAudioAnalyzer = (audioRef: React.RefObject<HTMLAudioElement | nu
       analyserRef.current = analyser;
       gainNodeRef.current = gainNode;
       
-      // 存储单例
       (window as any).audioContextInstance = ctx;
       (window as any).analyserInstance = analyser;
       (window as any).gainNodeInstance = gainNode;
@@ -86,31 +88,47 @@ export const useAudioAnalyzer = (audioRef: React.RefObject<HTMLAudioElement | nu
     const dataArray = new Uint8Array(analyserRef.current.frequencyBinCount);
     analyserRef.current.getByteFrequencyData(dataArray);
     
-    // 扩大采样范围（前 12 个频段涵盖了低音到中低音部分）
+    // 分析低频段
     let energy = 0; 
-    const sampleRange = 12;
+    const sampleRange = 4; 
     for (let i = 0; i < sampleRange; i++) {
-      const weight = i < 4 ? 1.5 : 1.0; // 极低频权重
-      energy += dataArray[i] * weight;
+      energy += dataArray[i];
     }
     
-    const average = (energy / sampleRange) / 255;
+    const currentRaw = (energy / sampleRange) / 255;
     
-    // 指数映射增强律动对比感
-    const boostedIntensity = Math.pow(average, 1.4) * 2.2;
+    // 稍微放慢基准能量的更新速度，使对比度更持久
+    movingAverage.current = movingAverage.current * 0.99 + currentRaw * 0.01;
     
-    setAudioIntensity(Math.min(boostedIntensity, 1.5));
+    // 冲击力计算
+    let impact = Math.max(0, currentRaw - movingAverage.current * 0.75);
+    
+    // 减弱指数幂次 (从 1.5 降到 1.2)，使亮暗过渡不再那么剧烈
+    let targetIntensity = Math.pow(impact * 2.2, 1.2);
+    
+    // 显著减慢衰减速度 (从 0.85 提高到 0.92)，产生“呼吸感”
+    if (targetIntensity > lastIntensity.current) {
+      // 上升阶段也增加一点平滑
+      lastIntensity.current = lastIntensity.current * 0.3 + targetIntensity * 0.7;
+    } else {
+      lastIntensity.current *= 0.92; 
+    }
+
+    const finalValue = Math.min(lastIntensity.current, 1.2);
+    setAudioIntensity(finalValue > 0.02 ? finalValue : 0);
     
     animationFrameRef.current = requestAnimationFrame(updateIntensity);
   }, [isPlaying]);
 
   useEffect(() => {
     if (isPlaying) {
-      initAnalyzer();
+      const savedVol = parseFloat(localStorage.getItem('vinyl_volume') || '0.8');
+      initAnalyzer(savedVol);
       animationFrameRef.current = requestAnimationFrame(updateIntensity);
     } else {
       if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
       setAudioIntensity(0);
+      lastIntensity.current = 0;
     }
     
     return () => { 

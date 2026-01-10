@@ -1,27 +1,38 @@
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import Sidebar from './components/Sidebar';
 import MobileNav from './components/MobileNav';
 import ImportWindow from './components/ImportWindow';
 import LibraryView from './components/LibraryView';
+import CollectionView from './components/CollectionView';
 import ArtistProfile from './components/ArtistProfile';
+import SettingsView from './components/SettingsView';
 import PlayerControls from './components/PlayerControls';
 import VinylRecord, { ToneArm } from './components/VinylRecord';
 import SwipeableTrack from './components/SwipeableTrack';
 import { Track, ViewType } from './types';
 import { getTrackStory } from './services/geminiService';
 import { saveLibraryFolder } from './utils/storage';
+import { s2t } from './utils/chineseConverter';
 
+// 导入模块化 Hooks
 import { useLibraryManager } from './hooks/useLibraryManager';
 import { useAudioPlayer } from './hooks/useAudioPlayer';
 import { useAudioAnalyzer } from './hooks/useAudioAnalyzer';
 import { useThemeColor } from './hooks/useThemeColor';
+import { useAppSettings } from './hooks/useAppSettings';
 
 const App: React.FC = () => {
+  const { settings, updateSettings, resetSettings } = useAppSettings();
   const [view, setView] = useState<ViewType>('player');
   const [selectedArtist, setSelectedArtist] = useState<string | null>(null);
   const [isImportWindowOpen, setIsImportWindowOpen] = useState(false);
   const [navigationRequest, setNavigationRequest] = useState<{ type: any, name: string } | null>(null);
+
+  const processDisplayString = useCallback((str: string) => {
+    if (!str) return '';
+    return settings.useTraditionalChinese ? s2t(str) : str;
+  }, [settings.useTraditionalChinese]);
 
   const library = useLibraryManager();
   const player = useAudioPlayer(library.tracks);
@@ -34,19 +45,32 @@ const App: React.FC = () => {
   const [isStoryLoading, setIsStoryLoading] = useState(false);
 
   useEffect(() => {
-    if (currentTrack && !player.playbackError) {
+    if (currentTrack) {
+      if (!settings.enableAI) {
+        setTrackStory('');
+        setIsStoryLoading(false);
+        return;
+      }
       setIsStoryLoading(true);
       setTrackStory(''); 
       const timer = setTimeout(() => {
         getTrackStory(currentTrack.name, currentTrack.artist).then(story => {
-          setTrackStory(story);
+          setTrackStory(processDisplayString(story));
           setIsStoryLoading(false);
-          if (currentTrack.folderId) library.persistFolderMetadataToDisk(currentTrack.folderId);
+          if (currentTrack.folderId) {
+            library.persistFolderMetadataToDisk(currentTrack.folderId);
+          }
         });
       }, 1500);
       return () => clearTimeout(timer);
     }
-  }, [currentTrack, player.playbackError]);
+  }, [currentTrack, settings.enableAI, processDisplayString]);
+
+  useEffect(() => {
+    if (player.isPlaying) {
+      library.fetchHistory();
+    }
+  }, [player.isPlaying, player.currentTrackIndex]);
 
   useEffect(() => {
     library.syncAll(true).then(hasData => {
@@ -54,48 +78,63 @@ const App: React.FC = () => {
         player.setCurrentTrackIndex(0);
       }
     });
+    library.fetchHistory(); 
   }, []);
 
   const handleNavigate = useCallback((type: string, name: string) => {
-    if (type === 'artistProfile' || (type === 'artists' && name)) {
+    if (type === 'artistProfile') {
       setSelectedArtist(name);
       setView('artistProfile');
-    } else {
-      setNavigationRequest({ type: type as any, name });
-      setView(type as ViewType);
+    } else if (type === 'albums') {
+      // 如果是进入专辑详情，重定向到 LibraryView 的过滤视图
+      setNavigationRequest({ type: 'albums', name });
+      setView('all');
     }
     library.setSearchQuery('');
   }, [library.setSearchQuery]);
 
-  const getQualityInfo = (track: Track) => {
-    const ext = track.file?.name?.split('.').pop()?.toLowerCase();
-    if (ext === 'dsf' || ext === 'dff') {
-      return { label: 'DSD (Unsupported)', color: 'bg-red-500', shadow: 'rgba(239, 68, 68, 0.5)' };
-    }
-    if (!track.bitrate) return { label: 'Audio', color: 'bg-zinc-600', shadow: 'rgba(113, 113, 122, 0.3)' };
-    const kbps = Math.round(track.bitrate / 1000);
-    if (kbps >= 1411) return { label: 'Hi-Res Master', color: 'bg-yellow-500', shadow: 'rgba(234, 179, 8, 0.5)' };
-    if (kbps >= 700) return { label: 'Lossless', color: 'bg-green-500', shadow: 'rgba(34, 197, 94, 0.5)' };
-    return { label: 'Standard', color: 'bg-zinc-400', shadow: 'rgba(161, 161, 170, 0.3)' };
+  const handleSidebarViewChange = (v: ViewType) => {
+    setView(v);
+    setNavigationRequest(null);
+    setSelectedArtist(null);
+    library.setSearchQuery('');
   };
+
+  const handleReorder = useCallback((draggedId: string, targetId: string | null) => {
+    const prevTracks = [...library.tracks];
+    const fromIndex = prevTracks.findIndex(t => t.id === draggedId);
+    if (fromIndex === -1) return;
+    const playingTrackId = library.tracks[player.currentTrackIndex || 0]?.id;
+    const [trackToMove] = prevTracks.splice(fromIndex, 1);
+    let toIndex = targetId === null ? prevTracks.length : prevTracks.findIndex(t => t.id === targetId);
+    if (toIndex === -1) toIndex = prevTracks.length;
+    prevTracks.splice(toIndex, 0, trackToMove);
+    library.setTracks(prevTracks);
+    if (playingTrackId) {
+      const newCurrentIndex = prevTracks.findIndex(t => t.id === playingTrackId);
+      if (newCurrentIndex !== -1) player.setCurrentTrackIndex(newCurrentIndex);
+    }
+  }, [library.tracks, player.currentTrackIndex]);
 
   return (
     <div className="flex h-screen overflow-hidden font-sans selection:bg-yellow-500/30">
       <ImportWindow 
         isOpen={isImportWindowOpen} onClose={() => setIsImportWindowOpen(false)} 
         onImport={async () => {
-          try {
-            const handle = await window.showDirectoryPicker();
-            await saveLibraryFolder(handle.name, handle);
-            await library.syncAll();
-            if (player.currentTrackIndex === null) player.setCurrentTrackIndex(0);
-            setIsImportWindowOpen(false);
-          } catch(e){}
+           try {
+             const handle = await window.showDirectoryPicker();
+             await saveLibraryFolder(handle.name, handle);
+             await library.syncAll();
+             if (player.currentTrackIndex === null) player.setCurrentTrackIndex(0);
+             setView('player');
+             setIsImportWindowOpen(false);
+           } catch (e) {}
         }} 
         onManualFilesSelect={async (files) => {
           const ok = await library.handleManualFilesSelect(files);
           if (ok) {
             if (player.currentTrackIndex === null) player.setCurrentTrackIndex(0);
+            setView('player');
             setIsImportWindowOpen(false);
           }
         }}
@@ -103,102 +142,68 @@ const App: React.FC = () => {
       />
       
       <div className="hidden md:flex flex-col h-full z-50">
-          <Sidebar activeView={view} onViewChange={(v) => { setView(v); setNavigationRequest(null); setSelectedArtist(null); }} trackCount={library.tracks.length} />
+          <Sidebar activeView={view} onViewChange={handleSidebarViewChange} trackCount={library.tracks.length} />
       </div>
 
       <main className="flex-1 flex flex-col relative pb-32 md:pb-28 bg-gradient-to-br from-[#1c1c1c] via-[#121212] to-[#0a0a0a]">
+        {settings.showBlurBackground && currentTrack && view === 'player' && (
+          <div className="absolute inset-0 pointer-events-none transition-all duration-1000 overflow-hidden">
+             {currentTrack.coverUrl ? <img src={currentTrack.coverUrl} className="w-full h-full object-cover scale-150 blur-[120px] opacity-[0.15]" /> : <div className="w-full h-full bg-gradient-to-br from-yellow-500/5 to-transparent blur-[120px]" />}
+          </div>
+        )}
+
         <header className="p-4 md:p-6 flex justify-between items-center z-50 relative gap-3">
           <div className="flex items-center gap-4 md:gap-6 flex-1 min-w-0">
              <div className="relative group max-w-md w-full">
-                <input
-                  type="text" placeholder="搜索曲目、歌手..." value={library.searchQuery} 
-                  onChange={(e) => { library.setSearchQuery(e.target.value); if(view === 'player' && e.target.value) setView('all'); }}
-                  className="w-full bg-white/5 border border-white/10 rounded-full py-2.5 px-11 text-sm text-white focus:border-yellow-500/50 outline-none backdrop-blur-md transition-all"
-                />
+                <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-zinc-500 transition-colors"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg></div>
+                <input type="text" placeholder={processDisplayString("搜索...")} value={library.searchQuery} onChange={(e) => { library.setSearchQuery(e.target.value); if(view === 'player' && e.target.value) setView('all'); }} className="w-full bg-white/5 border border-white/10 rounded-full py-2.5 px-11 text-sm text-white focus:border-yellow-500/50 outline-none backdrop-blur-md transition-all" />
              </div>
           </div>
           <div className="flex items-center gap-3">
-            <button onClick={() => library.syncAll()} disabled={library.isImporting} className="w-10 h-10 flex items-center justify-center bg-white/5 border border-white/10 rounded-full text-white"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" className={library.isImporting ? 'animate-spin' : ''}><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.85.83 6.72 2.24L21 8"/><path d="M21 3v5h-5"/></svg></button>
-            <button onClick={() => setIsImportWindowOpen(true)} className="bg-yellow-500 text-black px-6 py-2.5 rounded-full font-black text-xs uppercase tracking-widest">库管理</button>
+            <button onClick={() => library.syncAll()} disabled={library.isImporting} className="w-10 h-10 flex items-center justify-center bg-white/5 hover:bg-white/10 text-white border border-white/10 rounded-full transition-all active:scale-90"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" className={library.isImporting ? 'animate-spin' : ''}><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.85.83 6.72 2.24L21 8"/><path d="M21 3v5h-5"/></svg></button>
+            <button onClick={() => setIsImportWindowOpen(true)} className="bg-yellow-500 text-black px-6 py-2.5 rounded-full font-black text-xs uppercase tracking-widest active:scale-95 transition-all">{processDisplayString("管理库")}</button>
           </div>
         </header>
 
         <div className="flex-1 relative overflow-hidden">
             <div key={view + (selectedArtist || '')} className="absolute inset-0 flex flex-col animate-in fade-in duration-700">
                 {view === 'player' ? (
-                  <div className="flex-1 flex flex-col items-center justify-center gap-8 p-8 overflow-hidden relative">
-                    <div className="text-center relative z-40 px-6 max-w-4xl flex flex-col justify-center">
-                      <h2 className="text-xl md:text-3xl lg:text-4xl font-bold mb-3 tracking-tight text-white drop-shadow-sm line-clamp-2">
-                        {currentTrack?.name || "黑胶时光"}
-                      </h2>
-                      <div className="flex items-center justify-center gap-2 opacity-60">
-                        <button onClick={() => handleNavigate('artistProfile', currentTrack?.artist || '')} className="text-zinc-400 font-bold uppercase tracking-[0.2em] text-[10px] hover:text-yellow-500">{currentTrack?.artist || "享受纯净音质"}</button>
-                      </div>
+                  <div className="flex-1 flex flex-col items-center justify-center gap-8 p-8 overflow-hidden">
+                    <div className="text-center relative z-40 px-6 max-w-4xl min-h-[100px] flex flex-col justify-center">
+                      <h2 className="text-xl md:text-3xl lg:text-4xl font-bold mb-3 tracking-tight text-white drop-shadow-sm">{processDisplayString(currentTrack?.name || "黑胶时光")}</h2>
+                      <button onClick={() => handleNavigate('artistProfile', currentTrack?.artist || '')} className="text-zinc-400 font-bold uppercase tracking-[0.2em] text-[10px] hover:text-yellow-500">{processDisplayString(currentTrack?.artist || "享受纯净音质")}</button>
                     </div>
-                    
-                    <div className="relative flex flex-col items-center justify-center">
-                        <SwipeableTrack onNext={player.nextTrack} onPrev={player.prevTrack} currentId={currentTrack?.id || 'empty'}>
-                          <VinylRecord isPlaying={player.isPlaying && !player.playbackError} coverUrl={currentTrack?.coverUrl} intensity={audioIntensity} themeColor={rhythmColor} />
-                        </SwipeableTrack>
-                        <div className="absolute inset-0 pointer-events-none flex items-center justify-center z-30">
-                            <div className="relative w-[70vw] h-[70vw] max-w-[18rem] max-h-[18rem] md:w-96 md:h-96 flex-shrink-0">
-                                <ToneArm isPlaying={player.isPlaying && !player.playbackError} progress={player.duration > 0 ? player.progress / player.duration : 0} onClick={player.togglePlay} />
-                            </div>
+                    <SwipeableTrack onNext={player.nextTrack} onPrev={player.prevTrack} currentId={currentTrack?.id || 'empty'}>
+                      <VinylRecord isPlaying={player.isPlaying} coverUrl={currentTrack?.coverUrl} intensity={audioIntensity} themeColor={rhythmColor} spinSpeed={settings.spinSpeed} showParticles={settings.showParticles} />
+                    </SwipeableTrack>
+                    <div className="absolute inset-0 pointer-events-none flex items-center justify-center z-30">
+                        <div className="relative w-[60vw] h-[60vw] max-w-[16rem] max-h-[16rem] sm:w-[70vw] sm:h-[70vw] sm:max-w-[18rem] sm:max-h-[18rem] md:w-96 md:h-96 flex-shrink-0">
+                            <ToneArm trackId={currentTrack?.id} isPlaying={player.isPlaying} progress={player.duration > 0 ? player.progress / player.duration : 0} onClick={player.togglePlay} />
                         </div>
-
-                        {/* 格式不支持警告层 */}
-                        {player.playbackError && (
-                          <div className="absolute inset-0 z-40 flex items-center justify-center">
-                            <div className="bg-black/80 backdrop-blur-md border border-red-500/30 p-6 rounded-3xl max-w-xs text-center animate-in zoom-in-95 duration-300">
-                              <div className="w-12 h-12 bg-red-500/20 rounded-full flex items-center justify-center text-red-500 mx-auto mb-4">
-                                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-                              </div>
-                              <h3 className="text-white font-black text-sm uppercase tracking-wider mb-2">无法播放此格式</h3>
-                              <p className="text-zinc-400 text-[11px] leading-relaxed">浏览器原生不支持 DSD 格式。建议将其转换为 FLAC 或 WAV 以获得最佳体验。</p>
-                            </div>
-                          </div>
-                        )}
-
-                        {currentTrack && (
-                          <div className="mt-8 px-5 py-2 rounded-full bg-white/5 border border-white/5 backdrop-blur-md flex items-center gap-3">
-                            <div className={`w-2 h-2 rounded-full ${getQualityInfo(currentTrack).color}`} style={{ boxShadow: `0 0 10px ${getQualityInfo(currentTrack).shadow}` }} />
-                            <span className="font-mono text-[10px] font-black uppercase tracking-widest text-zinc-200">
-                                {getQualityInfo(currentTrack).label}
-                            </span>
-                          </div>
-                        )}
                     </div>
-                    <div className={`max-w-2xl text-center px-4 italic text-zinc-500 text-base leading-relaxed ${isStoryLoading ? 'opacity-20' : 'opacity-100'}`}>
-                      {player.playbackError ? "格式受限，无法解析旋律中的故事。" : trackStory || (currentTrack ? "正在为您解读..." : "开启一段黑胶之旅。")}
-                    </div>
+                    {settings.enableAI && <div className={`max-w-2xl text-center px-4 italic text-zinc-500 text-base transition-opacity duration-1000 ${isStoryLoading ? 'opacity-20' : 'opacity-100'}`}>{trackStory || (currentTrack ? processDisplayString("正在为您解读...") : processDisplayString("开启一段黑胶之旅。"))}</div>}
                   </div>
                 ) : view === 'artistProfile' && selectedArtist ? (
-                  <ArtistProfile artistName={selectedArtist} allTracks={library.tracks} onBack={() => { setView('artists'); setSelectedArtist(null); }} onPlayTrack={(t) => { const idx = library.tracks.findIndex(item => item.id === t.id); player.setCurrentTrackIndex(idx); setView('player'); player.setIsPlaying(true); }} onNavigateToAlbum={(album) => handleNavigate('albums', album)} favorites={library.favorites} onToggleFavorite={library.handleToggleFavorite} />
+                  <ArtistProfile artistName={selectedArtist} allTracks={library.tracks} onBack={() => { setView('collection'); setSelectedArtist(null); }} onPlayTrack={(t) => { const idx = library.tracks.findIndex(item => item.id === t.id); player.setCurrentTrackIndex(idx); setView('player'); player.setIsPlaying(true); }} onNavigateToAlbum={(album) => handleNavigate('albums', album)} favorites={library.favorites} onToggleFavorite={library.handleToggleFavorite} />
+                ) : view === 'settings' ? (
+                  <SettingsView settings={settings} onUpdate={updateSettings} onReset={resetSettings} onClearHistory={library.clearHistory} />
+                ) : view === 'collection' ? (
+                  <CollectionView tracks={library.tracks} onNavigate={handleNavigate} displayConverter={processDisplayString} />
                 ) : (
-                  <LibraryView 
-                    view={view} tracks={library.filteredTracks} onPlay={(t) => { const idx = library.tracks.findIndex(item => item.id === t.id); player.setCurrentTrackIndex(idx); setView('player'); player.setIsPlaying(true); }} favorites={library.favorites} 
-                    onNavigate={handleNavigate} isSearching={library.searchQuery.length > 0}
-                    onToggleFavorite={library.handleToggleFavorite} onUpdateTrack={library.handleUpdateTrack}
-                  />
+                  <LibraryView view={view} tracks={library.filteredTracks} onPlay={(t) => { const idx = library.tracks.findIndex(item => item.id === t.id); player.setCurrentTrackIndex(idx); setView('player'); player.setIsPlaying(true); }} favorites={library.favorites} navigationRequest={navigationRequest} onNavigationProcessed={() => setNavigationRequest(null)} onNavigate={handleNavigate} isSearching={library.searchQuery.length > 0} onToggleFavorite={library.handleToggleFavorite} onUpdateTrack={library.handleUpdateTrack} displayConverter={processDisplayString} />
                 )}
             </div>
         </div>
         
-        <audio ref={player.audioRef} crossOrigin="anonymous" preload="auto" />
-        
+        <audio ref={player.audioRef} src={currentTrack?.url} preload="auto" />
         <PlayerControls
-          currentTrack={currentTrack} tracks={library.tracks} currentIndex={player.currentTrackIndex}
-          isPlaying={player.isPlaying} onTogglePlay={player.togglePlay}
-          onNext={player.nextTrack} onPrev={player.prevTrack} onSelectTrack={player.setCurrentTrackIndex} 
-          onRemoveTrack={(id) => library.setTracks(prev => prev.filter(t => t.id !== id))}
-          progress={player.progress} duration={player.duration} volume={player.volume} onVolumeChange={player.setVolume}
-          onSeek={player.seek} isFavorite={currentTrack ? library.favorites.has(currentTrack.id) : false} 
-          favorites={library.favorites} onNavigate={handleNavigate} onToggleFavorite={(id) => library.handleToggleFavorite(id || currentTrack?.id || '')}
+          currentTrack={currentTrack} tracks={library.tracks} historyTracks={library.historyTracks} currentIndex={player.currentTrackIndex}
+          isPlaying={player.isPlaying} onTogglePlay={player.togglePlay} onNext={player.nextTrack} onPrev={player.prevTrack} onSelectTrack={player.setCurrentTrackIndex} onRemoveTrack={(id) => library.setTracks(prev => prev.filter(t => t.id !== id))}
+          progress={player.progress} duration={player.duration} volume={player.volume} onVolumeChange={player.setVolume} onSeek={player.seek} isFavorite={currentTrack ? library.favorites.has(currentTrack.id) : false} favorites={library.favorites} onNavigate={handleNavigate} onToggleFavorite={(id) => library.handleToggleFavorite(id || currentTrack?.id || '')}
           playbackMode={player.playbackMode} onTogglePlaybackMode={() => player.setPlaybackMode(p => p === 'normal' ? 'shuffle' : p === 'shuffle' ? 'loop' : 'normal')}
-          onReorder={() => {}} 
+          onReorder={handleReorder} onClearHistory={library.clearHistory} onPlayFromHistory={(t) => { const idx = library.tracks.findIndex(item => item.fingerprint === t.fingerprint); if(idx !== -1) { player.setCurrentTrackIndex(idx); setView('player'); player.setIsPlaying(true); } }} themeColor="#eab308" settings={settings} displayConverter={processDisplayString}
         />
-        
-        <MobileNav activeView={view} onViewChange={(v) => { setView(v); setNavigationRequest(null); setSelectedArtist(null); }} trackCount={library.tracks.length} />
+        <MobileNav activeView={view} onViewChange={handleSidebarViewChange} trackCount={library.tracks.length} themeColor="#eab308" />
       </main>
     </div>
   );

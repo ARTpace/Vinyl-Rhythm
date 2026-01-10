@@ -1,8 +1,9 @@
 
 const DB_NAME = 'VinylRhythmDB';
-const DB_VERSION = 3;
+const DB_VERSION = 4; // 升级版本号
 const STORE_NAME = 'libraryHandles';
 const STORIES_STORE = 'trackStories';
+const HISTORY_STORE = 'playbackHistory';
 
 const METADATA_FILENAME = '.vinyl_rhythm.json';
 
@@ -22,6 +23,9 @@ const initDB = async (): Promise<IDBDatabase> => {
         const store = db.createObjectStore(STORIES_STORE, { keyPath: 'key' });
         store.createIndex('artist', 'artist', { unique: false });
       }
+      if (!db.objectStoreNames.contains(HISTORY_STORE)) {
+        db.createObjectStore(HISTORY_STORE, { keyPath: 'fingerprint' });
+      }
     };
     request.onsuccess = () => resolve(request.result);
     request.onerror = () => reject(request.error);
@@ -29,8 +33,55 @@ const initDB = async (): Promise<IDBDatabase> => {
 };
 
 /**
- * 读取文件夹内的本地元数据文件
+ * 记录播放历史
  */
+export const addToHistory = async (track: any) => {
+  const db = await initDB();
+  const tx = db.transaction(HISTORY_STORE, 'readwrite');
+  const store = tx.objectStore(HISTORY_STORE);
+  
+  const entry = {
+    fingerprint: track.fingerprint,
+    name: track.name,
+    artist: track.artist,
+    album: track.album,
+    coverUrl: track.coverUrl,
+    timestamp: Date.now()
+  };
+  
+  await store.put(entry);
+
+  // 限制 100 条记录
+  const countRequest = store.count();
+  countRequest.onsuccess = () => {
+    if (countRequest.result > 100) {
+      store.openCursor().onsuccess = (e: any) => {
+        const cursor = e.target.result;
+        if (cursor) cursor.delete(); // 删除最早的一条
+      };
+    }
+  };
+};
+
+export const getPlaybackHistory = async (): Promise<any[]> => {
+  const db = await initDB();
+  const tx = db.transaction(HISTORY_STORE, 'readonly');
+  const request = tx.objectStore(HISTORY_STORE).getAll();
+  return new Promise((resolve) => {
+    request.onsuccess = () => {
+      const results = request.result || [];
+      resolve(results.sort((a, b) => b.timestamp - a.timestamp));
+    };
+    request.onerror = () => resolve([]);
+  });
+};
+
+export const clearPlaybackHistory = async () => {
+  const db = await initDB();
+  const tx = db.transaction(HISTORY_STORE, 'readwrite');
+  tx.objectStore(HISTORY_STORE).clear();
+};
+
 export const readLocalFolderMetadata = async (dirHandle: FileSystemDirectoryHandle) => {
   try {
     const fileHandle = await dirHandle.getFileHandle(METADATA_FILENAME);
@@ -38,29 +89,23 @@ export const readLocalFolderMetadata = async (dirHandle: FileSystemDirectoryHand
     const content = await file.text();
     return JSON.parse(content);
   } catch (e) {
-    return null; // 文件不存在或无法读取
+    return null;
   }
 };
 
-/**
- * 将元数据写入文件夹内的本地文件
- */
 export const writeLocalFolderMetadata = async (dirHandle: FileSystemDirectoryHandle, metadata: any) => {
   try {
-    // 请求写入权限
     const permission = await dirHandle.queryPermission({ mode: 'readwrite' });
     if (permission !== 'granted') {
       const request = await dirHandle.requestPermission({ mode: 'readwrite' });
       if (request !== 'granted') return false;
     }
-
     const fileHandle = await dirHandle.getFileHandle(METADATA_FILENAME, { create: true });
     const writable = await fileHandle.createWritable();
     await writable.write(JSON.stringify(metadata, null, 2));
     await writable.close();
     return true;
   } catch (e) {
-    console.warn('无法写入本地元数据文件:', e);
     return false;
   }
 };

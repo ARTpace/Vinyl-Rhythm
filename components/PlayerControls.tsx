@@ -1,11 +1,12 @@
 
-import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Track } from '../types';
+import React, { useState, useEffect, useRef } from 'react';
+import { Track, AppSettings } from '../types';
 import { formatTime } from '../utils/audioParser';
 
 interface PlayerControlsProps {
   currentTrack: Track | null;
   tracks: Track[];
+  historyTracks?: Track[]; 
   currentIndex: number | null;
   isPlaying: boolean;
   onTogglePlay: () => void;
@@ -20,17 +21,22 @@ interface PlayerControlsProps {
   onSeek: (val: number) => void;
   isFavorite: boolean;
   onToggleFavorite: (trackId?: string) => void;
-  onNavigate?: (type: 'artists' | 'albums' | 'folders', name: string) => void;
+  onNavigate?: (type: 'artists' | 'albums' | 'folders' | 'artistProfile', name: string) => void;
   favorites?: Set<string>;
   playbackMode: 'normal' | 'shuffle' | 'loop';
   onTogglePlaybackMode: () => void;
   onReorder: (draggedId: string, targetId: string | null) => void;
+  onClearHistory?: () => void;
+  onPlayFromHistory?: (track: Track) => void;
   themeColor?: string;
+  settings?: AppSettings; 
+  displayConverter?: (str: string) => string; 
 }
 
 const PlayerControls: React.FC<PlayerControlsProps> = ({
   currentTrack,
   tracks,
+  historyTracks = [],
   currentIndex,
   isPlaying,
   onTogglePlay,
@@ -50,43 +56,37 @@ const PlayerControls: React.FC<PlayerControlsProps> = ({
   playbackMode,
   onTogglePlaybackMode,
   onReorder,
-  themeColor = '#eab308'
+  onClearHistory,
+  onPlayFromHistory,
+  themeColor = '#eab308',
+  settings,
+  displayConverter
 }) => {
   const [showQueue, setShowQueue] = useState(false);
+  const [queueTab, setQueueTab] = useState<'queue' | 'history'>('queue');
   const [lastVolume, setLastVolume] = useState(0.8);
   const queueEndRef = useRef<HTMLDivElement>(null);
-  const [isDraggingOverQueueBtn, setIsDraggingOverQueueBtn] = useState(false);
-
-  // 进度条拖拽状态
+  
+  const [draggedOverId, setDraggedOverId] = useState<string | null>(null);
   const [isDraggingSeek, setIsDraggingSeek] = useState(false);
   const [localProgress, setLocalProgress] = useState(progress);
   const dragProgressRef = useRef(progress);
-  // 关键：记录最后一次手动操作的时间，用于屏蔽音频引擎的旧数据干扰
   const lastInteractionTimeRef = useRef(0);
   
   const progressBarRef = useRef<HTMLDivElement>(null);
   const mobileProgressBarRef = useRef<HTMLDivElement>(null);
 
-  // 同步外部 progress 到本地状态
+  const convert = (s: string) => displayConverter ? displayConverter(s) : s;
+
   useEffect(() => {
     const now = Date.now();
-    // 逻辑：如果正在拖拽，或者刚完成跳转不到 500ms（等待音频引擎响应），则不接受外部进度更新
     if (!isDraggingSeek && (now - lastInteractionTimeRef.current > 500)) {
       setLocalProgress(progress);
       dragProgressRef.current = progress;
     }
   }, [progress, isDraggingSeek]);
 
-  // 计算显示的进度百分比
   const progressPercent = (localProgress / duration) * 100 || 0;
-
-  // 计算进度的辅助函数
-  const getProgressFromPointer = (clientX: number) => {
-    const rect = progressBarRef.current?.getBoundingClientRect() || mobileProgressBarRef.current?.getBoundingClientRect();
-    if (!rect) return null;
-    const x = Math.max(0, Math.min(clientX - rect.left, rect.width));
-    return Math.min(Math.max(0, (x / rect.width) * duration), duration);
-  };
 
   const handleToggleMute = () => {
     if (volume > 0) {
@@ -98,39 +98,52 @@ const PlayerControls: React.FC<PlayerControlsProps> = ({
   };
 
   const getVolumeIcon = () => {
-    if (volume === 0) return <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M11 5L6 9H2v6h4l5 4V5zM23 9l-6 6M17 9l6 6"/></svg>;
-    if (volume < 0.5) return <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M11 5L6 9H2v6h4l5 4V5zM15.54 8.46a5 5 0 0 1 0 7.75"/></svg>;
-    return <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M11 5L6 9H2v6h4l5 4V5zM19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>;
+    // 增大图标尺寸至 22px
+    const iconSize = "22";
+    const stroke = "2.2";
+    if (volume === 0) return <svg width={iconSize} height={iconSize} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={stroke}><path d="M11 5L6 9H2v6h4l5 4V5zM23 9l-6 6M17 9l6 6"/></svg>;
+    if (volume < 0.5) return <svg width={iconSize} height={iconSize} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={stroke}><path d="M11 5L6 9H2v6h4l5 4V5zM15.54 8.46a5 5 0 0 1 0 7.75"/></svg>;
+    return <svg width={iconSize} height={iconSize} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={stroke}><path d="M11 5L6 9H2v6h4l5 4V5zM19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>;
   };
 
   const handleSeekStart = (e: React.PointerEvent) => {
     if (!duration) return;
     e.preventDefault();
     setIsDraggingSeek(true);
-    lastInteractionTimeRef.current = Date.now(); // 记录交互开始
-    const newProgress = getProgressFromPointer(e.clientX);
-    if (newProgress !== null) {
-      setLocalProgress(newProgress);
-      dragProgressRef.current = newProgress;
-    }
+    lastInteractionTimeRef.current = Date.now();
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    const x = Math.max(0, Math.min(e.clientX - rect.left, rect.width));
+    const newProgress = (x / rect.width) * duration;
+    setLocalProgress(newProgress);
+    dragProgressRef.current = newProgress;
     (e.target as Element).setPointerCapture(e.pointerId);
   };
 
-  const handleSeekMove = (e: React.PointerEvent | PointerEvent) => {
+  const handleSeekMove = (e: React.PointerEvent) => {
     if (!isDraggingSeek || !duration) return;
-    const newProgress = getProgressFromPointer(e.clientX);
-    if (newProgress !== null) {
-      setLocalProgress(newProgress);
-      dragProgressRef.current = newProgress;
-    }
+    const rect = progressBarRef.current?.getBoundingClientRect() || mobileProgressBarRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const x = Math.max(0, Math.min(e.clientX - rect.left, rect.width));
+    const newProgress = (x / rect.width) * duration;
+    setLocalProgress(newProgress);
+    dragProgressRef.current = newProgress;
   };
 
-  const handleSeekEnd = (e: React.PointerEvent) => {
+  const handleSeekEnd = () => {
     if (!isDraggingSeek) return;
-    lastInteractionTimeRef.current = Date.now(); // 更新最后交互时间
+    lastInteractionTimeRef.current = Date.now();
     onSeek(dragProgressRef.current);
     setIsDraggingSeek(false);
-    (e.target as Element).releasePointerCapture(e.pointerId);
+  };
+
+  const formatHistoryTime = (ts?: number) => {
+    if (!ts) return '';
+    const now = Date.now();
+    const diff = now - ts;
+    if (diff < 60000) return '刚刚';
+    if (diff < 3600000) return `${Math.floor(diff/60000)}m`;
+    if (diff < 86400000) return `${Math.floor(diff/3600000)}h`;
+    return new Date(ts).toLocaleDateString();
   };
 
   const metallicPanelClass = "bg-[#1a1a1a] border-t border-[#333] shadow-[0_-5px_20px_rgba(0,0,0,0.8),inset_0_1px_0_rgba(255,255,255,0.1)]";
@@ -148,61 +161,118 @@ const PlayerControls: React.FC<PlayerControlsProps> = ({
   return (
     <>
       {showQueue && <div className="fixed inset-0 z-[80] bg-black/40 backdrop-blur-sm transition-opacity" onClick={() => setShowQueue(false)} />}
-      <div className={`fixed right-0 md:right-6 bottom-16 md:bottom-28 w-full md:w-[420px] bg-[#161616] md:border border-[#333] rounded-t-3xl md:rounded-3xl shadow-[0_-10px_40px_rgba(0,0,0,0.9)] z-[90] transform transition-all duration-300 flex flex-col ${showQueue ? 'translate-y-0 opacity-100' : 'translate-y-full opacity-0 pointer-events-none'}`} style={{ maxHeight: '70vh' }}>
-        <div className="p-4 border-b border-[#2a2a2a] flex justify-between items-center bg-gradient-to-b from-[#222] to-[#161616] rounded-t-3xl" onClick={() => setShowQueue(false)}>
-          <h3 className="text-zinc-200 font-bold text-sm tracking-widest uppercase pl-2 flex items-center gap-2">
-            <div className="w-2 h-2 bg-yellow-500 rounded-full shadow-[0_0_5px_rgba(234,179,8,0.8)]"></div>
-            Playlist
-          </h3>
-          <span className="text-[#555] text-[10px] font-mono border border-[#333] px-2 py-0.5 rounded bg-[#111]">{tracks.length}</span>
+      
+      <div className={`fixed right-0 md:right-6 bottom-16 md:bottom-28 w-full md:w-[460px] bg-[#161616] md:border border-[#333] rounded-t-3xl md:rounded-3xl shadow-[0_-10px_40px_rgba(0,0,0,0.9)] z-[90] transform transition-all duration-300 flex flex-col ${showQueue ? 'translate-y-0 opacity-100' : 'translate-y-full opacity-0 pointer-events-none'}`} style={{ maxHeight: '70vh' }}>
+        
+        <div className="p-2 border-b border-[#2a2a2a] bg-gradient-to-b from-[#222] to-[#161616] rounded-t-3xl">
+          <div className="flex bg-black/40 p-1 rounded-2xl">
+             <button 
+                onClick={() => setQueueTab('queue')}
+                className={`flex-1 py-2 text-[10px] font-black uppercase tracking-[0.2em] rounded-xl transition-all ${queueTab === 'queue' ? 'bg-zinc-800 text-yellow-500 shadow-lg' : 'text-zinc-600 hover:text-zinc-400'}`}
+             >
+                {convert('当前队列')}
+             </button>
+             <button 
+                onClick={() => setQueueTab('history')}
+                className={`flex-1 py-2 text-[10px] font-black uppercase tracking-[0.2em] rounded-xl transition-all ${queueTab === 'history' ? 'bg-zinc-800 text-yellow-500 shadow-lg' : 'text-zinc-600 hover:text-zinc-400'}`}
+             >
+                {convert('播放历史')}
+             </button>
+          </div>
         </div>
-        <div className="overflow-y-auto p-2 flex-1 custom-scrollbar bg-[#111]">
-          {tracks.map((track, idx) => (
-            <div key={track.id} draggable onDragStart={(e) => e.dataTransfer.setData('text/plain', track.id)} onDragOver={(e) => e.preventDefault()} onDrop={(e) => { e.preventDefault(); onReorder(e.dataTransfer.getData('text/plain'), track.id); }} className={`group flex items-center gap-3 p-2 rounded-xl cursor-pointer transition-all border mb-1 ${idx === currentIndex ? 'bg-[#1a1a1a] border-[#333]' : 'border-transparent hover:bg-[#1a1a1a]'}`} onClick={() => onSelectTrack(idx)}>
-              <div className="w-8 flex items-center justify-center shrink-0">
-                  {idx === currentIndex && isPlaying ? (
-                    <div className="w-4 h-4 flex items-end justify-center gap-0.5 shrink-0">
-                        <div className="w-0.5 animate-[bounce_1s_infinite] h-2 bg-yellow-500"></div>
-                        <div className="w-0.5 animate-[bounce_1.2s_infinite] h-4 bg-yellow-500"></div>
-                        <div className="w-0.5 animate-[bounce_0.8s_infinite] h-3 bg-yellow-500"></div>
-                    </div>
-                  ) : (
-                    <span className={`text-[10px] font-mono text-center ${idx === currentIndex ? 'text-yellow-500' : 'text-zinc-700'}`}>{idx + 1}</span>
-                  )}
-              </div>
-              <div className="w-10 h-10 rounded-md bg-zinc-800 overflow-hidden shrink-0 relative">
-                 {track.coverUrl ? (
-                    <img src={track.coverUrl} className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-opacity" />
-                 ) : (
-                    <div className="w-full h-full flex items-center justify-center text-zinc-600 bg-zinc-900">
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/></svg>
-                    </div>
-                 )}
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className={`font-bold text-xs truncate ${idx === currentIndex ? 'text-yellow-500' : 'text-zinc-300'}`}>{track.name}</div>
-                <button 
-                  onClick={(e) => { e.stopPropagation(); onNavigate?.('artists', track.artist); setShowQueue(false); }}
-                  className="text-[10px] text-zinc-600 truncate font-medium hover:text-yellow-500 transition-colors"
+
+        <div className="overflow-y-auto p-2 flex-1 custom-scrollbar bg-[#111] pb-10">
+          {queueTab === 'queue' ? (
+            tracks.map((track, idx) => {
+              const isFav = favorites.has(track.id);
+              return (
+                <div 
+                  key={track.id} 
+                  draggable 
+                  onDragStart={(e) => { e.dataTransfer.setData('trackId', track.id); }}
+                  onDragOver={(e) => { e.preventDefault(); setDraggedOverId(track.id); }}
+                  onDrop={(e) => { 
+                      e.preventDefault(); 
+                      setDraggedOverId(null); 
+                      const draggedId = e.dataTransfer.getData('trackId');
+                      if (draggedId !== track.id) onReorder(draggedId, track.id);
+                  }}
+                  className={`group flex items-center gap-4 p-3 rounded-2xl cursor-pointer transition-all border mb-1.5 relative ${idx === currentIndex ? 'bg-[#1a1a1a] border-[#333]' : 'border-transparent hover:bg-white/[0.03]'} ${draggedOverId === track.id ? 'border-t-2 border-t-yellow-500 pt-6' : ''}`}
+                  onClick={() => onSelectTrack(idx)}
                 >
-                  {track.artist}
-                </button>
-              </div>
-              <div className="flex items-center gap-2 shrink-0 pr-1">
-                 <span className="text-[10px] font-mono text-zinc-700 group-hover:text-zinc-500 transition-colors">
-                    {formatTime(track.duration || 0)}
-                 </span>
-                 <button 
-                    onClick={(e) => { e.stopPropagation(); onToggleFavorite(track.id); }}
-                    className={`p-1.5 rounded-full transition-all active:scale-90 ${favorites.has(track.id) ? 'text-red-500 drop-shadow-[0_0_5px_rgba(239,68,68,0.3)]' : 'text-zinc-800 hover:text-zinc-400 opacity-40 group-hover:opacity-100'}`}
-                 >
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill={favorites.has(track.id) ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2.5">
-                        <path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"/>
-                    </svg>
-                 </button>
-              </div>
-            </div>
-          ))}
+                  <div className="w-6 flex items-center justify-center shrink-0">
+                      <span className={`text-[11px] font-mono text-center ${idx === currentIndex ? 'text-yellow-500' : 'text-zinc-700'}`}>{idx + 1}</span>
+                  </div>
+                  <div className="w-12 h-12 rounded-xl bg-zinc-800 overflow-hidden shrink-0 shadow-lg">
+                     {track.coverUrl ? <img src={track.coverUrl} className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-opacity" /> : <div className="w-full h-full bg-zinc-900 flex items-center justify-center text-zinc-700"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="10"/></svg></div>}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className={`font-black text-sm truncate mb-0.5 tracking-tight ${idx === currentIndex ? 'text-yellow-500' : 'text-zinc-100'}`}>{convert(track.name)}</div>
+                    <div className="text-[10px] text-zinc-500 truncate font-bold uppercase tracking-widest">
+                        {convert(track.artist)} <span className="opacity-30 mx-1">•</span> {convert(track.album || 'Single')}
+                    </div>
+                  </div>
+                  
+                  <div className="flex items-center gap-3 shrink-0">
+                    <button 
+                        onClick={(e) => { e.stopPropagation(); onToggleFavorite(track.id); }}
+                        className={`p-2 rounded-full transition-all active:scale-75 ${isFav ? 'text-red-500' : 'text-zinc-800 hover:text-zinc-400 opacity-0 group-hover:opacity-100'}`}
+                    >
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill={isFav ? "currentColor" : "none"} stroke="currentColor" strokeWidth="3"><path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"/></svg>
+                    </button>
+                    <div className="text-xs font-mono text-zinc-600 group-hover:text-zinc-400 tabular-nums w-10 text-right">{formatTime(track.duration || 0)}</div>
+                  </div>
+                </div>
+              );
+            })
+          ) : (
+            <>
+              {historyTracks.length > 0 ? (
+                <>
+                  <div className="flex justify-end p-2 mb-2">
+                    <button onClick={onClearHistory} className="text-[9px] font-black uppercase tracking-widest text-zinc-600 hover:text-red-500 transition-colors flex items-center gap-1.5 px-3 py-1.5 rounded-full hover:bg-red-500/10 border border-transparent hover:border-red-500/20">
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M10 11v6M14 11v6"/></svg>
+                      {convert('清空历史')}
+                    </button>
+                  </div>
+                  {historyTracks.map((track) => {
+                    const isFav = favorites.has(track.id);
+                    return (
+                        <div 
+                        key={track.id + (track.historyTime || '')} 
+                        className="group flex items-center gap-4 p-3 rounded-2xl cursor-pointer hover:bg-white/[0.03] transition-all mb-1.5"
+                        onClick={() => onPlayFromHistory?.(track)}
+                        >
+                        <div className="w-12 h-12 rounded-xl bg-zinc-800 overflow-hidden shrink-0 shadow-lg">
+                            {track.coverUrl ? <img src={track.coverUrl} className="w-full h-full object-cover opacity-60 group-hover:opacity-100 transition-opacity" /> : <div className="w-full h-full bg-zinc-900" />}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                            <div className="font-black text-sm truncate mb-0.5 text-zinc-300 group-hover:text-white tracking-tight">{convert(track.name)}</div>
+                            <div className="text-[10px] text-zinc-500 truncate font-bold uppercase tracking-widest">{convert(track.artist)}</div>
+                        </div>
+                        <div className="flex items-center gap-4 shrink-0">
+                            <button 
+                                onClick={(e) => { e.stopPropagation(); onToggleFavorite(track.id); }}
+                                className={`p-2 rounded-full transition-all active:scale-75 ${isFav ? 'text-red-500' : 'text-zinc-800 hover:text-zinc-400 opacity-0 group-hover:opacity-100'}`}
+                            >
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill={isFav ? "currentColor" : "none"} stroke="currentColor" strokeWidth="3"><path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"/></svg>
+                            </button>
+                            <div className="text-[9px] font-black text-zinc-700 group-hover:text-zinc-500 uppercase tracking-tighter w-12 text-right">
+                                {formatHistoryTime(track.historyTime)}
+                            </div>
+                        </div>
+                        </div>
+                    );
+                  })}
+                </>
+              ) : (
+                <div className="p-24 text-center flex flex-col items-center gap-5 opacity-20">
+                   <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                   <p className="text-[11px] font-black uppercase tracking-[0.4em]">{convert('暂无播放历史')}</p>
+                </div>
+              )}
+            </>
+          )}
           <div ref={queueEndRef} />
         </div>
       </div>
@@ -213,37 +283,23 @@ const PlayerControls: React.FC<PlayerControlsProps> = ({
               {currentTrack?.coverUrl ? <img src={currentTrack.coverUrl} className="w-full h-full object-cover rounded-sm" /> : <div className="w-full h-full bg-yellow-500/10 flex items-center justify-center text-yellow-500 rounded-sm"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/></svg></div>}
            </div>
            <div className="min-w-0 flex flex-col gap-1">
-              <h4 className="font-medium truncate text-sm text-yellow-500">{currentTrack?.name || "等待选择曲目"}</h4>
-              <button 
-                onClick={() => onNavigate?.('artists', currentTrack?.artist || '')}
-                className="text-zinc-500 text-[10px] font-bold uppercase tracking-wider truncate text-left hover:text-yellow-500 transition-colors"
-              >
-                {currentTrack?.artist || "Vinyl Rhythm"}
-              </button>
+              <h4 className="font-medium truncate text-sm text-yellow-500">{convert(currentTrack?.name || "等待选择曲目")}</h4>
+              <button onClick={() => onNavigate?.('artistProfile', currentTrack?.artist || '')} className="text-zinc-500 text-[10px] font-bold uppercase tracking-wider truncate text-left hover:text-yellow-500 transition-colors">{convert(currentTrack?.artist || "Vinyl Rhythm")}</button>
            </div>
-           <button onClick={() => onToggleFavorite()} disabled={!currentTrack} className={`w-8 h-8 ${insetButtonClass(isFavorite)} ${isFavorite ? 'text-yellow-500' : ''} disabled:opacity-30`}><svg width="14" height="14" viewBox="0 0 24 24" fill={isFavorite ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2.5"><path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"/></svg></button>
+           <button onClick={() => onToggleFavorite()} disabled={!currentTrack} className={`w-8 h-8 flex-shrink-0 ${insetButtonClass(isFavorite)} ${isFavorite ? 'text-yellow-500' : ''} disabled:opacity-30`}><svg width="14" height="14" viewBox="0 0 24 24" fill={isFavorite ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2.5"><path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"/></svg></button>
         </div>
 
         <div className="flex flex-col items-center justify-center gap-1 w-2/4 h-full pt-1">
            <div className="w-full flex items-center gap-4 px-4 group select-none mb-1">
-              <span className="text-[10px] text-[#444] font-mono font-bold min-w-[35px] text-right">{formatTime(localProgress)}</span>
-              <div 
-                ref={progressBarRef}
-                onPointerDown={handleSeekStart}
-                onPointerMove={handleSeekMove}
-                onPointerUp={handleSeekEnd}
-                onPointerCancel={handleSeekEnd}
-                className={`flex-1 h-2 ${trackGrooveClass} relative cursor-pointer touch-none`}
-              >
+              {/* 增大时间显示尺寸 */}
+              <span className="text-sm text-zinc-400 font-mono font-bold min-w-[50px] text-right">{formatTime(localProgress)}</span>
+              <div ref={progressBarRef} onPointerDown={handleSeekStart} onPointerMove={handleSeekMove} onPointerUp={handleSeekEnd} onPointerCancel={handleSeekEnd} className={`flex-1 h-2 ${trackGrooveClass} relative cursor-pointer touch-none`}>
                  <div className="absolute top-0 left-0 h-full bg-yellow-500 rounded-full opacity-80" style={{ width: `${progressPercent}%` }}></div>
-                 <div 
-                  className={`absolute top-1/2 -translate-y-1/2 w-4 h-4 ${metallicThumbClass} -ml-2 transition-transform ${isDraggingSeek ? 'scale-125 cursor-grabbing' : 'cursor-grab hover:scale-110'}`} 
-                  style={{ left: `${progressPercent}%` }}
-                 >
+                 <div className={`absolute top-1/2 -translate-y-1/2 w-4 h-4 ${metallicThumbClass} -ml-2 transition-transform ${isDraggingSeek ? 'scale-125' : 'hover:scale-110'}`} style={{ left: `${progressPercent}%` }}>
                    <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-1.5 h-1.5 rounded-full bg-[#111]"></div>
                  </div>
               </div>
-              <span className="text-[10px] text-[#444] font-mono font-bold min-w-[35px]">{formatTime(duration)}</span>
+              <span className="text-sm text-zinc-400 font-mono font-bold min-w-[50px]">{formatTime(duration)}</span>
            </div>
            <div className="flex items-center gap-6">
               <button onClick={onTogglePlaybackMode} className={`w-8 h-8 ${insetButtonClass(playbackMode !== 'normal')} ${playbackMode !== 'normal' ? 'text-yellow-500' : ''}`}>
@@ -264,46 +320,31 @@ const PlayerControls: React.FC<PlayerControlsProps> = ({
         </div>
 
         <div className="flex items-center gap-5 w-1/4 justify-end pl-4">
-           <div className="flex items-center gap-3 w-full max-w-[140px]">
-              <button onClick={handleToggleMute} className="text-[#444] hover:text-white transition-colors">{getVolumeIcon()}</button>
-              <div className={`flex-1 h-1.5 ${trackGrooveClass} relative cursor-pointer`}><div className="absolute top-0 left-0 h-full bg-yellow-500 rounded-full" style={{ width: `${volume * 100}%` }}></div><input type="range" min="0" max="1" step="0.01" value={volume} onChange={(e) => onVolumeChange(parseFloat(e.target.value))} className="absolute inset-0 opacity-0 cursor-pointer w-full h-full" /></div>
-           </div>
-           <div className={`p-1.5 rounded-xl transition-all border-2 border-dashed ${isDraggingOverQueueBtn ? 'border-yellow-500 bg-yellow-500/10' : 'border-transparent'}`} onDragOver={(e) => { e.preventDefault(); setIsDraggingOverQueueBtn(true); }} onDragLeave={() => setIsDraggingOverQueueBtn(false)} onDrop={(e) => { e.preventDefault(); setIsDraggingOverQueueBtn(false); onReorder(e.dataTransfer.getData('text/plain'), null); setShowQueue(true); }}>
-              <button onClick={() => setShowQueue(!showQueue)} className={`w-8 h-8 ${insetButtonClass(false)}`}><span className="text-[9px] font-bold">Q</span></button>
+           {/* 扩大音量控制区的整体尺寸 */}
+           <div className="flex items-center gap-4 w-full max-w-[200px]">
+              <button onClick={handleToggleMute} className="text-[#555] hover:text-white transition-colors">
+                {getVolumeIcon()}
+              </button>
+              {/* 增加音量条高度至 h-2 */}
+              <div className={`flex-1 h-2 ${trackGrooveClass} relative cursor-pointer group/vol`}>
+                <div className="absolute top-0 left-0 h-full bg-yellow-500 rounded-full" style={{ width: `${volume * 100}%` }}></div>
+                <input 
+                  type="range" 
+                  min="0" 
+                  max="1" 
+                  step="0.01" 
+                  value={volume} 
+                  onChange={(e) => onVolumeChange(parseFloat(e.target.value))} 
+                  className="absolute inset-0 opacity-0 cursor-pointer w-full h-full z-10" 
+                />
+                {/* 音量滑块的小指示点 */}
+                <div 
+                  className="absolute top-1/2 -translate-y-1/2 w-3 h-3 bg-white rounded-full shadow-lg opacity-0 group-hover/vol:opacity-100 transition-opacity pointer-events-none -ml-1.5"
+                  style={{ left: `${volume * 100}%` }}
+                />
+              </div>
            </div>
         </div>
-      </div>
-
-      <div className="flex md:hidden fixed bottom-16 left-0 right-0 h-14 bg-[#1e1e1e] border-t border-white/5 z-[60] items-center px-3">
-         <div 
-          className="absolute top-0 left-0 right-0 h-[2px] bg-zinc-800" 
-          onPointerDown={handleSeekStart}
-          onPointerMove={handleSeekMove}
-          onPointerUp={handleSeekEnd}
-          onPointerCancel={handleSeekEnd}
-         >
-           <div className="h-full bg-yellow-500" style={{ width: `${progressPercent}%` }}></div>
-         </div>
-         <div className="relative w-10 h-10 flex-shrink-0 mr-3 overflow-hidden rounded-full">
-            {currentTrack?.coverUrl ? <img src={currentTrack.coverUrl} className="w-full h-full object-cover" /> : <div className="w-full h-full bg-zinc-800" />}
-         </div>
-         <div className="flex-1 min-w-0" onClick={() => onSelectTrack(currentIndex || 0)}>
-            <span className="text-white text-xs font-bold truncate block">{currentTrack?.name || "未选中"}</span>
-            <button 
-              onClick={(e) => { e.stopPropagation(); onNavigate?.('artists', currentTrack?.artist || ''); }}
-              className="text-zinc-500 text-[10px] truncate block hover:text-yellow-500 transition-colors"
-            >
-              {currentTrack?.artist || "请选择音乐"}
-            </button>
-         </div>
-         <div className="flex items-center gap-3">
-            <button onClick={onTogglePlay} disabled={tracks.length === 0} className="text-white">
-                {isPlaying ? <svg className="w-6 h-6 fill-white" viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg> : <svg className="w-6 h-6 fill-white" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>}
-            </button>
-            <button onClick={onNext} disabled={tracks.length === 0} className="text-zinc-400">
-                <svg className="w-6 h-6 fill-current" viewBox="0 0 24 24"><path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/></svg>
-            </button>
-         </div>
       </div>
     </>
   );
