@@ -19,7 +19,7 @@ interface LibraryViewProps {
   displayConverter?: (str: string) => string; 
 }
 
-// 精简版下拉选择器组件
+// 极简版下拉选择器组件
 const FilterDropdown: React.FC<{
   value: string;
   options: { id: string; label: string }[];
@@ -45,7 +45,7 @@ const FilterDropdown: React.FC<{
     <div className="relative" ref={dropdownRef}>
       <button 
         onClick={() => setIsOpen(!isOpen)}
-        className={`flex items-center gap-3 px-4 py-2.5 rounded-2xl bg-white/5 border transition-all hover:bg-white/10 ${value !== 'all' ? 'border-yellow-500/40 text-yellow-500' : 'border-white/5 text-zinc-400'}`}
+        className={`flex items-center gap-3 px-4 py-2.5 rounded-2xl bg-white/5 border transition-all hover:bg-white/10 ${value !== 'all' ? 'border-yellow-500/40 text-yellow-500 shadow-[0_0_15px_rgba(234,179,8,0.15)]' : 'border-white/5 text-zinc-400'}`}
       >
         <span className="shrink-0">{icon}</span>
         <span className="text-[11px] font-black uppercase tracking-widest truncate max-w-[100px]">{activeLabel}</span>
@@ -84,6 +84,10 @@ const TrackRow = React.memo<{
 }>(({ track, index, isFavorite, onPlay, onToggleFavorite, onScrape, isScraping, onNavigate, displayConverter }) => {
   const convert = (s: string) => displayConverter ? displayConverter(s) : s;
   
+  const bitrateKbps = track.bitrate ? Math.round(track.bitrate / 1000) : 0;
+  const isHires = bitrateKbps >= 2000;
+  const isLossless = bitrateKbps >= 800 && bitrateKbps < 2000;
+
   return (
     <div 
       className="group flex items-center gap-4 p-3 md:p-4 hover:bg-white/5 transition-all cursor-pointer border-b border-white/[0.03] last:border-0"
@@ -104,11 +108,24 @@ const TrackRow = React.memo<{
             </div>
           )}
         </div>
+        
         <div className="flex-1 min-w-0">
-          <div className="text-white font-black truncate text-sm md:text-base tracking-tight">{convert(track.name)}</div>
+          <div className="flex items-center gap-2 mb-0.5">
+            <div className="text-white font-black truncate text-sm md:text-base tracking-tight">{convert(track.name)}</div>
+            <div className="flex items-center gap-1.5 shrink-0 opacity-60 group-hover:opacity-100 transition-opacity">
+               {bitrateKbps > 0 && (
+                 <span className={`text-[8px] font-mono px-1 rounded ${isHires ? 'bg-yellow-500/20 text-yellow-500' : isLossless ? 'bg-blue-500/20 text-blue-400' : 'bg-zinc-800 text-zinc-500'}`}>
+                   {bitrateKbps}K
+                 </span>
+               )}
+               {track.year && (
+                 <span className="text-[8px] font-mono text-zinc-600 border border-white/5 px-1 rounded">{track.year}</span>
+               )}
+            </div>
+          </div>
           <button 
             onClick={(e) => { e.stopPropagation(); onNavigate?.('artistProfile', track.artist); }}
-            className="text-zinc-500 text-[9px] md:text-xs font-bold uppercase tracking-widest mt-0.5 hover:text-yellow-500 transition-colors"
+            className="text-zinc-500 text-[9px] md:text-xs font-bold uppercase tracking-widest hover:text-yellow-500 transition-colors"
           >
             {convert(track.artist)}
           </button>
@@ -123,11 +140,13 @@ const TrackRow = React.memo<{
 
         <button 
           onClick={(e) => { e.stopPropagation(); onNavigate?.('albums', track.album); }}
-          className="hidden lg:block text-zinc-600 text-[10px] font-black uppercase tracking-widest max-w-[150px] truncate hover:text-yellow-500 transition-colors"
+          className="hidden lg:block text-zinc-500 text-xs font-black uppercase tracking-widest max-w-[200px] truncate hover:text-yellow-500 transition-colors"
         >
           {convert(track.album)}
         </button>
+        
         <div className="hidden md:block text-zinc-700 font-mono text-[10px] w-12 text-right">{formatTime(track.duration || 0)}</div>
+        
         <button 
           onClick={(e) => { e.stopPropagation(); onToggleFavorite(track.id); }}
           className={`p-2 rounded-full transition-all active:scale-75 ${isFavorite ? 'text-red-500 shadow-[0_0_15px_rgba(239,68,68,0.2)]' : 'text-zinc-800 hover:text-white group-hover:opacity-100'}`}
@@ -236,8 +255,6 @@ const LibraryView: React.FC<LibraryViewProps> = ({
       list = list.filter(t => t.album === activeAlbum);
     }
 
-    // --- 高级筛选逻辑 ---
-    // 1. 音质筛选 (基于比特率)
     if (filterQuality !== 'all') {
       list = list.filter(t => {
         const kbps = t.bitrate ? t.bitrate / 1000 : 0;
@@ -249,7 +266,6 @@ const LibraryView: React.FC<LibraryViewProps> = ({
       });
     }
 
-    // 2. 年代筛选
     if (filterDecade !== 'all') {
       list = list.filter(t => {
         const year = t.year;
@@ -265,7 +281,6 @@ const LibraryView: React.FC<LibraryViewProps> = ({
       });
     }
 
-    // 3. 时长筛选 (保留)
     if (filterDuration !== 'all') {
       list = list.filter(t => {
         const d = t.duration || 0;
@@ -276,7 +291,6 @@ const LibraryView: React.FC<LibraryViewProps> = ({
       });
     }
     
-    // 排序逻辑
     list.sort((a, b) => {
       let valA: any = (a as any)[sortKey] || '';
       let valB: any = (b as any)[sortKey] || '';
@@ -311,6 +325,12 @@ const LibraryView: React.FC<LibraryViewProps> = ({
 
   const hasActiveFilters = filterQuality !== 'all' || filterDecade !== 'all' || filterDuration !== 'all';
 
+  const subTabs = [
+    { id: 'all', label: '全部曲目', icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M3 12h18M3 6h18M3 18h18"/></svg> },
+    { id: 'fav', label: '收藏曲目', icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"/></svg> },
+    { id: 'folders', label: '本地文件夹', icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93l-2.73-2.73A2 2 0 0 0 8.07 2H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2Z"/></svg> }
+  ] as const;
+
   return (
     <div className="flex flex-col h-full bg-zinc-950/20 overflow-hidden animate-in fade-in duration-500">
       <header className="p-4 md:p-8 flex flex-col md:flex-row md:items-end justify-between gap-4 shrink-0">
@@ -335,20 +355,17 @@ const LibraryView: React.FC<LibraryViewProps> = ({
       {/* 排序与筛选工具栏 */}
       {!activeGroup && !activeAlbum && view !== 'history' && !isSearching && (
         <div className="px-4 md:px-8 space-y-6 shrink-0 animate-in slide-in-from-top-2 duration-500 mb-6">
-          {/* 第一行：子标签与基础排序 */}
           <div className="flex flex-col lg:flex-row items-center justify-between gap-4">
-            <div className="flex bg-black/40 p-1 rounded-2xl border border-white/5 backdrop-blur-md w-full lg:w-auto">
-              {[
-                { id: 'all', label: '全部' },
-                { id: 'fav', label: '收藏' },
-                { id: 'folders', label: '文件夹' }
-              ].map(tab => (
+            {/* 增强型子标签导航 */}
+            <div className="flex bg-black/60 p-1.5 rounded-[1.5rem] border border-white/5 backdrop-blur-xl w-full lg:w-auto gap-1">
+              {subTabs.map(tab => (
                 <button 
                   key={tab.id}
                   onClick={() => setSubTab(tab.id as any)}
-                  className={`flex-1 md:flex-none px-4 md:px-6 py-2 text-[10px] font-black uppercase tracking-[0.2em] rounded-xl transition-all ${subTab === tab.id ? 'bg-zinc-800 text-yellow-500 shadow-xl border border-white/5' : 'text-zinc-600 hover:text-zinc-400'}`}
+                  className={`flex-1 md:flex-none flex items-center justify-center gap-3 px-6 md:px-8 py-3 text-xs font-black uppercase tracking-widest rounded-2xl transition-all duration-300 ${subTab === tab.id ? 'bg-zinc-800 text-yellow-500 shadow-[0_10px_20px_rgba(0,0,0,0.4)] border border-white/10' : 'text-zinc-500 hover:text-zinc-300 hover:bg-white/5'}`}
                 >
-                  {convert(tab.label)}
+                  <span className={`transition-transform duration-500 ${subTab === tab.id ? 'scale-110 drop-shadow-[0_0_8px_rgba(234,179,8,0.4)]' : ''}`}>{tab.icon}</span>
+                  <span className="hidden sm:inline">{convert(tab.label)}</span>
                 </button>
               ))}
             </div>
@@ -366,7 +383,7 @@ const LibraryView: React.FC<LibraryViewProps> = ({
                       setSortOrder(opt.key === 'lastModified' ? 'desc' : 'asc');
                     }
                   }}
-                  className={`px-3 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest whitespace-nowrap transition-all flex items-center gap-1.5 ${sortKey === opt.key ? 'bg-yellow-500 text-black shadow-lg shadow-yellow-500/10' : 'text-zinc-500 hover:text-zinc-300'}`}
+                  className={`px-3 py-2.5 rounded-xl text-[9px] font-black uppercase tracking-widest whitespace-nowrap transition-all flex items-center gap-1.5 ${sortKey === opt.key ? 'bg-yellow-500 text-black shadow-lg shadow-yellow-500/10' : 'text-zinc-500 hover:text-zinc-300'}`}
                 >
                   {convert(opt.label)}
                   {sortKey === opt.key && (
@@ -382,7 +399,7 @@ const LibraryView: React.FC<LibraryViewProps> = ({
             </div>
           </div>
 
-          {/* 第二行：高级过滤 (极简下拉菜单) */}
+          {/* 高级过滤下拉菜单 */}
           {subTab !== 'folders' && (
             <div className="flex flex-wrap items-center gap-3">
               <FilterDropdown 

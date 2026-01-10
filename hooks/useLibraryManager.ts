@@ -139,133 +139,106 @@ export const useLibraryManager = () => {
   };
 
   const syncAll = async (isSilent: boolean = false) => {
-    const savedFolders = await getAllLibraryFolders();
-    if (savedFolders.length === 0) {
-      setImportedFolders(prev => prev.filter(f => f.id.startsWith('manual_')));
-      return false;
-    }
+    // --- 性能关键：立即触发 UI 状态，不等待任何异步 ---
+    setIsImporting(true);
+    setImportProgress(0);
+    setCurrentProcessingFile('初始化扫描中...');
 
-    // 状态准备
-    // 为 Map 显式指定类型，避免空数组导致的 any 类型推断问题
-    const currentTracksMap = new Map<string, Track>(tracks.map(t => [t.fingerprint, t]));
-    let allUpdatedTracks: Track[] = [];
-    let nextImportedFolders: LibraryFolder[] = importedFolders.filter(f => f.id.startsWith('manual_'));
-    
-    // 待深度解析的文件
-    let filesToParse: { file: File, folderId: string, localMeta?: any }[] = [];
-
-    // 第一阶段：快速扫描目录结构 (并行)
-    const scanResults = await Promise.all(savedFolders.map(async (folder) => {
-      try {
-        let permission = await folder.handle.queryPermission({ mode: 'read' });
-        if (permission !== 'granted' && !isSilent) {
-          permission = await folder.handle.requestPermission({ mode: 'read' });
-        }
-        if (permission === 'granted') {
-          const diskFiles = await scanDirectory(folder.handle);
-          const localMetadata = await readLocalFolderMetadata(folder.handle);
-          return { folder, diskFiles, localMetadata, success: true };
-        }
-      } catch (e) { console.error(e); }
-      return { folder, success: false };
-    }));
-
-    // 第二阶段：增量逻辑判断
-    for (const result of scanResults) {
-      if (!result || !result.success || !result.diskFiles) {
-        const existing = importedFolders.find(f => f.id === result.folder.id);
-        if (existing) nextImportedFolders.push(existing);
-        continue;
-      }
-
-      const { folder, diskFiles, localMetadata } = result;
-      let folderTracks: Track[] = [];
-
-      for (const file of diskFiles) {
-        const fingerprint = `${file.name}-${file.size}`;
-        
-        // 1. 优先从内存恢复
-        if (currentTracksMap.has(fingerprint)) {
-          // 确保从 Map 获取的是定义的 Track 类型
-          const existingTrack = currentTracksMap.get(fingerprint);
-          if (existingTrack) folderTracks.push(existingTrack);
-          continue;
+    // 延迟一小会儿开始真正的扫描，确保主线程有机会渲染加载状态
+    return new Promise<boolean>(async (resolve) => {
+      setTimeout(async () => {
+        const savedFolders = await getAllLibraryFolders();
+        if (savedFolders.length === 0) {
+          setIsImporting(false);
+          resolve(false);
+          return;
         }
 
-        // 2. 其次从本地 .vinyl_rhythm.json 缓存恢复 (避免读取大文件元数据)
-        if (localMetadata?.tracks?.[fingerprint]) {
-          const cached = localMetadata.tracks[fingerprint];
-          folderTracks.push({
-            id: Math.random().toString(36).substring(2, 9),
-            name: cached.name || file.name,
-            artist: cached.artist || "未知歌手",
-            album: cached.album || "未知专辑",
-            url: URL.createObjectURL(file),
-            file: file,
-            duration: cached.duration,
-            bitrate: cached.bitrate,
-            fingerprint: fingerprint,
-            year: cached.year,
-            genre: cached.genre,
-            lastModified: file.lastModified,
-            folderId: folder.id
-          });
-          continue;
+        const currentTracksMap = new Map<string, Track>(tracks.map(t => [t.fingerprint, t]));
+        let allUpdatedTracks: Track[] = [];
+        let nextImportedFolders: LibraryFolder[] = importedFolders.filter(f => f.id.startsWith('manual_'));
+        let filesToParse: { file: File, folderId: string, localMeta?: any }[] = [];
+
+        // 第一阶段：读取目录结构
+        for (const folder of savedFolders) {
+          setCurrentProcessingFile(`访问目录: ${folder.name}`);
+          try {
+            let permission = await folder.handle.queryPermission({ mode: 'read' });
+            if (permission !== 'granted' && !isSilent) {
+              permission = await folder.handle.requestPermission({ mode: 'read' });
+            }
+            
+            if (permission === 'granted') {
+              const diskFiles = await scanDirectory(folder.handle);
+              const localMetadata = await readLocalFolderMetadata(folder.handle);
+              
+              let folderTrackCount = 0;
+              for (const file of diskFiles) {
+                const fingerprint = `${file.name}-${file.size}`;
+                if (currentTracksMap.has(fingerprint)) {
+                  allUpdatedTracks.push(currentTracksMap.get(fingerprint)!);
+                  folderTrackCount++;
+                } else if (localMetadata?.tracks?.[fingerprint]) {
+                  const cached = localMetadata.tracks[fingerprint];
+                  allUpdatedTracks.push({
+                    id: Math.random().toString(36).substring(2, 9),
+                    name: cached.name || file.name,
+                    artist: cached.artist || "未知歌手",
+                    album: cached.album || "未知专辑",
+                    url: URL.createObjectURL(file),
+                    file: file,
+                    duration: cached.duration,
+                    bitrate: cached.bitrate,
+                    fingerprint: fingerprint,
+                    year: cached.year,
+                    genre: cached.genre,
+                    lastModified: file.lastModified,
+                    folderId: folder.id
+                  });
+                  folderTrackCount++;
+                } else {
+                  filesToParse.push({ file, folderId: folder.id, localMeta: localMetadata });
+                }
+              }
+              
+              nextImportedFolders.push({
+                id: folder.id,
+                name: folder.name,
+                lastSync: Date.now(),
+                trackCount: folderTrackCount
+              });
+            }
+          } catch (e) { console.error(e); }
         }
 
-        // 3. 实在没有，加入深度解析队列
-        filesToParse.push({ file, folderId: folder.id, localMeta: localMetadata });
-      }
+        // 第二阶段：深度解析新发现的文件
+        if (filesToParse.length > 0) {
+          for (let i = 0; i < filesToParse.length; i++) {
+            const item = filesToParse[i];
+            setCurrentProcessingFile(`解析元数据: ${item.file.name}`);
+            try {
+              const track: Track = await parseFileToTrack(item.file);
+              track.folderId = item.folderId;
+              allUpdatedTracks.push(track);
+              setImportProgress(Math.round(((i + 1) / filesToParse.length) * 100));
+              
+              // 分批次更新 UI 以保持平滑感
+              if (i % 5 === 0) setTracks([...allUpdatedTracks]);
+            } catch (e) {}
+          }
+        }
 
-      allUpdatedTracks = [...allUpdatedTracks, ...folderTracks];
-    }
+        setTracks([...allUpdatedTracks]);
+        setImportedFolders(nextImportedFolders);
 
-    // 第三阶段：如果有新文件，执行深度解析 (此时才开启 UI 进度条)
-    if (filesToParse.length > 0) {
-      setIsImporting(true);
-      setImportProgress(0);
-      
-      for (let i = 0; i < filesToParse.length; i++) {
-        const item = filesToParse[i];
-        setCurrentProcessingFile(item.file.name);
-        try {
-          // 显式标注解析结果为 Track 类型，修复可能存在的 unknown 类型赋值错误
-          const track: Track = await parseFileToTrack(item.file);
-          track.folderId = item.folderId;
-          allUpdatedTracks.push(track);
-          
-          setImportProgress(Math.round(((i + 1) / filesToParse.length) * 100));
-          // 每 10 首歌更新一次 UI，防止界面卡死
-          if (i % 10 === 0) setTracks([...allUpdatedTracks]);
-        } catch (e) {}
-      }
-    }
-
-    // 最终状态更新
-    setTracks([...allUpdatedTracks]);
-    
-    // 更新文件夹列表中的统计信息
-    const finalImportedFolders = [...nextImportedFolders];
-    for (const result of scanResults) {
-        if (!result.success) continue;
-        const count = allUpdatedTracks.filter(t => t.folderId === result.folder.id).length;
-        finalImportedFolders.push({
-            id: result.folder.id,
-            name: result.folder.name,
-            lastSync: Date.now(),
-            trackCount: count
-        });
-    }
-    setImportedFolders(finalImportedFolders);
-
-    // 延迟关闭进度条
-    setTimeout(() => {
-      setIsImporting(false);
-      setImportProgress(0);
-      setCurrentProcessingFile('');
-    }, 500);
-
-    return allUpdatedTracks.length > 0;
+        setTimeout(() => {
+          setIsImporting(false);
+          setImportProgress(0);
+          setCurrentProcessingFile('');
+          resolve(allUpdatedTracks.length > 0);
+        }, 500);
+      }, 50);
+    });
   };
 
   const handleManualFilesSelect = async (fileList: FileList) => {
