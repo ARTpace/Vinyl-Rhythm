@@ -44,30 +44,26 @@ const App: React.FC = () => {
   const [trackStory, setTrackStory] = useState('');
   const [isStoryLoading, setIsStoryLoading] = useState(false);
 
-  // 音质等级计算
+  // 纯码率分级逻辑
   const qualityInfo = useMemo(() => {
     if (!currentTrack) return null;
     const br = currentTrack.bitrate ? currentTrack.bitrate / 1000 : 0;
-    const ext = currentTrack.file.name.toLowerCase();
     
     let label = 'SD';
-    let colorClass = 'text-zinc-500';
-    let glowClass = 'shadow-zinc-500/20';
-    let borderClass = 'border-zinc-800';
+    let color = 'text-zinc-500';
 
-    if (ext.endsWith('.flac') || ext.endsWith('.wav') || br > 1000) {
-      label = br > 2000 ? 'HI-RES' : 'LOSSLESS';
-      colorClass = 'text-yellow-500';
-      glowClass = 'shadow-yellow-500/40';
-      borderClass = 'border-yellow-500/40';
+    if (br >= 2000) {
+      label = 'Hi-Res';
+      color = 'text-yellow-400';
+    } else if (br >= 800) {
+      label = 'Lossless';
+      color = 'text-sky-400';
     } else if (br >= 320) {
       label = 'HQ';
-      colorClass = 'text-emerald-500';
-      glowClass = 'shadow-emerald-500/30';
-      borderClass = 'border-emerald-500/30';
+      color = 'text-emerald-400';
     }
 
-    return { label, bitrate: br ? `${Math.round(br)}` : null, colorClass, borderClass, glowClass };
+    return { label, bitrate: br ? `${Math.round(br)} kbps` : 'Variable', color };
   }, [currentTrack]);
 
   useEffect(() => {
@@ -197,7 +193,7 @@ const App: React.FC = () => {
                     
                     {/* 信息展示区 */}
                     <div className="text-center relative z-40 px-6 max-w-4xl flex flex-col items-center">
-                      <h2 className="text-2xl md:text-3xl lg:text-5xl font-bold mb-4 tracking-tight text-white drop-shadow-xl">
+                      <h2 className="text-2xl md:text-4xl lg:text-5xl font-black mb-3 tracking-tighter text-white drop-shadow-2xl">
                         {processDisplayString(currentTrack?.name || "黑胶时光")}
                       </h2>
 
@@ -229,28 +225,17 @@ const App: React.FC = () => {
                       </div>
                     </div>
 
-                    {/* Hi-Fi 仪表盘 (音质显示在黑胶下面) */}
+                    {/* 简约音质显示 (黑胶下方) */}
                     {settings.showQualityTag && qualityInfo && (
-                      <div className="mt-6 flex flex-col items-center gap-2 animate-in fade-in slide-in-from-top-2 duration-1000">
-                        <div className="flex items-center gap-4 bg-black/40 px-5 py-2 rounded-2xl border border-white/5 backdrop-blur-md shadow-2xl">
-                          <div className="flex flex-col items-start">
-                             <span className="text-[7px] text-zinc-600 font-black uppercase tracking-widest mb-0.5">SIGNAL QUALITY</span>
-                             <span className={`px-2 py-0.5 border ${qualityInfo.borderClass} ${qualityInfo.colorClass} rounded-sm text-[9px] font-black tracking-[0.15em] shadow-lg ${qualityInfo.glowClass}`}>
-                                {qualityInfo.label}
-                             </span>
-                          </div>
-                          
-                          <div className="w-px h-6 bg-zinc-800/50" />
-                          
-                          <div className="flex flex-col items-end">
-                             <span className="text-[7px] text-zinc-600 font-black uppercase tracking-widest mb-0.5">BITRATE</span>
-                             <div className="flex items-baseline gap-1">
-                                <span className={`text-lg font-mono font-bold leading-none tracking-tighter transition-all duration-500 ${player.isPlaying ? qualityInfo.colorClass : 'text-zinc-800'}`}>
-                                  {qualityInfo.bitrate || '000'}
-                                </span>
-                                <span className="text-[8px] text-zinc-700 font-black">kbps</span>
-                             </div>
-                          </div>
+                      <div className="mt-8 flex items-center gap-3 animate-in fade-in zoom-in duration-1000">
+                        <div className="flex items-center gap-2 px-4 py-1 rounded-full bg-white/5 border border-white/5 backdrop-blur-sm">
+                           <span className={`w-1.5 h-1.5 rounded-full ${qualityInfo.color} ${player.isPlaying ? 'animate-pulse' : 'opacity-50'}`} style={{ boxShadow: player.isPlaying ? `0 0 8px currentColor` : 'none' }}></span>
+                           <span className={`text-[10px] font-black uppercase tracking-[0.15em] ${qualityInfo.color}`}>
+                              {qualityInfo.label}
+                           </span>
+                           <span className="text-[10px] text-zinc-600 font-mono tracking-tighter">
+                              {qualityInfo.bitrate}
+                           </span>
                         </div>
                       </div>
                     )}
