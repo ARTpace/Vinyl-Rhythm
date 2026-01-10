@@ -1,9 +1,10 @@
 
 const DB_NAME = 'VinylRhythmDB';
-const DB_VERSION = 4; // 升级版本号
+const DB_VERSION = 5; // 升级版本号以包含新的 tracksCache
 const STORE_NAME = 'libraryHandles';
 const STORIES_STORE = 'trackStories';
 const HISTORY_STORE = 'playbackHistory';
+const TRACKS_CACHE_STORE = 'tracksCache'; // 新增曲目缓存
 
 const METADATA_FILENAME = '.vinyl_rhythm.json';
 
@@ -26,9 +27,39 @@ const initDB = async (): Promise<IDBDatabase> => {
       if (!db.objectStoreNames.contains(HISTORY_STORE)) {
         db.createObjectStore(HISTORY_STORE, { keyPath: 'fingerprint' });
       }
+      if (!db.objectStoreNames.contains(TRACKS_CACHE_STORE)) {
+        db.createObjectStore(TRACKS_CACHE_STORE, { keyPath: 'fingerprint' });
+      }
     };
     request.onsuccess = () => resolve(request.result);
     request.onerror = () => reject(request.error);
+  });
+};
+
+/**
+ * 缓存所有曲目元数据
+ */
+export const saveTracksToCache = async (tracks: any[]) => {
+  const db = await initDB();
+  const tx = db.transaction(TRACKS_CACHE_STORE, 'readwrite');
+  const store = tx.objectStore(TRACKS_CACHE_STORE);
+  // 简单清理并保存
+  for (const track of tracks) {
+    const { file, url, ...serializableTrack } = track;
+    store.put(serializableTrack);
+  }
+};
+
+/**
+ * 获取缓存的曲目元数据
+ */
+export const getCachedTracks = async (): Promise<any[]> => {
+  const db = await initDB();
+  const tx = db.transaction(TRACKS_CACHE_STORE, 'readonly');
+  const request = tx.objectStore(TRACKS_CACHE_STORE).getAll();
+  return new Promise((resolve) => {
+    request.onsuccess = () => resolve(request.result || []);
+    request.onerror = () => resolve([]);
   });
 };
 
@@ -51,13 +82,12 @@ export const addToHistory = async (track: any) => {
   
   await store.put(entry);
 
-  // 限制 100 条记录
   const countRequest = store.count();
   countRequest.onsuccess = () => {
     if (countRequest.result > 100) {
       store.openCursor().onsuccess = (e: any) => {
         const cursor = e.target.result;
-        if (cursor) cursor.delete(); // 删除最早的一条
+        if (cursor) cursor.delete();
       };
     }
   };

@@ -10,7 +10,9 @@ import {
   readLocalFolderMetadata, 
   writeLocalFolderMetadata,
   getPlaybackHistory,
-  clearPlaybackHistory
+  clearPlaybackHistory,
+  saveTracksToCache,
+  getCachedTracks
 } from '../utils/storage';
 import { normalizeChinese } from '../utils/chineseConverter';
 
@@ -30,6 +32,18 @@ export const useLibraryManager = () => {
     const saved = localStorage.getItem('vinyl_favorites');
     return saved ? new Set(JSON.parse(saved)) : new Set();
   });
+
+  // 1. 初始化时优先从数据库缓存加载
+  useEffect(() => {
+    const loadCache = async () => {
+      const cached = await getCachedTracks();
+      if (cached && cached.length > 0) {
+        // 缓存中没有 File 和 URL，此时只能显示，不能播放
+        setTracks(cached.map(t => ({ ...t, file: null, url: '' })));
+      }
+    };
+    loadCache();
+  }, []);
 
   useEffect(() => {
     localStorage.setItem('vinyl_folders', JSON.stringify(importedFolders));
@@ -97,6 +111,7 @@ export const useLibraryManager = () => {
       if (updatedTrack?.folderId) {
         persistFolderMetadataToDisk(updatedTrack.folderId);
       }
+      saveTracksToCache(next);
       return next;
     });
   }, [persistFolderMetadataToDisk]);
@@ -138,13 +153,15 @@ export const useLibraryManager = () => {
     return id;
   };
 
+  /**
+   * 核心优化逻辑：同步所有文件夹
+   * 如果 isSilent 为真，则尝试后台“重连”文件，而不重新解析元数据
+   */
   const syncAll = async (isSilent: boolean = false) => {
-    // --- 性能关键：立即触发 UI 状态，不等待任何异步 ---
     setIsImporting(true);
     setImportProgress(0);
-    setCurrentProcessingFile('初始化扫描中...');
+    setCurrentProcessingFile(isSilent ? '正在恢复文件连接...' : '正在同步库...');
 
-    // 延迟一小会儿开始真正的扫描，确保主线程有机会渲染加载状态
     return new Promise<boolean>(async (resolve) => {
       setTimeout(async () => {
         const savedFolders = await getAllLibraryFolders();
@@ -154,50 +171,40 @@ export const useLibraryManager = () => {
           return;
         }
 
+        // 建立当前内存中曲目的映射
         const currentTracksMap = new Map<string, Track>(tracks.map(t => [t.fingerprint, t]));
         let allUpdatedTracks: Track[] = [];
         let nextImportedFolders: LibraryFolder[] = importedFolders.filter(f => f.id.startsWith('manual_'));
-        let filesToParse: { file: File, folderId: string, localMeta?: any }[] = [];
+        let filesToParse: { file: File, folderId: string }[] = [];
 
-        // 第一阶段：读取目录结构
         for (const folder of savedFolders) {
-          setCurrentProcessingFile(`访问目录: ${folder.name}`);
+          setCurrentProcessingFile(`检查文件夹: ${folder.name}`);
           try {
             let permission = await folder.handle.queryPermission({ mode: 'read' });
+            // 如果是静默同步且没权限，跳过（防止弹窗干扰）
             if (permission !== 'granted' && !isSilent) {
               permission = await folder.handle.requestPermission({ mode: 'read' });
             }
             
             if (permission === 'granted') {
               const diskFiles = await scanDirectory(folder.handle);
-              const localMetadata = await readLocalFolderMetadata(folder.handle);
-              
               let folderTrackCount = 0;
+
               for (const file of diskFiles) {
                 const fingerprint = `${file.name}-${file.size}`;
-                if (currentTracksMap.has(fingerprint)) {
-                  allUpdatedTracks.push(currentTracksMap.get(fingerprint)!);
-                  folderTrackCount++;
-                } else if (localMetadata?.tracks?.[fingerprint]) {
-                  const cached = localMetadata.tracks[fingerprint];
+                const cachedTrack = currentTracksMap.get(fingerprint);
+
+                if (cachedTrack) {
+                  // 命中缓存：直接“重连” File 和 URL，跳过元数据解析
                   allUpdatedTracks.push({
-                    id: Math.random().toString(36).substring(2, 9),
-                    name: cached.name || file.name,
-                    artist: cached.artist || "未知歌手",
-                    album: cached.album || "未知专辑",
-                    url: URL.createObjectURL(file),
+                    ...cachedTrack,
                     file: file,
-                    duration: cached.duration,
-                    bitrate: cached.bitrate,
-                    fingerprint: fingerprint,
-                    year: cached.year,
-                    genre: cached.genre,
-                    lastModified: file.lastModified,
-                    folderId: folder.id
+                    url: URL.createObjectURL(file)
                   });
                   folderTrackCount++;
                 } else {
-                  filesToParse.push({ file, folderId: folder.id, localMeta: localMetadata });
+                  // 未命中的新文件才需要加入解析队列
+                  filesToParse.push({ file, folderId: folder.id });
                 }
               }
               
@@ -207,29 +214,35 @@ export const useLibraryManager = () => {
                 lastSync: Date.now(),
                 trackCount: folderTrackCount
               });
+            } else {
+              // 没权限的文件夹，保留原有缓存（虽然不能播放，但能看）
+              const orphanTracks = tracks.filter(t => t.folderId === folder.id);
+              allUpdatedTracks.push(...orphanTracks);
+              const existingFolder = importedFolders.find(f => f.id === folder.id);
+              if (existingFolder) nextImportedFolders.push(existingFolder);
             }
           } catch (e) { console.error(e); }
         }
 
-        // 第二阶段：深度解析新发现的文件
+        // 深度解析新文件
         if (filesToParse.length > 0) {
           for (let i = 0; i < filesToParse.length; i++) {
             const item = filesToParse[i];
-            setCurrentProcessingFile(`解析元数据: ${item.file.name}`);
+            setCurrentProcessingFile(`解析新曲目: ${item.file.name}`);
             try {
               const track: Track = await parseFileToTrack(item.file);
               track.folderId = item.folderId;
               allUpdatedTracks.push(track);
               setImportProgress(Math.round(((i + 1) / filesToParse.length) * 100));
               
-              // 分批次更新 UI 以保持平滑感
               if (i % 5 === 0) setTracks([...allUpdatedTracks]);
             } catch (e) {}
           }
         }
 
-        setTracks([...allUpdatedTracks]);
+        setTracks(allUpdatedTracks);
         setImportedFolders(nextImportedFolders);
+        saveTracksToCache(allUpdatedTracks); // 更新数据库缓存
 
         setTimeout(() => {
           setIsImporting(false);
@@ -256,9 +269,10 @@ export const useLibraryManager = () => {
       newTracks.push(t);
       setImportProgress(Math.round(((i + 1) / files.length) * 100));
     }
-    setTracks(prev => [...prev, ...newTracks]);
+    const totalTracks = [...tracks, ...newTracks];
+    setTracks(totalTracks);
+    saveTracksToCache(totalTracks);
     setImportedFolders(prev => [...prev, { id: folderId, name: "本地导入", lastSync: Date.now(), trackCount: files.length }]);
-    setImportProgress(100);
     setTimeout(() => {
       setIsImporting(false);
       setImportProgress(0);
@@ -269,8 +283,10 @@ export const useLibraryManager = () => {
 
   const removeFolder = async (id: string) => {
     await removeLibraryFolder(id);
+    const nextTracks = tracks.filter(t => t.folderId !== id);
     setImportedFolders(prev => prev.filter(f => f.id !== id));
-    setTracks(prev => prev.filter(t => t.folderId !== id));
+    setTracks(nextTracks);
+    saveTracksToCache(nextTracks);
   };
 
   return {
