@@ -16,9 +16,10 @@ export const ToneArm: React.FC<ToneArmProps> = ({ trackId, isPlaying, progress, 
   const lastIsPlaying = useRef<boolean>(isPlaying);
 
   /**
-   * 几何参数
+   * 几何参数微调
+   * restAngle 改为更小的负值，使其离盘面更远
    */
-  const restAngle = -22; 
+  const restAngle = -32; 
   const startAngle = 8;  
   const endAngle = 30;   
 
@@ -65,7 +66,10 @@ export const ToneArm: React.FC<ToneArmProps> = ({ trackId, isPlaying, progress, 
         onClick?.();
       }}
       className={`
-        absolute top-[-4%] right-[-10%]
+        absolute 
+        top-[0%] right-[-5%] 
+        sm:top-[-5%] sm:right-[-15%]
+        md:top-[-18%] md:right-[-22%]
         w-32 h-52 sm:w-40 sm:h-64 md:w-48 md:h-72
         z-40 pointer-events-none origin-[80%_15%]
         will-change-transform
