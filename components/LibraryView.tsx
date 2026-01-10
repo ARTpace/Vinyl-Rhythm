@@ -19,6 +19,58 @@ interface LibraryViewProps {
   displayConverter?: (str: string) => string; 
 }
 
+// 精简版下拉选择器组件
+const FilterDropdown: React.FC<{
+  value: string;
+  options: { id: string; label: string }[];
+  onChange: (val: any) => void;
+  icon?: React.ReactNode;
+}> = ({ value, options, onChange, icon }) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setIsOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const activeLabel = options.find(o => o.id === value)?.label || '全部';
+
+  return (
+    <div className="relative" ref={dropdownRef}>
+      <button 
+        onClick={() => setIsOpen(!isOpen)}
+        className={`flex items-center gap-3 px-4 py-2.5 rounded-2xl bg-white/5 border transition-all hover:bg-white/10 ${value !== 'all' ? 'border-yellow-500/40 text-yellow-500' : 'border-white/5 text-zinc-400'}`}
+      >
+        <span className="shrink-0">{icon}</span>
+        <span className="text-[11px] font-black uppercase tracking-widest truncate max-w-[100px]">{activeLabel}</span>
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" className={`transition-transform duration-300 ${isOpen ? 'rotate-180' : ''}`}><path d="m6 9 6 6 6-6"/></svg>
+      </button>
+
+      {isOpen && (
+        <div className="absolute top-full left-0 mt-2 w-48 bg-zinc-900 border border-white/10 rounded-2xl shadow-2xl z-[100] overflow-hidden animate-in fade-in slide-in-from-top-2">
+          <div className="max-h-64 overflow-y-auto custom-scrollbar">
+            {options.map(opt => (
+              <button
+                key={opt.id}
+                onClick={() => { onChange(opt.id); setIsOpen(false); }}
+                className={`w-full text-left px-5 py-3 text-[10px] font-black uppercase tracking-widest transition-colors ${value === opt.id ? 'bg-yellow-500 text-black' : 'text-zinc-500 hover:bg-white/5 hover:text-white'}`}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
 const TrackRow = React.memo<{
   track: Track;
   index: number;
@@ -99,6 +151,11 @@ const LibraryView: React.FC<LibraryViewProps> = ({
   const [sortKey, setSortKey] = useState<'name' | 'artist' | 'album' | 'lastModified'>('lastModified');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
 
+  // 筛选器状态
+  const [filterQuality, setFilterQuality] = useState<'all' | 'hires' | 'lossless' | 'hq' | 'sd'>('all');
+  const [filterDecade, setFilterDecade] = useState<'all' | '2020s' | '2010s' | '2000s' | '90s' | '80s' | '70s' | 'pre70s'>('all');
+  const [filterDuration, setFilterDuration] = useState<'all' | 'short' | 'medium' | 'long'>('all');
+
   const scrollRef = useRef<HTMLDivElement>(null);
   const convert = (s: string) => displayConverter ? displayConverter(s) : s;
 
@@ -151,7 +208,7 @@ const LibraryView: React.FC<LibraryViewProps> = ({
   useEffect(() => {
     setDisplayLimit(100);
     if (scrollRef.current) scrollRef.current.scrollTop = 0;
-  }, [view, activeGroup, activeAlbum, isSearching, sortKey, sortOrder, subTab]);
+  }, [view, activeGroup, activeAlbum, isSearching, sortKey, sortOrder, subTab, filterQuality, filterDecade, filterDuration]);
 
   const groups = useMemo(() => {
     if (view !== 'all' || subTab !== 'folders' || activeGroup || activeAlbum || isSearching) return null;
@@ -175,11 +232,51 @@ const LibraryView: React.FC<LibraryViewProps> = ({
     if (activeGroup) {
       list = list.filter(t => (t.folderId || '默认导入') === activeGroup);
     }
-
     if (activeAlbum) {
       list = list.filter(t => t.album === activeAlbum);
     }
+
+    // --- 高级筛选逻辑 ---
+    // 1. 音质筛选 (基于比特率)
+    if (filterQuality !== 'all') {
+      list = list.filter(t => {
+        const kbps = t.bitrate ? t.bitrate / 1000 : 0;
+        if (filterQuality === 'hires') return kbps >= 2000;
+        if (filterQuality === 'lossless') return kbps >= 800 && kbps < 2000;
+        if (filterQuality === 'hq') return kbps >= 320 && kbps < 800;
+        if (filterQuality === 'sd') return kbps > 0 && kbps < 320;
+        return true;
+      });
+    }
+
+    // 2. 年代筛选
+    if (filterDecade !== 'all') {
+      list = list.filter(t => {
+        const year = t.year;
+        if (!year) return false;
+        if (filterDecade === '2020s') return year >= 2020;
+        if (filterDecade === '2010s') return year >= 2010 && year < 2020;
+        if (filterDecade === '2000s') return year >= 2000 && year < 2010;
+        if (filterDecade === '90s') return year >= 1990 && year < 2000;
+        if (filterDecade === '80s') return year >= 1980 && year < 1990;
+        if (filterDecade === '70s') return year >= 1970 && year < 1980;
+        if (filterDecade === 'pre70s') return year < 1970;
+        return true;
+      });
+    }
+
+    // 3. 时长筛选 (保留)
+    if (filterDuration !== 'all') {
+      list = list.filter(t => {
+        const d = t.duration || 0;
+        if (filterDuration === 'short') return d < 180;
+        if (filterDuration === 'medium') return d >= 180 && d <= 300;
+        if (filterDuration === 'long') return d > 300;
+        return true;
+      });
+    }
     
+    // 排序逻辑
     list.sort((a, b) => {
       let valA: any = (a as any)[sortKey] || '';
       let valB: any = (b as any)[sortKey] || '';
@@ -190,7 +287,7 @@ const LibraryView: React.FC<LibraryViewProps> = ({
     });
 
     return list;
-  }, [tracks, favorites, subTab, activeGroup, activeAlbum, sortKey, sortOrder, isSearching]);
+  }, [tracks, favorites, subTab, activeGroup, activeAlbum, sortKey, sortOrder, isSearching, filterQuality, filterDecade, filterDuration]);
 
   const pageTitle = useMemo(() => {
     if (activeGroup) return activeGroup;
@@ -199,9 +296,24 @@ const LibraryView: React.FC<LibraryViewProps> = ({
     return '本地曲库';
   }, [activeGroup, activeAlbum, view]);
 
+  const sortOptions = [
+    { key: 'lastModified', label: '最近添加' },
+    { key: 'name', label: '名称' },
+    { key: 'artist', label: '艺人' },
+    { key: 'album', label: '专辑' }
+  ] as const;
+
+  const resetFilters = () => {
+    setFilterQuality('all');
+    setFilterDecade('all');
+    setFilterDuration('all');
+  };
+
+  const hasActiveFilters = filterQuality !== 'all' || filterDecade !== 'all' || filterDuration !== 'all';
+
   return (
     <div className="flex flex-col h-full bg-zinc-950/20 overflow-hidden animate-in fade-in duration-500">
-      <header className="p-4 md:p-8 flex flex-col md:flex-row md:items-end justify-between gap-6 shrink-0">
+      <header className="p-4 md:p-8 flex flex-col md:flex-row md:items-end justify-between gap-4 shrink-0">
         <div className="space-y-1">
           <h2 className="text-2xl md:text-4xl font-black text-white tracking-tighter uppercase italic">
             {convert(pageTitle)}
@@ -209,24 +321,6 @@ const LibraryView: React.FC<LibraryViewProps> = ({
           <div className="h-0.5 w-12 bg-yellow-500 rounded-full shadow-[0_0_10px_rgba(234,179,8,0.5)]"></div>
         </div>
 
-        {!activeGroup && !activeAlbum && view !== 'history' && !isSearching && (
-          <div className="flex bg-black/40 p-1.5 rounded-2xl border border-white/5 backdrop-blur-md">
-            {[
-              { id: 'all', label: '全部' },
-              { id: 'fav', label: '收藏' },
-              { id: 'folders', label: '文件夹' }
-            ].map(tab => (
-              <button 
-                key={tab.id}
-                onClick={() => setSubTab(tab.id as any)}
-                className={`px-4 md:px-6 py-2 text-[10px] font-black uppercase tracking-[0.2em] rounded-xl transition-all ${subTab === tab.id ? 'bg-zinc-800 text-yellow-500 shadow-xl border border-white/5' : 'text-zinc-600 hover:text-zinc-400'}`}
-              >
-                {convert(tab.label)}
-              </button>
-            ))}
-          </div>
-        )}
-        
         {(activeGroup || activeAlbum) && (
           <button 
             onClick={() => { setActiveGroup(null); setActiveAlbum(null); }}
@@ -237,6 +331,114 @@ const LibraryView: React.FC<LibraryViewProps> = ({
           </button>
         )}
       </header>
+
+      {/* 排序与筛选工具栏 */}
+      {!activeGroup && !activeAlbum && view !== 'history' && !isSearching && (
+        <div className="px-4 md:px-8 space-y-6 shrink-0 animate-in slide-in-from-top-2 duration-500 mb-6">
+          {/* 第一行：子标签与基础排序 */}
+          <div className="flex flex-col lg:flex-row items-center justify-between gap-4">
+            <div className="flex bg-black/40 p-1 rounded-2xl border border-white/5 backdrop-blur-md w-full lg:w-auto">
+              {[
+                { id: 'all', label: '全部' },
+                { id: 'fav', label: '收藏' },
+                { id: 'folders', label: '文件夹' }
+              ].map(tab => (
+                <button 
+                  key={tab.id}
+                  onClick={() => setSubTab(tab.id as any)}
+                  className={`flex-1 md:flex-none px-4 md:px-6 py-2 text-[10px] font-black uppercase tracking-[0.2em] rounded-xl transition-all ${subTab === tab.id ? 'bg-zinc-800 text-yellow-500 shadow-xl border border-white/5' : 'text-zinc-600 hover:text-zinc-400'}`}
+                >
+                  {convert(tab.label)}
+                </button>
+              ))}
+            </div>
+
+            <div className="flex items-center gap-2 bg-white/5 p-1 rounded-2xl border border-white/5 w-full lg:w-auto overflow-x-auto custom-scrollbar no-scrollbar">
+              <span className="hidden xl:block text-[9px] font-black text-zinc-600 uppercase tracking-widest pl-3 pr-2 opacity-50">Sort</span>
+              {sortOptions.map(opt => (
+                <button
+                  key={opt.key}
+                  onClick={() => {
+                    if (sortKey === opt.key) {
+                      setSortOrder(prev => prev === 'asc' ? 'desc' : 'asc');
+                    } else {
+                      setSortKey(opt.key);
+                      setSortOrder(opt.key === 'lastModified' ? 'desc' : 'asc');
+                    }
+                  }}
+                  className={`px-3 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest whitespace-nowrap transition-all flex items-center gap-1.5 ${sortKey === opt.key ? 'bg-yellow-500 text-black shadow-lg shadow-yellow-500/10' : 'text-zinc-500 hover:text-zinc-300'}`}
+                >
+                  {convert(opt.label)}
+                  {sortKey === opt.key && (
+                    <svg 
+                      width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="4"
+                      className={`transition-transform duration-300 ${sortOrder === 'desc' ? 'rotate-180' : ''}`}
+                    >
+                      <path d="m18 15-6-6-6 6"/>
+                    </svg>
+                  )}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* 第二行：高级过滤 (极简下拉菜单) */}
+          {subTab !== 'folders' && (
+            <div className="flex flex-wrap items-center gap-3">
+              <FilterDropdown 
+                value={filterQuality}
+                options={[
+                  { id: 'all', label: '全部音质' },
+                  { id: 'hires', label: 'Hi-Res (≥2k)' },
+                  { id: 'lossless', label: '无损 (FLAC/WAV)' },
+                  { id: 'hq', label: '高品质 (HQ)' },
+                  { id: 'sd', label: '标准 (SD)' }
+                ]}
+                onChange={setFilterQuality}
+                icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><circle cx="12" cy="12" r="10"/><path d="M12 6v12M6 12h12"/></svg>}
+              />
+
+              <FilterDropdown 
+                value={filterDecade}
+                options={[
+                  { id: 'all', label: '全部年代' },
+                  { id: '2020s', label: '2020s' },
+                  { id: '2010s', label: '2010s' },
+                  { id: '2000s', label: '2000s' },
+                  { id: '90s', label: '1990s' },
+                  { id: '80s', label: '1980s' },
+                  { id: '70s', label: '1970s' },
+                  { id: 'pre70s', label: '早期' }
+                ]}
+                onChange={setFilterDecade}
+                icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>}
+              />
+
+              <FilterDropdown 
+                value={filterDuration}
+                options={[
+                  { id: 'all', label: '全部时长' },
+                  { id: 'short', label: '短曲 <3m' },
+                  { id: 'medium', label: '中等 3-5m' },
+                  { id: 'long', label: '长篇 >5m' }
+                ]}
+                onChange={setFilterDuration}
+                icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>}
+              />
+
+              {hasActiveFilters && (
+                <button
+                  onClick={resetFilters}
+                  className="px-4 py-2.5 rounded-2xl text-[9px] font-black uppercase tracking-widest text-red-500 bg-red-500/10 hover:bg-red-500/20 transition-all border border-red-500/20 flex items-center gap-2"
+                >
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><path d="M18 6 6 18M6 6l12 12"/></svg>
+                  Reset
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+      )}
 
       <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 md:px-8 pb-32 custom-scrollbar">
         {groups && !activeGroup && !activeAlbum ? (
@@ -262,8 +464,10 @@ const LibraryView: React.FC<LibraryViewProps> = ({
         ) : (
           <div className="space-y-1">
             {filteredAndSortedTracks.length === 0 ? (
-              <div className="py-20 text-center text-zinc-700 font-black uppercase tracking-[0.3em] opacity-30">
-                 No tracks found
+              <div className="py-20 text-center flex flex-col items-center gap-4">
+                 <div className="text-zinc-800"><svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3M8 11h6"/></svg></div>
+                 <p className="text-zinc-700 font-black uppercase tracking-[0.3em]">No matching tracks</p>
+                 {hasActiveFilters && <button onClick={resetFilters} className="text-yellow-500 font-bold text-xs uppercase tracking-widest hover:underline">Clear all filters</button>}
               </div>
             ) : (
               <>
