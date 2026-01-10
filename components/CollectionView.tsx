@@ -5,11 +5,12 @@ import { Track } from '../types';
 interface CollectionViewProps {
   tracks: Track[];
   onNavigate: (type: 'artistProfile' | 'albums', name: string) => void;
+  onPlayAlbum?: (albumName: string) => void;
   displayConverter?: (str: string) => string;
   initialTab?: 'artists' | 'albums';
 }
 
-const CollectionView: React.FC<CollectionViewProps> = ({ tracks, onNavigate, displayConverter, initialTab = 'artists' }) => {
+const CollectionView: React.FC<CollectionViewProps> = ({ tracks, onNavigate, onPlayAlbum, displayConverter, initialTab = 'artists' }) => {
   const [tab, setTab] = useState<'artists' | 'albums'>(initialTab);
   const convert = (s: string) => displayConverter ? displayConverter(s) : s;
 
@@ -88,8 +89,8 @@ const CollectionView: React.FC<CollectionViewProps> = ({ tracks, onNavigate, dis
             {albumGroups.map(([name, groupTracks]) => (
               <div 
                 key={name} 
-                onClick={() => onNavigate('albums', name)}
                 className="group cursor-pointer text-center"
+                onClick={() => onNavigate('albums', name)}
               >
                 <div className="relative aspect-square rounded-3xl bg-zinc-900 border border-white/5 transition-all group-hover:scale-105 group-hover:shadow-[0_0_30px_rgba(0,0,0,0.8)] flex items-center justify-center overflow-hidden shadow-2xl mb-3">
                   {groupTracks[0]?.coverUrl ? (
@@ -97,7 +98,16 @@ const CollectionView: React.FC<CollectionViewProps> = ({ tracks, onNavigate, dis
                   ) : (
                     <div className="text-zinc-700 text-4xl font-black">{name[0]}</div>
                   )}
-                  <div className="absolute inset-0 bg-white/0 group-hover:bg-white/5 transition-colors" />
+                  {/* 悬停播放遮罩 */}
+                  <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-all flex items-center justify-center">
+                      <button 
+                        onClick={(e) => { e.stopPropagation(); onPlayAlbum?.(name); }}
+                        className="w-14 h-14 rounded-full bg-yellow-500 text-black flex items-center justify-center shadow-[0_0_20px_rgba(234,179,8,0.4)] hover:scale-110 active:scale-95 transition-transform"
+                      >
+                         <svg width="28" height="28" viewBox="0 0 24 24" fill="currentColor" className="ml-1"><path d="M5 3l14 9-14 9V3z"/></svg>
+                      </button>
+                  </div>
+                  <div className="absolute inset-0 bg-white/0 group-hover:bg-white/5 pointer-events-none transition-colors" />
                 </div>
                 <h3 className="text-white font-bold text-[11px] truncate px-1 group-hover:text-yellow-500 transition-colors uppercase tracking-tight">
                   {convert(name)}

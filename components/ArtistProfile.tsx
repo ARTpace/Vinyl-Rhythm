@@ -10,6 +10,7 @@ interface ArtistProfileProps {
   onBack: () => void;
   onPlayTrack: (track: Track) => void;
   onAddToPlaylist?: (track: Track) => void;
+  onPlayAlbum?: (albumName: string) => void;
   onNavigateToAlbum: (albumName: string) => void;
   favorites: Set<string>;
   onToggleFavorite: (id: string) => void;
@@ -21,6 +22,7 @@ const ArtistProfile: React.FC<ArtistProfileProps> = ({
   onBack,
   onPlayTrack,
   onAddToPlaylist,
+  onPlayAlbum,
   onNavigateToAlbum,
   favorites,
   onToggleFavorite
@@ -186,9 +188,12 @@ const ArtistProfile: React.FC<ArtistProfileProps> = ({
                     <div className="w-full h-full flex items-center justify-center text-zinc-700 text-3xl font-black">{name[0]}</div>
                   )}
                   <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                     <div className="w-12 h-12 rounded-full bg-yellow-500 flex items-center justify-center text-black shadow-xl translate-y-4 group-hover:translate-y-0 transition-transform">
-                        <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M5 3l14 9-14 9V3z"/></svg>
-                     </div>
+                     <button 
+                        onClick={(e) => { e.stopPropagation(); onPlayAlbum?.(name); }}
+                        className="w-12 h-12 rounded-full bg-yellow-500 flex items-center justify-center text-black shadow-xl translate-y-4 group-hover:translate-y-0 transition-all hover:scale-110"
+                      >
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor" className="ml-1"><path d="M5 3l14 9-14 9V3z"/></svg>
+                     </button>
                   </div>
                 </div>
                 <h3 className="mt-4 text-white font-bold text-sm truncate group-hover:text-yellow-500 transition-colors uppercase tracking-tight">{name === 'undefined' ? '未知专辑' : name}</h3>
