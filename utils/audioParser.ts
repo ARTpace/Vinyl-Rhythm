@@ -54,11 +54,13 @@ export const parseFileToTrack = async (file: File): Promise<Track> => {
     const { common, format } = metadata;
     
     let coverUrl: string | undefined = undefined;
+    let coverBlob: Blob | undefined = undefined;
+
     if (common.picture && common.picture.length > 0) {
       try {
         const picture = common.picture[0];
-        const blob = new Blob([picture.data], { type: picture.format });
-        coverUrl = URL.createObjectURL(blob);
+        coverBlob = new Blob([picture.data], { type: picture.format });
+        coverUrl = URL.createObjectURL(coverBlob);
       } catch (e) {
         console.warn("无法生成封面预览", e);
       }
@@ -79,6 +81,7 @@ export const parseFileToTrack = async (file: File): Promise<Track> => {
       album: album,
       url: URL.createObjectURL(file),
       coverUrl,
+      coverBlob, // 保存原始 Blob 以便持久化
       file,
       duration: format.duration,
       bitrate: format.bitrate,

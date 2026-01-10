@@ -6,6 +6,7 @@ export interface Track {
   album: string;
   url: string;
   coverUrl?: string;
+  coverBlob?: Blob; // 新增：用于持久化存储封面二进制数据
   file: File;
   duration?: number;
   bitrate?: number;

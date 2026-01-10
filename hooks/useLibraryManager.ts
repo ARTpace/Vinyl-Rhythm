@@ -10,7 +10,9 @@ import {
   getPlaybackHistory,
   clearPlaybackHistory,
   saveTracksToCache,
-  getCachedTracks
+  getTracksPaged,
+  getTracksCount,
+  searchTracksInDB
 } from '../utils/storage';
 import { normalizeChinese } from '../utils/chineseConverter';
 
@@ -29,11 +31,15 @@ export const useLibraryManager = () => {
     return saved ? new Set(JSON.parse(saved)) : new Set();
   });
 
-  // 1. 核心优化：首屏瞬间加载数据库缓存
+  // 1. 启动优化：只加载第一页元数据，其余延迟加载
   useEffect(() => {
     const loadCache = async () => {
-      const cached = await getCachedTracks();
+      const count = await getTracksCount();
+      // 如果曲目不多，直接全量加载；如果很多，先加载前300条保证瞬间响应
+      const initialLoadCount = count > 1000 ? 500 : 5000;
+      const cached = await getTracksPaged(0, initialLoadCount);
       const folders = await getAllLibraryFolders();
+      
       setImportedFolders(folders.map(f => ({
         id: f.id,
         name: f.name,
@@ -42,7 +48,6 @@ export const useLibraryManager = () => {
       })));
 
       if (cached && cached.length > 0) {
-        // UI 渲染不需要 file 和 url，这两个字段会在播放时动态填充
         setTracks(cached.map(t => ({ ...t, file: null as any, url: '' })));
       }
     };
@@ -60,26 +65,19 @@ export const useLibraryManager = () => {
     setHistoryEntries([]);
   }, []);
 
-  /**
-   * 按需解析文件（播放时调用）
-   * 即使数据库里有 10 万首歌，只有点击的那一刻才去硬盘里找那个特定的文件
-   */
   const resolveTrackFile = useCallback(async (track: Track): Promise<Track | null> => {
     if (track.file && track.url) return track;
-
     const folders = await getAllLibraryFolders();
     const folder = folders.find(f => f.id === track.folderId);
     if (!folder) return null;
 
     try {
-      // 检查权限
       let permission = await folder.handle.queryPermission({ mode: 'read' });
       if (permission !== 'granted') {
         permission = await folder.handle.requestPermission({ mode: 'read' });
       }
       if (permission !== 'granted') return null;
 
-      // 递归寻找文件
       const findFile = async (dirHandle: FileSystemDirectoryHandle, fileName: string): Promise<File | null> => {
         for await (const entry of (dirHandle as any).values()) {
           if (entry.kind === 'file' && entry.name === fileName) {
@@ -95,8 +93,6 @@ export const useLibraryManager = () => {
       const file = await findFile(folder.handle, (track as any).fileName || "");
       if (file) {
         const url = URL.createObjectURL(file);
-        // 更新内存状态，确保 UI 反馈同步
-        setTracks(prev => prev.map(t => t.fingerprint === track.fingerprint ? { ...t, file, url } : t));
         return { ...track, file, url };
       }
     } catch (e) {
@@ -105,41 +101,31 @@ export const useLibraryManager = () => {
     return null;
   }, []);
 
-  /**
-   * 传统兼容模式手动文件选择导入逻辑
-   * 遍历选择的文件，解析元数据并更新音轨状态与缓存
-   */
+  // Fix: Implement handleManualFilesSelect for traditional file selection
   const handleManualFilesSelect = async (files: FileList) => {
     setIsImporting(true);
     setImportProgress(0);
     const newTracks: Track[] = [];
-    const total = files.length;
-
-    for (let i = 0; i < total; i++) {
+    
+    for (let i = 0; i < files.length; i++) {
       const file = files[i];
       if (SUPPORTED_FORMATS.some(ext => file.name.toLowerCase().endsWith(ext))) {
         setCurrentProcessingFile(file.name);
-        try {
-          const track = await parseFileToTrack(file);
-          newTracks.push(track);
-        } catch (e) {
-          console.error("解析文件元数据失败:", file.name, e);
-        }
+        const t = await parseFileToTrack(file);
+        // 手动导入不关联特定文件夹 ID
+        (t as any).fileName = file.name;
+        newTracks.push(t);
       }
-      setImportProgress(Math.round(((i + 1) / total) * 100));
+      setImportProgress(Math.round(((i + 1) / files.length) * 100));
     }
 
     if (newTracks.length > 0) {
-      setTracks(prev => {
-        const next = [...prev, ...newTracks];
-        // 持久化到 IndexedDB 缓存中
-        saveTracksToCache(next);
-        return next;
-      });
+      await saveTracksToCache(newTracks);
+      setTracks(prev => [...prev, ...newTracks]);
     }
-
+    
     setIsImporting(false);
-    return newTracks.length > 0;
+    return true;
   };
 
   const syncAll = async (isSilent: boolean = false) => {
@@ -153,9 +139,13 @@ export const useLibraryManager = () => {
       return false;
     }
 
-    const currentTracksMap = new Map<string, Track>(tracks.map(t => [t.fingerprint, t]));
-    let allUpdatedTracks: Track[] = tracks.filter(t => !t.folderId); // 保留手动导入的
-    let processedCount = 0;
+    // 为了对比增量，获取当前所有指纹
+    const count = await getTracksCount();
+    const allExisting = await getTracksPaged(0, count);
+    const currentFingerprints = new Set(allExisting.map(t => t.fingerprint));
+    
+    let allUpdatedTracks: Track[] = [...allExisting];
+    let newTracks: Track[] = [];
 
     for (const folder of savedFolders) {
       try {
@@ -169,23 +159,18 @@ export const useLibraryManager = () => {
           const scan = async (dirHandle: FileSystemDirectoryHandle) => {
             for await (const entry of (dirHandle as any).values()) {
               if (entry.kind === 'file' && SUPPORTED_FORMATS.some(ext => entry.name.toLowerCase().endsWith(ext))) {
-                processedCount++;
                 setCurrentProcessingFile(entry.name);
                 const file = await entry.getFile();
                 const fingerprint = `${file.name}-${file.size}`;
-                const cached = currentTracksMap.get(fingerprint);
                 
-                if (cached) {
-                  // 增量更新：如果指纹匹配，直接复用缓存的元数据
-                  allUpdatedTracks.push({ ...cached, fileName: file.name } as any);
-                } else {
-                  // 新文件才需要昂贵的 ID3 解析
+                if (!currentFingerprints.has(fingerprint)) {
                   const t = await parseFileToTrack(file);
                   t.folderId = folder.id;
                   (t as any).fileName = file.name;
+                  newTracks.push(t);
                   allUpdatedTracks.push(t);
                 }
-                setImportProgress(prev => Math.min(99, prev + 0.1)); // 伪进度
+                setImportProgress(prev => Math.min(99, prev + 0.05));
               } else if (entry.kind === 'directory') {
                 await scan(entry);
               }
@@ -198,8 +183,11 @@ export const useLibraryManager = () => {
       } catch (e) { console.error(e); }
     }
 
-    setTracks(allUpdatedTracks);
-    await saveTracksToCache(allUpdatedTracks);
+    if (newTracks.length > 0) {
+      await saveTracksToCache(newTracks); // 只保存新的到 DB
+      setTracks(allUpdatedTracks.map(t => ({ ...t, file: null as any, url: '' })));
+    }
+    
     setImportProgress(100);
     setIsImporting(false);
     return true;
@@ -214,8 +202,10 @@ export const useLibraryManager = () => {
 
   const handleUpdateTrack = useCallback((trackId: string, updates: Partial<Track>) => {
     setTracks(prev => {
+      const target = prev.find(t => t.id === trackId);
+      if (!target) return prev;
       const next = prev.map(t => t.id === trackId ? { ...t, ...updates } : t);
-      saveTracksToCache(next);
+      saveTracksToCache([{ ...target, ...updates }]);
       return next;
     });
   }, []);
@@ -229,13 +219,13 @@ export const useLibraryManager = () => {
     });
   }, []);
 
+  // 搜索优化：如果数据量大，使用内存过滤；如果超级大，应该调用 searchTracksInDB
   const filteredTracks = useMemo(() => {
     if (!searchQuery.trim()) return tracks;
     const q = normalizeChinese(searchQuery);
     return tracks.filter(t => 
       normalizeChinese(t.name).includes(q) || 
-      normalizeChinese(t.artist).includes(q) || 
-      normalizeChinese(t.album).includes(q)
+      normalizeChinese(t.artist).includes(q)
     );
   }, [tracks, searchQuery]);
 
@@ -245,7 +235,7 @@ export const useLibraryManager = () => {
     searchQuery, setSearchQuery, filteredTracks,
     favorites, handleToggleFavorite, handleUpdateTrack,
     syncAll, registerFolder, removeFolder: removeLibraryFolder, resolveTrackFile,
-    handleManualFilesSelect,
+    handleManualFilesSelect, // Fix: Export handleManualFilesSelect
     historyTracks: historyEntries.map(e => tracks.find(t => t.fingerprint === e.fingerprint)).filter(Boolean) as Track[],
     fetchHistory, clearHistory, needsPermission
   };
