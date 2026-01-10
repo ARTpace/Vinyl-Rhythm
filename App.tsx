@@ -14,7 +14,6 @@ import { Track, ViewType } from './types';
 import { getTrackStory } from './services/geminiService';
 import { s2t } from './utils/chineseConverter';
 
-// 导入模块化 Hooks
 import { useLibraryManager } from './hooks/useLibraryManager';
 import { useAudioPlayer } from './hooks/useAudioPlayer';
 import { useAudioAnalyzer } from './hooks/useAudioAnalyzer';
@@ -43,44 +42,26 @@ const App: React.FC = () => {
   const [trackStory, setTrackStory] = useState('');
   const [isStoryLoading, setIsStoryLoading] = useState(false);
 
-  // 纯码率分级逻辑
   const qualityInfo = useMemo(() => {
     if (!currentTrack) return null;
     const br = currentTrack.bitrate ? currentTrack.bitrate / 1000 : 0;
-    
     let label = 'SD';
     let color = 'text-zinc-500';
-
-    if (br >= 2000) {
-      label = 'Hi-Res';
-      color = 'text-yellow-400';
-    } else if (br >= 800) {
-      label = 'Lossless';
-      color = 'text-sky-400';
-    } else if (br >= 320) {
-      label = 'HQ';
-      color = 'text-emerald-400';
-    }
-
+    if (br >= 2000) { label = 'Hi-Res'; color = 'text-yellow-400'; }
+    else if (br >= 800) { label = 'Lossless'; color = 'text-sky-400'; }
+    else if (br >= 320) { label = 'HQ'; color = 'text-emerald-400'; }
     return { label, bitrate: br ? `${Math.round(br)} kbps` : 'Variable', color };
   }, [currentTrack]);
 
   useEffect(() => {
     if (currentTrack) {
-      if (!settings.enableAI) {
-        setTrackStory('');
-        setIsStoryLoading(false);
-        return;
-      }
+      if (!settings.enableAI) { setTrackStory(''); setIsStoryLoading(false); return; }
       setIsStoryLoading(true);
       setTrackStory(''); 
       const timer = setTimeout(() => {
         getTrackStory(currentTrack.name, currentTrack.artist).then(story => {
           setTrackStory(processDisplayString(story));
           setIsStoryLoading(false);
-          if (currentTrack.folderId) {
-            library.persistFolderMetadataToDisk(currentTrack.folderId);
-          }
         });
       }, 1500);
       return () => clearTimeout(timer);
@@ -88,13 +69,6 @@ const App: React.FC = () => {
   }, [currentTrack, settings.enableAI, processDisplayString]);
 
   useEffect(() => {
-    if (player.isPlaying) {
-      library.fetchHistory();
-    }
-  }, [player.isPlaying, player.currentTrackIndex]);
-
-  useEffect(() => {
-    // 初始加载：执行静默同步。不显示 UI 进度，仅尝试在后台恢复已存在的本地文件句柄连接。
     library.syncAll(true).then(hasData => {
       if (hasData && player.currentTrackIndex === null && library.tracks.length > 0) {
         player.setCurrentTrackIndex(0);
@@ -104,13 +78,8 @@ const App: React.FC = () => {
   }, []);
 
   const handleNavigate = useCallback((type: string, name: string) => {
-    if (type === 'artistProfile') {
-      setSelectedArtist(name);
-      setView('artistProfile');
-    } else if (type === 'albums') {
-      setNavigationRequest({ type: 'albums', name });
-      setView('all');
-    }
+    if (type === 'artistProfile') { setSelectedArtist(name); setView('artistProfile'); }
+    else if (type === 'albums') { setNavigationRequest({ type: 'albums', name }); setView('all'); }
     library.setSearchQuery('');
   }, [library.setSearchQuery]);
 
@@ -143,24 +112,15 @@ const App: React.FC = () => {
         isOpen={isImportWindowOpen} 
         onClose={() => setIsImportWindowOpen(false)} 
         onImport={async () => {
-           try {
-             const handle = await window.showDirectoryPicker();
-             await library.registerFolder(handle);
-           } catch (e) {}
+           try { const handle = await window.showDirectoryPicker(); await library.registerFolder(handle); } catch (e) {}
         }} 
         onManualFilesSelect={async (files) => {
           const ok = await library.handleManualFilesSelect(files);
-          if (ok) {
-            if (player.currentTrackIndex === null) player.setCurrentTrackIndex(0);
-            setView('player');
-            setIsImportWindowOpen(false);
-          }
+          if (ok) { if (player.currentTrackIndex === null) player.setCurrentTrackIndex(0); setView('player'); setIsImportWindowOpen(false); }
         }}
         onRemoveFolder={library.removeFolder} 
         importedFolders={library.importedFolders} 
         isImporting={library.isImporting}
-        importProgress={library.importProgress}
-        currentProcessingFile={library.currentProcessingFile}
       />
       
       <div className="hidden md:flex flex-col h-full z-50">
@@ -168,6 +128,15 @@ const App: React.FC = () => {
       </div>
 
       <main className="flex-1 flex flex-col relative pb-32 md:pb-28 bg-gradient-to-br from-[#1c1c1c] via-[#121212] to-[#0a0a0a]">
+        {/* 权限恢复提示条 */}
+        {library.needsPermission && !library.isImporting && (
+          <div className="absolute top-0 left-0 right-0 z-[100] bg-yellow-500 text-black px-4 py-2 flex items-center justify-center gap-3 animate-in slide-in-from-top duration-500">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><path d="m21 21-4.3-4.3M11 8l3 3-3 3M8 11h6"/></svg>
+            <span className="text-[10px] font-black uppercase tracking-widest">浏览器已重置文件夹访问权限，请点击同步按钮以恢复播放。</span>
+            <button onClick={() => library.syncAll()} className="bg-black text-white px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-tighter hover:scale-105 transition-transform">立即恢复</button>
+          </div>
+        )}
+
         {settings.showBlurBackground && currentTrack && view === 'player' && (
           <div className="absolute inset-0 pointer-events-none transition-all duration-1000 overflow-hidden">
              {currentTrack.coverUrl ? <img src={currentTrack.coverUrl} className="w-full h-full object-cover scale-150 blur-[120px] opacity-[0.15]" /> : <div className="w-full h-full bg-gradient-to-br from-yellow-500/5 to-transparent blur-[120px]" />}
@@ -177,36 +146,24 @@ const App: React.FC = () => {
         <header className="p-4 md:p-6 flex justify-between items-center z-50 relative gap-3">
           <div className="flex items-center gap-4 md:gap-6 flex-1 min-w-0">
              <div className="relative group max-w-md w-full">
-                <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-zinc-500 transition-colors"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg></div>
+                <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-zinc-500"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg></div>
                 <input type="text" placeholder={processDisplayString("搜索...")} value={library.searchQuery} onChange={(e) => { library.setSearchQuery(e.target.value); if(view === 'player' && e.target.value) setView('all'); }} className="w-full bg-white/5 border border-white/10 rounded-full py-2.5 px-11 text-sm text-white focus:border-yellow-500/50 outline-none backdrop-blur-md transition-all" />
              </div>
           </div>
           <div className="flex items-center gap-3">
-            {/* 仅在非静默导入时显示扫描进度 */}
             {library.isImporting && library.currentProcessingFile && (
-              <div className="hidden md:flex items-center gap-3 px-4 py-2 bg-black/40 border border-white/5 rounded-2xl backdrop-blur-md animate-in fade-in slide-in-from-right-4">
+              <div className="hidden md:flex items-center gap-3 px-4 py-2 bg-black/40 border border-white/5 rounded-2xl backdrop-blur-md animate-in fade-in">
                 <div className="flex flex-col items-end min-w-0 max-w-[120px]">
                   <span className="text-white text-[10px] font-black italic">{library.importProgress}%</span>
                   <span className="text-zinc-500 text-[8px] font-bold uppercase tracking-tighter truncate w-full text-right">{library.currentProcessingFile}</span>
                 </div>
                 <div className="w-16 h-1 bg-white/5 rounded-full overflow-hidden">
-                  <div 
-                    className="h-full bg-yellow-500 shadow-[0_0_8px_rgba(234,179,8,0.5)] transition-all duration-300"
-                    style={{ width: `${library.importProgress}%` }}
-                  />
+                  <div className="h-full bg-yellow-500 shadow-[0_0_8px_rgba(234,179,8,0.5)] transition-all duration-300" style={{ width: `${library.importProgress}%` }} />
                 </div>
               </div>
             )}
-
-            <button 
-              onClick={() => library.syncAll()} 
-              disabled={library.isImporting} 
-              title="手动同步所有文件夹内容"
-              className="w-10 h-10 flex items-center justify-center bg-white/5 hover:bg-white/10 text-white border border-white/10 rounded-full transition-all active:scale-90 group"
-            >
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" className={`${library.isImporting ? 'animate-spin' : 'group-hover:rotate-180 transition-transform duration-500'}`}>
-                <path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.85.83 6.72 2.24L21 8"/><path d="M21 3v5h-5"/>
-              </svg>
+            <button onClick={() => library.syncAll()} disabled={library.isImporting} title="同步音乐库" className="w-10 h-10 flex items-center justify-center bg-white/5 hover:bg-white/10 text-white border border-white/10 rounded-full transition-all group">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" className={`${library.isImporting ? 'animate-spin' : 'group-hover:rotate-180 transition-transform duration-500'}`}><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.85.83 6.72 2.24L21 8"/><path d="M21 3v5h-5"/></svg>
             </button>
             <button onClick={() => setIsImportWindowOpen(true)} className="bg-yellow-500 text-black px-6 py-2.5 rounded-full font-black text-xs uppercase tracking-widest active:scale-95 transition-all">{processDisplayString("管理库")}</button>
           </div>
@@ -216,15 +173,12 @@ const App: React.FC = () => {
             <div key={view + (selectedArtist || '')} className="absolute inset-0 flex flex-col animate-in fade-in duration-700">
                 {view === 'player' ? (
                   <div className="flex-1 flex flex-col items-center justify-center gap-2 p-6 md:p-8 overflow-hidden relative">
-                    
-                    {/* 信息展示区 */}
                     <div className="text-center relative z-40 px-6 w-full max-w-4xl flex flex-col items-center mb-4">
                       <div className="w-full px-4 pb-4 md:pb-6">
                         <h2 className="text-2xl md:text-3xl lg:text-5xl font-black tracking-tight w-full truncate select-none leading-snug pb-2 bg-gradient-to-b from-white via-zinc-200 to-zinc-400 bg-clip-text text-transparent drop-shadow-[0_4px_12px_rgba(0,0,0,0.4)]">
                           {processDisplayString(currentTrack?.name || "黑胶时光")}
                         </h2>
                       </div>
-
                       <div className="flex items-center gap-2 mb-2 w-full justify-center truncate px-10">
                         <button onClick={() => handleNavigate('artistProfile', currentTrack?.artist || '')} className="text-zinc-400 font-bold uppercase tracking-[0.15em] text-[11px] md:text-xs hover:text-yellow-500 transition-colors flex-shrink-0">
                           {processDisplayString(currentTrack?.artist || "享受纯净音质")}
@@ -240,35 +194,27 @@ const App: React.FC = () => {
                       </div>
                     </div>
 
-                    {/* 黑胶区域 */}
                     <div className="relative mt-4">
                       <SwipeableTrack onNext={player.nextTrack} onPrev={player.prevTrack} currentId={currentTrack?.id || 'empty'}>
                         <VinylRecord isPlaying={player.isPlaying} coverUrl={currentTrack?.coverUrl} intensity={audioIntensity} themeColor={rhythmColor} spinSpeed={settings.spinSpeed} showParticles={settings.showParticles} />
                       </SwipeableTrack>
-                      
                       <div className="absolute inset-0 pointer-events-none flex items-center justify-center z-30">
-                          <div className="relative w-[60vw] h-[60vw] max-w-[16rem] max-h-[16rem] sm:w-[70vw] sm:h-[70vw] sm:max-w-[18rem] sm:max-h-[18rem] md:w-96 md:h-96 flex-shrink-0">
+                          <div className="relative w-[60vw] h-[60vw] max-w-[16rem] max-h-[16rem] sm:w-[70vw] sm:h-[70vw] md:w-96 md:h-96 flex-shrink-0">
                               <ToneArm trackId={currentTrack?.id} isPlaying={player.isPlaying} progress={player.duration > 0 ? player.progress / player.duration : 0} onClick={player.togglePlay} />
                           </div>
                       </div>
                     </div>
 
-                    {/* 简约音质显示 */}
                     {settings.showQualityTag && qualityInfo && (
                       <div className="mt-8 flex items-center gap-3 animate-in fade-in zoom-in duration-1000">
                         <div className="flex items-center gap-2 px-4 py-1 rounded-full bg-white/5 border border-white/5 backdrop-blur-sm">
                            <span className={`w-1.5 h-1.5 rounded-full ${qualityInfo.color} ${player.isPlaying ? 'animate-pulse' : 'opacity-50'}`} style={{ boxShadow: player.isPlaying ? `0 0 8px currentColor` : 'none' }}></span>
-                           <span className={`text-[10px] font-black uppercase tracking-[0.15em] ${qualityInfo.color}`}>
-                              {qualityInfo.label}
-                           </span>
-                           <span className="text-[10px] text-zinc-600 font-mono tracking-tighter">
-                              {qualityInfo.bitrate}
-                           </span>
+                           <span className={`text-[10px] font-black uppercase tracking-[0.15em] ${qualityInfo.color}`}>{qualityInfo.label}</span>
+                           <span className="text-[10px] text-zinc-600 font-mono tracking-tighter">{qualityInfo.bitrate}</span>
                         </div>
                       </div>
                     )}
 
-                    {/* AI 解读区 */}
                     {settings.enableAI && (
                       <div className={`mt-6 max-w-2xl text-center px-4 italic text-zinc-500 text-sm md:text-base transition-opacity duration-1000 leading-relaxed ${isStoryLoading ? 'opacity-20' : 'opacity-100'}`}>
                         {trackStory || (currentTrack ? processDisplayString("正在为您解读...") : processDisplayString("开启一段黑胶之旅。"))}

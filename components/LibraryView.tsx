@@ -292,9 +292,12 @@ const LibraryView: React.FC<LibraryViewProps> = ({
     }
     
     list.sort((a, b) => {
-      let valA: any = (a as any)[sortKey] || '';
-      let valB: any = (b as any)[sortKey] || '';
-      if (typeof valA === 'string') { valA = valA.toLowerCase(); valB = valB.toLowerCase(); }
+      let valA: any = (a as any)[sortKey] ?? '';
+      let valB: any = (b as any)[sortKey] ?? '';
+      if (typeof valA === 'string' && typeof valB === 'string') {
+        valA = valA.toLowerCase();
+        valB = valB.toLowerCase();
+      }
       if (valA < valB) return sortOrder === 'asc' ? -1 : 1;
       if (valA > valB) return sortOrder === 'asc' ? 1 : -1;
       return 0;
