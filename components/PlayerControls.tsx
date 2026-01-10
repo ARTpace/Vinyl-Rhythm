@@ -190,29 +190,43 @@ const PlayerControls: React.FC<PlayerControlsProps> = ({
       
       <div className={`fixed right-0 md:right-6 bottom-16 md:bottom-28 w-full md:w-[460px] bg-[#161616] md:border border-[#333] rounded-t-3xl md:rounded-3xl shadow-[0_-10px_40px_rgba(0,0,0,0.9)] z-[90] transform transition-all duration-300 flex flex-col ${showQueue ? 'translate-y-0 opacity-100' : 'translate-y-full opacity-0 pointer-events-none'}`} style={{ maxHeight: '70vh' }}>
         
-        <div className="p-2 border-b border-[#2a2a2a] bg-gradient-to-b from-[#222] to-[#161616] rounded-t-3xl">
+        <div className="p-3 border-b border-[#2a2a2a] bg-gradient-to-b from-[#222] to-[#161616] rounded-t-3xl shrink-0">
           <div className="flex items-center justify-between">
-            <div className="flex bg-black/40 p-1 rounded-2xl flex-1 mr-2">
+            <div className="flex bg-black/40 p-1.5 rounded-2xl flex-1 mr-3 relative">
                <button 
                   onClick={() => setQueueTab('queue')}
-                  className={`flex-1 py-2 text-[10px] font-black uppercase tracking-[0.2em] rounded-xl transition-all ${queueTab === 'queue' ? 'bg-zinc-800 text-yellow-500 shadow-lg' : 'text-zinc-600 hover:text-zinc-400'}`}
+                  className={`flex-1 py-2 text-[10px] font-black uppercase tracking-[0.2em] rounded-xl transition-all ${queueTab === 'queue' ? 'bg-zinc-800 text-yellow-500 shadow-lg border border-white/5' : 'text-zinc-600 hover:text-zinc-400'}`}
                >
                   {convert('当前队列')}
                </button>
                <button 
                   onClick={() => setQueueTab('history')}
-                  className={`flex-1 py-2 text-[10px] font-black uppercase tracking-[0.2em] rounded-xl transition-all ${queueTab === 'history' ? 'bg-zinc-800 text-yellow-500 shadow-lg' : 'text-zinc-600 hover:text-zinc-400'}`}
+                  className={`flex-1 py-2 text-[10px] font-black uppercase tracking-[0.2em] rounded-xl transition-all ${queueTab === 'history' ? 'bg-zinc-800 text-yellow-500 shadow-lg border border-white/5' : 'text-zinc-600 hover:text-zinc-400'}`}
                >
                   {convert('播放历史')}
                </button>
             </div>
+            
+            {/* 优化后的清除图标按钮 */}
             {queueTab === 'queue' && onClearQueue && (
               <button 
                 onClick={handleClearQueueClick}
                 disabled={tracks.length === 0}
-                className={`px-3 py-2 text-[10px] font-black uppercase tracking-[0.2em] rounded-xl transition-all ${tracks.length === 0 ? 'opacity-20 pointer-events-none' : 'bg-red-600/20 text-red-500 hover:bg-red-600/40'}`}
+                title={convert('清空播放队列')}
+                className={`w-10 h-10 flex items-center justify-center rounded-full transition-all shrink-0 ${tracks.length === 0 ? 'opacity-10 cursor-not-allowed text-zinc-600' : 'bg-white/5 text-zinc-400 hover:bg-red-500/20 hover:text-red-500 border border-white/5'}`}
               >
-                {convert('清空队列')}
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M10 11v6M14 11v6"/></svg>
+              </button>
+            )}
+
+            {queueTab === 'history' && onClearHistory && (
+              <button 
+                onClick={onClearHistory}
+                disabled={historyTracks.length === 0}
+                title={convert('清空历史记录')}
+                className={`w-10 h-10 flex items-center justify-center rounded-full transition-all shrink-0 ${historyTracks.length === 0 ? 'opacity-10 cursor-not-allowed text-zinc-600' : 'bg-white/5 text-zinc-400 hover:bg-red-500/20 hover:text-red-500 border border-white/5'}`}
+              >
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M10 11v6M14 11v6"/></svg>
               </button>
             )}
           </div>
@@ -260,7 +274,7 @@ const PlayerControls: React.FC<PlayerControlsProps> = ({
                                 <svg width="14" height="14" viewBox="0 0 24 24" fill={isFav ? "currentColor" : "none"} stroke="currentColor" strokeWidth="3"><path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"/></svg>
                             </button>
 
-                            {/* 新增：移除按钮 */}
+                            {/* 移除按钮 */}
                             <button 
                                 onClick={(e) => { e.stopPropagation(); onRemoveTrack(track.id); }}
                                 className="p-2 rounded-full transition-all active:scale-75 text-zinc-800 hover:text-red-400 opacity-0 group-hover:opacity-100"
@@ -284,12 +298,6 @@ const PlayerControls: React.FC<PlayerControlsProps> = ({
             <>
               {historyTracks.length > 0 ? (
                 <>
-                  <div className="flex justify-end p-2 mb-2">
-                    <button onClick={onClearHistory} className="text-[9px] font-black uppercase tracking-widest text-zinc-600 hover:text-red-500 transition-colors flex items-center gap-1.5 px-3 py-1.5 rounded-full hover:bg-red-500/10 border border-transparent hover:border-red-500/20">
-                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M10 11v6M14 11v6"/></svg>
-                      {convert('清空历史')}
-                    </button>
-                  </div>
                   {historyTracks.map((track) => {
                     const isFav = favorites.has(track.id);
                     return (
