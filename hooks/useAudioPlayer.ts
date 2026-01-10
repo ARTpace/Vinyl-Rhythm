@@ -17,6 +17,16 @@ export const useAudioPlayer = (tracks: Track[], resolveTrackFile: (t: Track) => 
   
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const lastRecordedTrack = useRef<string | null>(null);
+  const currentFingerprintRef = useRef<string | null>(null);
+
+  // 同步当前播放曲目的唯一标识，用于在列表变动时追踪位置
+  useEffect(() => {
+    if (currentTrackIndex !== null && tracks[currentTrackIndex]) {
+      currentFingerprintRef.current = tracks[currentTrackIndex].fingerprint;
+    } else {
+      currentFingerprintRef.current = null;
+    }
+  }, [currentTrackIndex, tracks]);
 
   const setVolume = useCallback((val: number) => {
     setVolumeState(val);
@@ -135,7 +145,7 @@ export const useAudioPlayer = (tracks: Track[], resolveTrackFile: (t: Track) => 
     }
   }, []);
 
-  // 监听列表变化：仅在列表变为空或索引越界时处理
+  // 核心变更：监听列表变化并处理增删导致的索引偏移，确保不中断当前播放
   useEffect(() => {
     if (tracks.length === 0) {
       if (audioRef.current) {
@@ -147,10 +157,30 @@ export const useAudioPlayer = (tracks: Track[], resolveTrackFile: (t: Track) => 
       setProgress(0);
       setDuration(0);
       lastRecordedTrack.current = null;
+      return;
+    }
+
+    // 尝试在新的列表中寻找原来正在播放的歌曲
+    if (currentFingerprintRef.current) {
+      const newIndex = tracks.findIndex(t => t.fingerprint === currentFingerprintRef.current);
+      if (newIndex !== -1) {
+        if (newIndex !== currentTrackIndex) {
+          // 歌曲位置发生了变化（例如前面的歌被删了，或列表发生了重排）
+          // 静默更新索引，由于 fingerprint 没变，不会触发下方的 playWithFade 重载逻辑
+          setCurrentTrackIndex(newIndex);
+        }
+      } else {
+        // 当前播放的歌本身被从队列中删除了
+        if (currentTrackIndex !== null) {
+          const nextIdx = Math.min(currentTrackIndex, tracks.length - 1);
+          setCurrentTrackIndex(nextIdx);
+          // 此时 index 指向了新歌曲，fingerprint 变化会触发下方的播放逻辑
+        }
+      }
     } else if (currentTrackIndex !== null && currentTrackIndex >= tracks.length) {
       setCurrentTrackIndex(tracks.length - 1);
     }
-  }, [tracks.length]);
+  }, [tracks]);
 
   useEffect(() => {
     const audio = audioRef.current;
@@ -168,8 +198,8 @@ export const useAudioPlayer = (tracks: Track[], resolveTrackFile: (t: Track) => 
     };
   }, [isSeeking, playbackMode, nextTrack]);
 
-  // 核心优化 2：精准监听当前播放歌曲的变更。
-  // 不再监听 tracks.length，这样往队列末尾添加歌曲时，只要当前歌曲的索引和内容没变，就不会触发副作用。
+  // 精准监听当前播放歌曲的唯一标识变更。
+  // 只有当标识（fingerprint）真正改变时，才触发重新加载和播放。
   const currentTrackFingerprint = currentTrackIndex !== null ? tracks[currentTrackIndex]?.fingerprint : null;
 
   useEffect(() => {
