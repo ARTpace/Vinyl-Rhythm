@@ -147,6 +147,7 @@ const App: React.FC = () => {
         onImport={async () => {
            try { const handle = await window.showDirectoryPicker(); await library.registerFolder(handle); library.syncAll(); } catch (e) {}
         }} 
+        onReconnectFolder={library.reconnectFolder}
         onManualFilesSelect={async (files) => {
           const ok = await library.handleManualFilesSelect(files);
           if (ok) { setView('all'); setIsImportWindowOpen(false); }
@@ -162,10 +163,10 @@ const App: React.FC = () => {
 
       <main className="flex-1 flex flex-col relative pb-32 md:pb-28 bg-gradient-to-br from-[#1c1c1c] via-[#121212] to-[#0a0a0a]">
         {library.needsPermission && !library.isImporting && (
-          <div className="absolute top-0 left-0 right-0 z-[100] bg-yellow-500 text-black px-4 py-2 flex items-center justify-center gap-3 animate-in slide-in-from-top duration-500">
+          <div className="absolute top-0 left-0 right-0 z-[100] bg-yellow-500 text-black px-4 py-2 flex items-center justify-center gap-3 animate-in slide-in-from-top duration-500 shadow-xl">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><path d="m21 21-4.3-4.3M11 8l3 3-3 3M8 11h6"/></svg>
-            <span className="text-[10px] font-black uppercase tracking-widest">浏览器已重置文件夹访问权限，请点击同步按钮以恢复播放。</span>
-            <button onClick={() => library.syncAll()} className="bg-black text-white px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-tighter hover:scale-105 transition-transform">立即恢复</button>
+            <span className="text-[10px] font-black uppercase tracking-widest">检测到还原记录或浏览器已重置权限，请在“管理库”中重新关联路径。</span>
+            <button onClick={() => setIsImportWindowOpen(true)} className="bg-black text-white px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-tighter hover:scale-105 transition-transform">前往管理</button>
           </div>
         )}
 
@@ -194,7 +195,7 @@ const App: React.FC = () => {
                 </div>
               </div>
             )}
-            <button onClick={() => library.syncAll()} disabled={library.isImporting} title="同步音乐库" className="w-10 h-10 flex items-center justify-center bg-white/5 hover:bg-white/10 text-white border border-white/10 rounded-full transition-all group">
+            <button onClick={() => library.syncAll()} disabled={library.isImporting} title="同步并修复音乐库" className="w-10 h-10 flex items-center justify-center bg-white/5 hover:bg-white/10 text-white border border-white/10 rounded-full transition-all group">
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" className={`${library.isImporting ? 'animate-spin' : 'group-hover:rotate-180 transition-transform duration-500'}`}><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.85.83 6.72 2.24L21 8"/><path d="M21 3v5h-5"/></svg>
             </button>
             <button onClick={() => setIsImportWindowOpen(true)} className="bg-yellow-500 text-black px-6 py-2.5 rounded-full font-black text-xs uppercase tracking-widest active:scale-95 transition-all">{processDisplayString("管理库")}</button>
@@ -263,7 +264,7 @@ const App: React.FC = () => {
                   <LibraryView 
                     view={view} 
                     tracks={library.filteredTracks} 
-                    folders={library.importedFolders} // 新增传参
+                    folders={library.importedFolders}
                     onPlay={handlePlayFromLibrary} 
                     onAddToPlaylist={addToPlaylist}
                     favorites={library.favorites} 
