@@ -40,8 +40,16 @@ const App: React.FC = () => {
     addToPlaylist, 
     removeFromPlaylist, 
     clearPlaylist, 
-    reorderPlaylist 
+    reorderPlaylist,
+    hydratePlaylist
   } = usePlaylist();
+
+  // 核心修复逻辑：当主曲库从数据库加载出含有有效 Blob URL 的曲目后，同步给播放列表
+  useEffect(() => {
+    if (library.tracks.length > 0) {
+      hydratePlaylist(library.tracks);
+    }
+  }, [library.tracks, hydratePlaylist]);
 
   // 核心变更：播放器现在仅对播放列表(playlist)负责
   const player = useAudioPlayer(playlist, library.resolveTrackFile);
