@@ -231,6 +231,20 @@ export const useLibraryManager = () => {
     return id;
   };
 
+  /**
+   * 核心修复：移除文件夹并同步更新 UI 状态
+   */
+  const handleRemoveFolder = useCallback(async (id: string) => {
+    // 1. 删除数据库记录（文件夹和关联曲目缓存）
+    await removeLibraryFolder(id);
+    
+    // 2. 更新文件夹列表状态
+    setImportedFolders(prev => prev.filter(f => f.id !== id));
+    
+    // 3. 从当前曲库状态中移除属于该文件夹的歌曲
+    setTracks(prev => prev.filter(t => t.folderId !== id));
+  }, []);
+
   const handleUpdateTrack = useCallback((trackId: string, updates: Partial<Track>) => {
     setTracks(prev => {
       const next = prev.map(t => t.id === trackId ? { ...t, ...updates } : t);
@@ -287,7 +301,7 @@ export const useLibraryManager = () => {
     isImporting, importProgress, currentProcessingFile,
     searchQuery, setSearchQuery, filteredTracks,
     favorites, handleToggleFavorite, handleUpdateTrack, reorderTracks,
-    syncAll, registerFolder, removeFolder: removeLibraryFolder, resolveTrackFile,
+    syncAll, registerFolder, removeFolder: handleRemoveFolder, resolveTrackFile,
     handleManualFilesSelect,
     historyTracks: historyEntries.map(e => tracks.find(t => t.fingerprint === e.fingerprint)).filter(Boolean) as Track[],
     fetchHistory, clearHistory, needsPermission
