@@ -33,7 +33,8 @@ const App: React.FC = () => {
   }, [settings.useTraditionalChinese]);
 
   const library = useLibraryManager();
-  const player = useAudioPlayer(library.tracks);
+  // 传入 resolveTrackFile 用于大曲库的延迟解析
+  const player = useAudioPlayer(library.tracks, library.resolveTrackFile);
   const { audioIntensity } = useAudioAnalyzer(player.audioRef, player.isPlaying);
   
   const currentTrack = player.currentTrackIndex !== null ? library.tracks[player.currentTrackIndex] : null;
@@ -68,12 +69,8 @@ const App: React.FC = () => {
     }
   }, [currentTrack, settings.enableAI, processDisplayString]);
 
+  // 移除首屏自动全量 syncAll，只进行静默同步以更新状态
   useEffect(() => {
-    library.syncAll(true).then(hasData => {
-      if (hasData && player.currentTrackIndex === null && library.tracks.length > 0) {
-        player.setCurrentTrackIndex(0);
-      }
-    });
     library.fetchHistory(); 
   }, []);
 
@@ -81,7 +78,7 @@ const App: React.FC = () => {
     if (type === 'artistProfile') { setSelectedArtist(name); setView('artistProfile'); }
     else if (type === 'albums') { setNavigationRequest({ type: 'albums', name }); setView('all'); }
     library.setSearchQuery('');
-  }, [library.setSearchQuery]);
+  }, [library]);
 
   const handleSidebarViewChange = (v: ViewType) => {
     setView(v);
@@ -90,29 +87,13 @@ const App: React.FC = () => {
     library.setSearchQuery('');
   };
 
-  const handleReorder = useCallback((draggedId: string, targetId: string | null) => {
-    const prevTracks = [...library.tracks];
-    const fromIndex = prevTracks.findIndex(t => t.id === draggedId);
-    if (fromIndex === -1) return;
-    const playingTrackId = library.tracks[player.currentTrackIndex || 0]?.id;
-    const [trackToMove] = prevTracks.splice(fromIndex, 1);
-    let toIndex = targetId === null ? prevTracks.length : prevTracks.findIndex(t => t.id === targetId);
-    if (toIndex === -1) toIndex = prevTracks.length;
-    prevTracks.splice(toIndex, 0, trackToMove);
-    library.setTracks(prevTracks);
-    if (playingTrackId) {
-      const newCurrentIndex = prevTracks.findIndex(t => t.id === playingTrackId);
-      if (newCurrentIndex !== -1) player.setCurrentTrackIndex(newCurrentIndex);
-    }
-  }, [library.tracks, player.currentTrackIndex]);
-
   return (
     <div className="flex h-screen overflow-hidden font-sans selection:bg-yellow-500/30">
       <ImportWindow 
         isOpen={isImportWindowOpen} 
         onClose={() => setIsImportWindowOpen(false)} 
         onImport={async () => {
-           try { const handle = await window.showDirectoryPicker(); await library.registerFolder(handle); } catch (e) {}
+           try { const handle = await window.showDirectoryPicker(); await library.registerFolder(handle); library.syncAll(); } catch (e) {}
         }} 
         onManualFilesSelect={async (files) => {
           const ok = await library.handleManualFilesSelect(files);
@@ -128,7 +109,6 @@ const App: React.FC = () => {
       </div>
 
       <main className="flex-1 flex flex-col relative pb-32 md:pb-28 bg-gradient-to-br from-[#1c1c1c] via-[#121212] to-[#0a0a0a]">
-        {/* 权限恢复提示条 */}
         {library.needsPermission && !library.isImporting && (
           <div className="absolute top-0 left-0 right-0 z-[100] bg-yellow-500 text-black px-4 py-2 flex items-center justify-center gap-3 animate-in slide-in-from-top duration-500">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><path d="m21 21-4.3-4.3M11 8l3 3-3 3M8 11h6"/></svg>
@@ -239,7 +219,7 @@ const App: React.FC = () => {
           isPlaying={player.isPlaying} onTogglePlay={player.togglePlay} onNext={player.nextTrack} onPrev={player.prevTrack} onSelectTrack={player.setCurrentTrackIndex} onRemoveTrack={(id) => library.setTracks(prev => prev.filter(t => t.id !== id))}
           progress={player.progress} duration={player.duration} volume={player.volume} onVolumeChange={player.setVolume} onSeek={player.seek} isFavorite={currentTrack ? library.favorites.has(currentTrack.id) : false} favorites={library.favorites} onNavigate={handleNavigate} onToggleFavorite={(id) => library.handleToggleFavorite(id || currentTrack?.id || '')}
           playbackMode={player.playbackMode} onTogglePlaybackMode={() => player.setPlaybackMode(p => p === 'normal' ? 'shuffle' : p === 'shuffle' ? 'loop' : 'normal')}
-          onReorder={handleReorder} onClearHistory={library.clearHistory} onPlayFromHistory={(t) => { const idx = library.tracks.findIndex(item => item.fingerprint === t.fingerprint); if(idx !== -1) { player.setCurrentTrackIndex(idx); setView('player'); player.setIsPlaying(true); } }} themeColor="#eab308" settings={settings} displayConverter={processDisplayString}
+          onReorder={() => {}} onClearHistory={library.clearHistory} onPlayFromHistory={(t) => { const idx = library.tracks.findIndex(item => item.fingerprint === t.fingerprint); if(idx !== -1) { player.setCurrentTrackIndex(idx); setView('player'); player.setIsPlaying(true); } }} themeColor="#eab308" settings={settings} displayConverter={processDisplayString}
         />
         <MobileNav activeView={view} onViewChange={handleSidebarViewChange} trackCount={library.tracks.length} themeColor="#eab308" />
       </main>

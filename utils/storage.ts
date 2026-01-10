@@ -1,12 +1,10 @@
 
 const DB_NAME = 'VinylRhythmDB';
-const DB_VERSION = 5; // 升级版本号以包含新的 tracksCache
+const DB_VERSION = 6;
 const STORE_NAME = 'libraryHandles';
 const STORIES_STORE = 'trackStories';
 const HISTORY_STORE = 'playbackHistory';
-const TRACKS_CACHE_STORE = 'tracksCache'; // 新增曲目缓存
-
-const METADATA_FILENAME = '.vinyl_rhythm.json';
+const TRACKS_CACHE_STORE = 'tracksCache';
 
 const initDB = async (): Promise<IDBDatabase> => {
   if (navigator.storage && navigator.storage.persist) {
@@ -17,18 +15,25 @@ const initDB = async (): Promise<IDBDatabase> => {
     const request = indexedDB.open(DB_NAME, DB_VERSION);
     request.onupgradeneeded = (event) => {
       const db = (event.target as IDBOpenDBRequest).result;
+      // 存储文件夹访问句柄
       if (!db.objectStoreNames.contains(STORE_NAME)) {
         db.createObjectStore(STORE_NAME, { keyPath: 'id' });
       }
+      // 存储 AI 生成的歌曲故事
       if (!db.objectStoreNames.contains(STORIES_STORE)) {
         const store = db.createObjectStore(STORIES_STORE, { keyPath: 'key' });
         store.createIndex('artist', 'artist', { unique: false });
       }
+      // 存储播放历史
       if (!db.objectStoreNames.contains(HISTORY_STORE)) {
         db.createObjectStore(HISTORY_STORE, { keyPath: 'fingerprint' });
       }
+      // 核心：存储大规模曲目元数据
       if (!db.objectStoreNames.contains(TRACKS_CACHE_STORE)) {
-        db.createObjectStore(TRACKS_CACHE_STORE, { keyPath: 'fingerprint' });
+        const store = db.createObjectStore(TRACKS_CACHE_STORE, { keyPath: 'fingerprint' });
+        store.createIndex('artist', 'artist', { unique: false });
+        store.createIndex('album', 'album', { unique: false });
+        store.createIndex('folderId', 'folderId', { unique: false });
       }
     };
     request.onsuccess = () => resolve(request.result);
@@ -37,21 +42,22 @@ const initDB = async (): Promise<IDBDatabase> => {
 };
 
 /**
- * 缓存所有曲目元数据
+ * 批量持久化曲目元数据
  */
 export const saveTracksToCache = async (tracks: any[]) => {
   const db = await initDB();
   const tx = db.transaction(TRACKS_CACHE_STORE, 'readwrite');
   const store = tx.objectStore(TRACKS_CACHE_STORE);
-  // 简单清理并保存
   for (const track of tracks) {
+    // 过滤掉不可序列化的 File 和 Blob URL 对象
     const { file, url, ...serializableTrack } = track;
     store.put(serializableTrack);
   }
+  return new Promise((resolve) => tx.oncomplete = resolve);
 };
 
 /**
- * 获取缓存的曲目元数据
+ * 从数据库获取所有缓存的曲目
  */
 export const getCachedTracks = async (): Promise<any[]> => {
   const db = await initDB();
@@ -63,34 +69,25 @@ export const getCachedTracks = async (): Promise<any[]> => {
   });
 };
 
-/**
- * 记录播放历史
- */
+export const clearTracksCache = async () => {
+  const db = await initDB();
+  const tx = db.transaction(TRACKS_CACHE_STORE, 'readwrite');
+  tx.objectStore(TRACKS_CACHE_STORE).clear();
+};
+
+// ... 其他现有的历史记录和故事存储逻辑保持并优化 ...
 export const addToHistory = async (track: any) => {
   const db = await initDB();
   const tx = db.transaction(HISTORY_STORE, 'readwrite');
   const store = tx.objectStore(HISTORY_STORE);
-  
-  const entry = {
+  await store.put({
     fingerprint: track.fingerprint,
     name: track.name,
     artist: track.artist,
     album: track.album,
     coverUrl: track.coverUrl,
     timestamp: Date.now()
-  };
-  
-  await store.put(entry);
-
-  const countRequest = store.count();
-  countRequest.onsuccess = () => {
-    if (countRequest.result > 100) {
-      store.openCursor().onsuccess = (e: any) => {
-        const cursor = e.target.result;
-        if (cursor) cursor.delete();
-      };
-    }
-  };
+  });
 };
 
 export const getPlaybackHistory = async (): Promise<any[]> => {
@@ -112,34 +109,6 @@ export const clearPlaybackHistory = async () => {
   tx.objectStore(HISTORY_STORE).clear();
 };
 
-export const readLocalFolderMetadata = async (dirHandle: FileSystemDirectoryHandle) => {
-  try {
-    const fileHandle = await dirHandle.getFileHandle(METADATA_FILENAME);
-    const file = await fileHandle.getFile();
-    const content = await file.text();
-    return JSON.parse(content);
-  } catch (e) {
-    return null;
-  }
-};
-
-export const writeLocalFolderMetadata = async (dirHandle: FileSystemDirectoryHandle, metadata: any) => {
-  try {
-    const permission = await dirHandle.queryPermission({ mode: 'readwrite' });
-    if (permission !== 'granted') {
-      const request = await dirHandle.requestPermission({ mode: 'readwrite' });
-      if (request !== 'granted') return false;
-    }
-    const fileHandle = await dirHandle.getFileHandle(METADATA_FILENAME, { create: true });
-    const writable = await fileHandle.createWritable();
-    await writable.write(JSON.stringify(metadata, null, 2));
-    await writable.close();
-    return true;
-  } catch (e) {
-    return false;
-  }
-};
-
 export const saveLibraryFolder = async (id: string, handle: FileSystemDirectoryHandle) => {
   const db = await initDB();
   const tx = db.transaction(STORE_NAME, 'readwrite');
@@ -158,8 +127,19 @@ export const getAllLibraryFolders = async (): Promise<{id: string, handle: FileS
 
 export const removeLibraryFolder = async (id: string) => {
   const db = await initDB();
-  const tx = db.transaction(STORE_NAME, 'readwrite');
+  const tx = db.transaction([STORE_NAME, TRACKS_CACHE_STORE], 'readwrite');
   tx.objectStore(STORE_NAME).delete(id);
+  // 同时清理该文件夹下的缓存
+  const trackStore = tx.objectStore(TRACKS_CACHE_STORE);
+  const index = trackStore.index('folderId');
+  const request = index.openCursor(IDBKeyRange.only(id));
+  request.onsuccess = (event: any) => {
+    const cursor = event.target.result;
+    if (cursor) {
+      cursor.delete();
+      cursor.continue();
+    }
+  };
 };
 
 export const getStoredStory = async (artist: string, trackName: string): Promise<string | null> => {
@@ -186,7 +166,12 @@ export const exportDatabase = async () => {
   const stories = await new Promise<any[]>(resolve => {
     txStories.objectStore(STORIES_STORE).getAll().onsuccess = (e: any) => resolve(e.target.result);
   });
-  const data = { version: DB_VERSION, exportDate: Date.now(), stories, favorites: JSON.parse(localStorage.getItem('vinyl_favorites') || '[]') };
+  const data = { 
+    version: DB_VERSION, 
+    exportDate: Date.now(), 
+    stories, 
+    favorites: JSON.parse(localStorage.getItem('vinyl_favorites') || '[]') 
+  };
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');

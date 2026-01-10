@@ -3,7 +3,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { Track, PlaybackMode } from '../types';
 import { addToHistory } from '../utils/storage';
 
-export const useAudioPlayer = (tracks: Track[]) => {
+export const useAudioPlayer = (tracks: Track[], resolveTrackFile: (t: Track) => Promise<Track | null>) => {
   const [currentTrackIndex, setCurrentTrackIndex] = useState<number | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [progress, setProgress] = useState(0);
@@ -29,67 +29,64 @@ export const useAudioPlayer = (tracks: Track[]) => {
   const fadePhysicalVolume = useCallback((target: number, durationSec: number, onComplete?: () => void) => {
     const gainNode = getGainNode();
     const ctx = getAudioCtx();
-    
     if (!gainNode || !ctx) {
       if (audioRef.current) audioRef.current.volume = target;
       onComplete?.();
       return;
     }
-
     const now = ctx.currentTime;
     gainNode.gain.cancelScheduledValues(now);
     gainNode.gain.setValueAtTime(gainNode.gain.value, now);
     gainNode.gain.linearRampToValueAtTime(target, now + durationSec);
-
-    if (onComplete) {
-      setTimeout(onComplete, (durationSec * 1000) + 50);
-    }
+    if (onComplete) setTimeout(onComplete, (durationSec * 1000) + 50);
   }, []);
 
   const playWithFade = useCallback(async () => {
     const audio = audioRef.current;
-    if (!audio || !audio.src) return;
+    if (!audio || currentTrackIndex === null) return;
     
+    const track = tracks[currentTrackIndex];
+    
+    // 核心优化：播放前才去解析文件对象
+    if (!track.url) {
+      const resolved = await resolveTrackFile(track);
+      if (!resolved || !resolved.url) {
+        console.warn("无法定位物理文件，请尝试同步音乐库");
+        return;
+      }
+      audio.src = resolved.url;
+    } else if (audio.src !== track.url) {
+      audio.src = track.url;
+    }
+
     try {
       let ctx = getAudioCtx();
       let gainNode = getGainNode();
-
       if (ctx && (ctx.state === 'suspended' || (ctx.state as string) === 'interrupted')) {
         await ctx.resume();
       }
-
       if (gainNode && ctx) {
         gainNode.gain.cancelScheduledValues(ctx.currentTime);
         gainNode.gain.setValueAtTime(0, ctx.currentTime);
       }
-
-      audio.volume = 1; 
+      
       await audio.play();
       setIsPlaying(true);
-
-      // 记录到历史记录（如果是新曲目）
-      const currentTrack = currentTrackIndex !== null ? tracks[currentTrackIndex] : null;
-      if (currentTrack && currentTrack.fingerprint !== lastRecordedTrack.current) {
-        addToHistory(currentTrack);
-        lastRecordedTrack.current = currentTrack.fingerprint;
-      }
-
-      setTimeout(() => {
-        fadePhysicalVolume(volume, 0.5);
-      }, 50);
       
-    } catch (err) {
-      console.error("播放请求失败:", err);
-      if (audio.readyState === 0) {
-        audio.load();
+      if (track.fingerprint !== lastRecordedTrack.current) {
+        addToHistory(track);
+        lastRecordedTrack.current = track.fingerprint;
       }
+      
+      setTimeout(() => fadePhysicalVolume(volume, 0.5), 50);
+    } catch (err) {
+      console.error("播放失败:", err);
     }
-  }, [volume, fadePhysicalVolume, currentTrackIndex, tracks]);
+  }, [volume, fadePhysicalVolume, currentTrackIndex, tracks, resolveTrackFile]);
 
   const pauseWithFade = useCallback(() => {
     const audio = audioRef.current;
     if (!audio) return;
-
     fadePhysicalVolume(0, 0.4, () => {
       audio.pause();
       setIsPlaying(false);
@@ -97,47 +94,24 @@ export const useAudioPlayer = (tracks: Track[]) => {
   }, [fadePhysicalVolume]);
 
   const togglePlay = useCallback(() => {
-    if (isPlaying) {
-      pauseWithFade();
-    } else {
-      playWithFade();
-    }
+    if (isPlaying) pauseWithFade(); else playWithFade();
   }, [isPlaying, pauseWithFade, playWithFade]);
-
-  const transitionToTrack = useCallback((index: number) => {
-    if (currentTrackIndex === index) {
-      setIsPlaying(true);
-      playWithFade();
-      return;
-    }
-
-    if (isPlaying) {
-      fadePhysicalVolume(0, 0.3, () => {
-        setCurrentTrackIndex(index);
-        setIsPlaying(true);
-      });
-    } else {
-      setCurrentTrackIndex(index);
-      setIsPlaying(true);
-    }
-  }, [isPlaying, currentTrackIndex, fadePhysicalVolume, playWithFade]);
 
   const nextTrack = useCallback(() => {
     if (tracks.length === 0 || currentTrackIndex === null) return;
-    let nextIdx;
-    if (playbackMode === 'shuffle') {
-      nextIdx = Math.floor(Math.random() * tracks.length);
-    } else {
-      nextIdx = (currentTrackIndex + 1) % tracks.length;
-    }
-    transitionToTrack(nextIdx);
-  }, [tracks.length, currentTrackIndex, transitionToTrack, playbackMode]);
+    const nextIdx = playbackMode === 'shuffle' 
+      ? Math.floor(Math.random() * tracks.length) 
+      : (currentTrackIndex + 1) % tracks.length;
+    setCurrentTrackIndex(nextIdx);
+    setIsPlaying(true);
+  }, [tracks.length, currentTrackIndex, playbackMode]);
 
   const prevTrack = useCallback(() => {
     if (tracks.length === 0 || currentTrackIndex === null) return;
     const prevIdx = (currentTrackIndex - 1 + tracks.length) % tracks.length;
-    transitionToTrack(prevIdx);
-  }, [tracks.length, currentTrackIndex, transitionToTrack]);
+    setCurrentTrackIndex(prevIdx);
+    setIsPlaying(true);
+  }, [tracks.length, currentTrackIndex]);
 
   const seek = useCallback((val: number) => {
     if (audioRef.current) {
@@ -148,88 +122,30 @@ export const useAudioPlayer = (tracks: Track[]) => {
   }, []);
 
   useEffect(() => {
-    const gainNode = getGainNode();
-    const ctx = getAudioCtx();
-    if (gainNode && ctx && isPlaying) {
-      gainNode.gain.setValueAtTime(volume, ctx.currentTime);
-    } else if (audioRef.current && !gainNode) {
-      audioRef.current.volume = volume;
-    }
-  }, [volume, isPlaying]);
-
-  useEffect(() => {
     const audio = audioRef.current;
     if (!audio) return;
-
-    const handleTimeUpdate = () => {
-      if (!isSeeking) {
-        setProgress(audio.currentTime);
-      }
-    };
-
-    const handleLoadedMetadata = () => {
-      setDuration(audio.duration);
-    };
-
-    const handleEnded = () => {
-      if (playbackMode === 'loop') {
-        audio.currentTime = 0;
-        audio.play();
-      } else {
-        nextTrack();
-      }
-    };
-
-    const handleSeeked = () => {
-      setIsSeeking(false);
-    };
-
+    const handleTimeUpdate = () => { if (!isSeeking) setProgress(audio.currentTime); };
+    const handleLoadedMetadata = () => setDuration(audio.duration);
+    const handleEnded = () => { if (playbackMode === 'loop') { audio.currentTime = 0; audio.play(); } else nextTrack(); };
     audio.addEventListener('timeupdate', handleTimeUpdate);
     audio.addEventListener('loadedmetadata', handleLoadedMetadata);
     audio.addEventListener('ended', handleEnded);
-    audio.addEventListener('seeked', handleSeeked);
-
     return () => {
       audio.removeEventListener('timeupdate', handleTimeUpdate);
       audio.removeEventListener('loadedmetadata', handleLoadedMetadata);
       audio.removeEventListener('ended', handleEnded);
-      audio.removeEventListener('seeked', handleSeeked);
     };
   }, [isSeeking, playbackMode, nextTrack]);
 
   useEffect(() => {
-    if (currentTrackIndex !== null && tracks[currentTrackIndex]) {
-      const audio = audioRef.current;
-      if (audio) {
-        const nextSrc = tracks[currentTrackIndex].url;
-        if (audio.src !== nextSrc) {
-          audio.src = nextSrc;
-          audio.load();
-        }
-        if (isPlaying && audio.paused) {
-          playWithFade();
-        }
-      }
+    if (currentTrackIndex !== null && isPlaying) {
+      playWithFade();
     }
-  }, [currentTrackIndex, tracks, isPlaying, playWithFade]);
+  }, [currentTrackIndex, isPlaying, playWithFade]);
 
   return {
-    currentTrackIndex,
-    setCurrentTrackIndex,
-    isPlaying,
-    setIsPlaying,
-    progress,
-    duration,
-    volume,
-    setVolume,
-    playbackMode,
-    setPlaybackMode,
-    audioRef,
-    togglePlay,
-    nextTrack,
-    prevTrack,
-    seek,
-    playWithFade,
-    pauseWithFade
+    currentTrackIndex, setCurrentTrackIndex, isPlaying, setIsPlaying,
+    progress, duration, volume, setVolume, playbackMode, setPlaybackMode,
+    audioRef, togglePlay, nextTrack, prevTrack, seek
   };
 };
