@@ -189,12 +189,12 @@ const App: React.FC = () => {
         <div className="flex-1 relative overflow-hidden">
             <div key={view + (selectedArtist || '')} className="absolute inset-0 flex flex-col animate-in fade-in duration-700">
                 {view === 'player' ? (
-                  <div className="flex-1 flex flex-col items-center justify-center gap-4 p-8 overflow-hidden relative">
+                  <div className="flex-1 flex flex-col items-center justify-center gap-2 p-6 md:p-8 overflow-hidden relative">
                     
-                    {/* 信息展示区 */}
-                    <div className="text-center relative z-40 px-6 w-full max-w-4xl flex flex-col items-center">
-                      <div className="w-full px-4 py-2">
-                        <h2 className="text-2xl md:text-3xl lg:text-4xl font-black tracking-tight w-full truncate select-none leading-normal bg-gradient-to-b from-white via-zinc-200 to-zinc-400 bg-clip-text text-transparent drop-shadow-[0_4px_12px_rgba(0,0,0,0.4)]">
+                    {/* 信息展示区 - 增加垂直空间 */}
+                    <div className="text-center relative z-40 px-6 w-full max-w-4xl flex flex-col items-center mb-4">
+                      <div className="w-full px-4 pb-4 md:pb-6">
+                        <h2 className="text-2xl md:text-3xl lg:text-5xl font-black tracking-tight w-full truncate select-none leading-snug pb-2 bg-gradient-to-b from-white via-zinc-200 to-zinc-400 bg-clip-text text-transparent drop-shadow-[0_4px_12px_rgba(0,0,0,0.4)]">
                           {processDisplayString(currentTrack?.name || "黑胶时光")}
                         </h2>
                       </div>
@@ -214,8 +214,8 @@ const App: React.FC = () => {
                       </div>
                     </div>
 
-                    {/* 黑胶区域 */}
-                    <div className="relative mt-2">
+                    {/* 黑胶区域 - 增加顶边距防止遮挡 */}
+                    <div className="relative mt-4">
                       <SwipeableTrack onNext={player.nextTrack} onPrev={player.prevTrack} currentId={currentTrack?.id || 'empty'}>
                         <VinylRecord isPlaying={player.isPlaying} coverUrl={currentTrack?.coverUrl} intensity={audioIntensity} themeColor={rhythmColor} spinSpeed={settings.spinSpeed} showParticles={settings.showParticles} />
                       </SwipeableTrack>
