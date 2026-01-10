@@ -282,8 +282,8 @@ const PlayerControls: React.FC<PlayerControlsProps> = ({
            <div className="w-16 h-16 rounded-md bg-[#111] p-1 flex-shrink-0 relative overflow-hidden group">
               {currentTrack?.coverUrl ? <img src={currentTrack.coverUrl} className="w-full h-full object-cover rounded-sm" /> : <div className="w-full h-full bg-yellow-500/10 flex items-center justify-center text-yellow-500 rounded-sm"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/></svg></div>}
            </div>
-           <div className="min-w-0 flex flex-col gap-1">
-              <h4 className="font-medium truncate text-sm text-yellow-500">{convert(currentTrack?.name || "等待选择曲目")}</h4>
+           <div className="min-w-0 flex flex-col gap-1 pr-2">
+              <h4 className="font-bold truncate text-sm text-yellow-500 select-none whitespace-nowrap overflow-hidden">{convert(currentTrack?.name || "等待选择曲目")}</h4>
               <button onClick={() => onNavigate?.('artistProfile', currentTrack?.artist || '')} className="text-zinc-500 text-[10px] font-bold uppercase tracking-wider truncate text-left hover:text-yellow-500 transition-colors">{convert(currentTrack?.artist || "Vinyl Rhythm")}</button>
            </div>
            <button onClick={() => onToggleFavorite()} disabled={!currentTrack} className={`w-8 h-8 flex-shrink-0 ${insetButtonClass(isFavorite)} ${isFavorite ? 'text-yellow-500' : ''} disabled:opacity-30`}><svg width="14" height="14" viewBox="0 0 24 24" fill={isFavorite ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2.5"><path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"/></svg></button>

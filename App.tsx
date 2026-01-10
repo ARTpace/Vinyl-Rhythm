@@ -192,19 +192,19 @@ const App: React.FC = () => {
                   <div className="flex-1 flex flex-col items-center justify-center gap-4 p-8 overflow-hidden relative">
                     
                     {/* 信息展示区 */}
-                    <div className="text-center relative z-40 px-6 max-w-4xl flex flex-col items-center">
-                      <h2 className="text-2xl md:text-4xl lg:text-5xl font-black mb-3 tracking-tighter text-white drop-shadow-2xl">
+                    <div className="text-center relative z-40 px-6 w-full max-w-5xl flex flex-col items-center">
+                      <h2 className="text-3xl md:text-5xl lg:text-7xl font-black mb-3 tracking-tighter w-full truncate leading-tight select-none drop-shadow-[0_10px_30px_rgba(0,0,0,0.5)] bg-gradient-to-b from-white via-zinc-100 to-zinc-500 bg-clip-text text-transparent">
                         {processDisplayString(currentTrack?.name || "黑胶时光")}
                       </h2>
 
-                      <div className="flex items-center gap-2 mb-2">
-                        <button onClick={() => handleNavigate('artistProfile', currentTrack?.artist || '')} className="text-zinc-400 font-bold uppercase tracking-[0.15em] text-[11px] md:text-xs hover:text-yellow-500 transition-colors">
+                      <div className="flex items-center gap-2 mb-2 w-full justify-center truncate">
+                        <button onClick={() => handleNavigate('artistProfile', currentTrack?.artist || '')} className="text-zinc-400 font-bold uppercase tracking-[0.15em] text-[11px] md:text-xs hover:text-yellow-500 transition-colors flex-shrink-0">
                           {processDisplayString(currentTrack?.artist || "享受纯净音质")}
                         </button>
                         {currentTrack?.album && (
                           <>
-                            <span className="text-zinc-800 font-black mx-1">•</span>
-                            <button onClick={() => handleNavigate('albums', currentTrack.album)} className="text-zinc-500 font-bold uppercase tracking-[0.15em] text-[11px] md:text-xs hover:text-white transition-colors">
+                            <span className="text-zinc-800 font-black mx-1 flex-shrink-0">•</span>
+                            <button onClick={() => handleNavigate('albums', currentTrack.album)} className="text-zinc-500 font-bold uppercase tracking-[0.15em] text-[11px] md:text-xs hover:text-white transition-colors truncate">
                               {processDisplayString(currentTrack.album)}
                             </button>
                           </>
