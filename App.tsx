@@ -148,7 +148,6 @@ const App: React.FC = () => {
            try { 
              const handle = await window.showDirectoryPicker(); 
              const newFolderId = await library.registerFolder(handle); 
-             // 优化：仅同步新文件夹，不影响旧的
              library.syncFolder(newFolderId); 
            } catch (e) {}
         }} 
@@ -285,7 +284,9 @@ const App: React.FC = () => {
             </div>
         </div>
         
-        <audio ref={player.audioRef} src={currentTrack?.url} preload="auto" />
+        {/* 重要：移除了 src 属性，完全由钩子控制 */}
+        <audio ref={player.audioRef} preload="auto" />
+        
         <PlayerControls
           currentTrack={currentTrack} 
           tracks={playlist} 
