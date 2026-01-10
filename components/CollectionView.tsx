@@ -6,10 +6,11 @@ interface CollectionViewProps {
   tracks: Track[];
   onNavigate: (type: 'artistProfile' | 'albums', name: string) => void;
   displayConverter?: (str: string) => string;
+  initialTab?: 'artists' | 'albums';
 }
 
-const CollectionView: React.FC<CollectionViewProps> = ({ tracks, onNavigate, displayConverter }) => {
-  const [tab, setTab] = useState<'artists' | 'albums'>('artists');
+const CollectionView: React.FC<CollectionViewProps> = ({ tracks, onNavigate, displayConverter, initialTab = 'artists' }) => {
+  const [tab, setTab] = useState<'artists' | 'albums'>(initialTab);
   const convert = (s: string) => displayConverter ? displayConverter(s) : s;
 
   const artistGroups = useMemo(() => {

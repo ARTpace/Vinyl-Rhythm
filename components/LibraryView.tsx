@@ -248,8 +248,10 @@ const LibraryView: React.FC<LibraryViewProps> = ({
   const [filterDuration, setFilterDuration] = useState<'all' | 'short' | 'medium' | 'long'>('all');
 
   const scrollRef = useRef<HTMLDivElement>(null);
+  const lastViewRef = useRef(view);
   const convert = (s: string) => displayConverter ? displayConverter(s) : s;
 
+  // 响应钻取请求（Drill-down）
   useEffect(() => {
     if (navigationRequest) {
       if (navigationRequest.type === 'folders') {
@@ -266,14 +268,14 @@ const LibraryView: React.FC<LibraryViewProps> = ({
     }
   }, [navigationRequest, onNavigationProcessed]);
 
+  // 只有在手动切换主视图且没有挂起的钻取请求时，才重置状态
   useEffect(() => {
-    if (view === 'all') {
-      if (!navigationRequest) {
-        setActiveGroup(null);
-        setActiveAlbum(null);
-        setSubTab('all');
-      }
+    if (view === 'all' && lastViewRef.current !== 'all' && !navigationRequest) {
+      setActiveGroup(null);
+      setActiveAlbum(null);
+      setSubTab('all');
     }
+    lastViewRef.current = view;
   }, [view, navigationRequest]);
 
   const handleScrape = async (track: Track) => {

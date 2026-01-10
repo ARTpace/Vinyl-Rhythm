@@ -46,7 +46,7 @@ const App: React.FC = () => {
   // 核心变更：播放器现在仅对播放列表(playlist)负责
   const player = useAudioPlayer(playlist, library.resolveTrackFile);
   
-  // FIX: 调用音频分析器，获取用于黑胶唱片视觉跳动的实时强度数据
+  // 调用音频分析器，获取用于黑胶唱片视觉跳动的实时强度数据
   const { audioIntensity } = useAudioAnalyzer(player.audioRef, player.isPlaying);
 
   const currentTrack = player.currentTrackIndex !== null ? playlist[player.currentTrackIndex] : null;
@@ -100,12 +100,10 @@ const App: React.FC = () => {
 
   // 处理从曲库中点击“播放”
   const handlePlayFromLibrary = useCallback((track: Track) => {
-    // 查找该歌曲是否已在列表中
     const idx = playlist.findIndex(t => t.fingerprint === track.fingerprint);
     if (idx !== -1) {
       player.setCurrentTrackIndex(idx);
     } else {
-      // 如果不在，加入列表并播放
       const newPlaylist = [...playlist, track];
       setPlaylist(newPlaylist);
       player.setCurrentTrackIndex(newPlaylist.length - 1);
@@ -113,6 +111,12 @@ const App: React.FC = () => {
     setView('player');
     player.setIsPlaying(true);
   }, [playlist, player, setPlaylist]);
+
+  // 处理从播放队列中选择并播放
+  const handleSelectTrackFromQueue = useCallback((index: number) => {
+    player.setCurrentTrackIndex(index);
+    player.setIsPlaying(true); // 显式触发播放
+  }, [player]);
 
   return (
     <div className="flex h-screen overflow-hidden font-sans selection:bg-yellow-500/30">
@@ -232,8 +236,8 @@ const App: React.FC = () => {
                   <ArtistProfile artistName={selectedArtist} allTracks={library.tracks} onBack={() => { setView('collection'); setSelectedArtist(null); }} onPlayTrack={handlePlayFromLibrary} onNavigateToAlbum={(album) => handleNavigate('albums', album)} favorites={library.favorites} onToggleFavorite={library.handleToggleFavorite} />
                 ) : view === 'settings' ? (
                   <SettingsView settings={settings} onUpdate={updateSettings} onReset={resetSettings} onClearHistory={library.clearHistory} />
-                ) : view === 'collection' ? (
-                  <CollectionView tracks={library.tracks} onNavigate={handleNavigate} displayConverter={processDisplayString} />
+                ) : (view === 'collection' || view === 'albums' || view === 'artists') ? (
+                  <CollectionView tracks={library.tracks} onNavigate={handleNavigate} displayConverter={processDisplayString} initialTab={view === 'albums' ? 'albums' : 'artists'} />
                 ) : (
                   <LibraryView 
                     view={view} 
@@ -263,7 +267,7 @@ const App: React.FC = () => {
           onTogglePlay={player.togglePlay} 
           onNext={player.nextTrack} 
           onPrev={player.prevTrack} 
-          onSelectTrack={player.setCurrentTrackIndex} 
+          onSelectTrack={handleSelectTrackFromQueue} 
           onRemoveTrack={removeFromPlaylist}
           progress={player.progress} 
           duration={player.duration} 

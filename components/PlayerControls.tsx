@@ -171,6 +171,19 @@ const PlayerControls: React.FC<PlayerControlsProps> = ({
   const trackGrooveClass = "bg-[#0a0a0a] rounded-full shadow-[inset_0_1px_3px_rgba(0,0,0,0.9),0_1px_0_rgba(255,255,255,0.05)]";
   const metallicThumbClass = "bg-gradient-to-b from-[#ccc] to-[#888] rounded-full shadow-[0_2px_4px_rgba(0,0,0,0.5),inset_0_1px_2px_rgba(255,255,255,0.8)] border border-[#555]";
 
+  const handleClearQueueClick = () => {
+    if (tracks.length === 0) return;
+    if (confirm('确定要清空当前的播放队列吗？')) {
+        // 如果正在播放，先触发淡出
+        if (isPlaying) {
+            onTogglePlay(); // 触发淡出暂停
+            setTimeout(() => onClearQueue?.(), 500); // 确保淡出完成后再清除
+        } else {
+            onClearQueue?.();
+        }
+    }
+  };
+
   return (
     <>
       {showQueue && <div className="fixed inset-0 z-[80] bg-black/40 backdrop-blur-sm transition-opacity" onClick={() => setShowQueue(false)} />}
@@ -195,12 +208,9 @@ const PlayerControls: React.FC<PlayerControlsProps> = ({
             </div>
             {queueTab === 'queue' && onClearQueue && (
               <button 
-                onClick={() => {
-                  if (confirm('确定要清空播放队列吗？')) {
-                    onClearQueue();
-                  }
-                }}
-                className="px-3 py-2 text-[10px] font-black uppercase tracking-[0.2em] rounded-xl bg-red-600/20 text-red-500 hover:bg-red-600/40 transition-all"
+                onClick={handleClearQueueClick}
+                disabled={tracks.length === 0}
+                className={`px-3 py-2 text-[10px] font-black uppercase tracking-[0.2em] rounded-xl transition-all ${tracks.length === 0 ? 'opacity-20 pointer-events-none' : 'bg-red-600/20 text-red-500 hover:bg-red-600/40'}`}
               >
                 {convert('清空队列')}
               </button>
@@ -210,48 +220,55 @@ const PlayerControls: React.FC<PlayerControlsProps> = ({
 
         <div className="overflow-y-auto p-2 flex-1 custom-scrollbar bg-[#111] pb-10">
           {queueTab === 'queue' ? (
-            tracks.map((track, idx) => {
-              const isFav = favorites.has(track.id);
-              return (
-                <div 
-                  key={track.id} 
-                  draggable 
-                  onDragStart={(e) => { e.dataTransfer.setData('trackId', track.id); }}
-                  onDragOver={(e) => { e.preventDefault(); setDraggedOverId(track.id); }}
-                  onDrop={(e) => { 
-                      e.preventDefault(); 
-                      setDraggedOverId(null); 
-                      const draggedId = e.dataTransfer.getData('trackId');
-                      if (draggedId !== track.id) onReorder(draggedId, track.id);
-                  }}
-                  className={`group flex items-center gap-4 p-3 rounded-2xl cursor-pointer transition-all border mb-1.5 relative ${idx === currentIndex ? 'bg-[#1a1a1a] border-[#333]' : 'border-transparent hover:bg-white/[0.03]'} ${draggedOverId === track.id ? 'border-t-2 border-t-yellow-500 pt-6' : ''}`}
-                  onClick={() => onSelectTrack(idx)}
-                >
-                  <div className="w-6 flex items-center justify-center shrink-0">
-                      <span className={`text-[11px] font-mono text-center ${idx === currentIndex ? 'text-yellow-500' : 'text-zinc-700'}`}>{idx + 1}</span>
-                  </div>
-                  <div className="w-12 h-12 rounded-xl bg-zinc-800 overflow-hidden shrink-0 shadow-lg">
-                     {track.coverUrl ? <img src={track.coverUrl} className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-opacity" /> : <div className="w-full h-full bg-zinc-900 flex items-center justify-center text-zinc-700"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="10"/></svg></div>}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className={`font-black text-sm truncate mb-0.5 tracking-tight ${idx === currentIndex ? 'text-yellow-500' : 'text-zinc-100'}`}>{convert(track.name)}</div>
-                    <div className="text-[10px] text-zinc-500 truncate font-bold uppercase tracking-widest">
-                        {convert(track.artist)} <span className="opacity-30 mx-1">•</span> {convert(track.album || 'Single')}
-                    </div>
-                  </div>
-                  
-                  <div className="flex items-center gap-3 shrink-0">
-                    <button 
-                        onClick={(e) => { e.stopPropagation(); onToggleFavorite(track.id); }}
-                        className={`p-2 rounded-full transition-all active:scale-75 ${isFav ? 'text-red-500' : 'text-zinc-800 hover:text-zinc-400 opacity-0 group-hover:opacity-100'}`}
-                    >
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill={isFav ? "currentColor" : "none"} stroke="currentColor" strokeWidth="3"><path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"/></svg>
-                    </button>
-                    <div className="text-xs font-mono text-zinc-600 group-hover:text-zinc-400 tabular-nums w-10 text-right">{formatTime(track.duration || 0)}</div>
-                  </div>
+            tracks.length > 0 ? (
+                tracks.map((track, idx) => {
+                    const isFav = favorites.has(track.id);
+                    return (
+                        <div 
+                        key={track.id} 
+                        draggable 
+                        onDragStart={(e) => { e.dataTransfer.setData('trackId', track.id); }}
+                        onDragOver={(e) => { e.preventDefault(); setDraggedOverId(track.id); }}
+                        onDrop={(e) => { 
+                            e.preventDefault(); 
+                            setDraggedOverId(null); 
+                            const draggedId = e.dataTransfer.getData('trackId');
+                            if (draggedId !== track.id) onReorder(draggedId, track.id);
+                        }}
+                        className={`group flex items-center gap-4 p-3 rounded-2xl cursor-pointer transition-all border mb-1.5 relative ${idx === currentIndex ? 'bg-[#1a1a1a] border-[#333]' : 'border-transparent hover:bg-white/[0.03]'} ${draggedOverId === track.id ? 'border-t-2 border-t-yellow-500 pt-6' : ''}`}
+                        onClick={() => onSelectTrack(idx)}
+                        >
+                        <div className="w-6 flex items-center justify-center shrink-0">
+                            <span className={`text-[11px] font-mono text-center ${idx === currentIndex ? 'text-yellow-500' : 'text-zinc-700'}`}>{idx + 1}</span>
+                        </div>
+                        <div className="w-12 h-12 rounded-xl bg-zinc-800 overflow-hidden shrink-0 shadow-lg">
+                            {track.coverUrl ? <img src={track.coverUrl} className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-opacity" /> : <div className="w-full h-full bg-zinc-900 flex items-center justify-center text-zinc-700"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="10"/></svg></div>}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                            <div className={`font-black text-sm truncate mb-0.5 tracking-tight ${idx === currentIndex ? 'text-yellow-500' : 'text-zinc-100'}`}>{convert(track.name)}</div>
+                            <div className="text-[10px] text-zinc-500 truncate font-bold uppercase tracking-widest">
+                                {convert(track.artist)} <span className="opacity-30 mx-1">•</span> {convert(track.album || 'Single')}
+                            </div>
+                        </div>
+                        
+                        <div className="flex items-center gap-3 shrink-0">
+                            <button 
+                                onClick={(e) => { e.stopPropagation(); onToggleFavorite(track.id); }}
+                                className={`p-2 rounded-full transition-all active:scale-75 ${isFav ? 'text-red-500' : 'text-zinc-800 hover:text-zinc-400 opacity-0 group-hover:opacity-100'}`}
+                            >
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill={isFav ? "currentColor" : "none"} stroke="currentColor" strokeWidth="3"><path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"/></svg>
+                            </button>
+                            <div className="text-xs font-mono text-zinc-600 group-hover:text-zinc-400 tabular-nums w-10 text-right">{formatTime(track.duration || 0)}</div>
+                        </div>
+                        </div>
+                    );
+                })
+            ) : (
+                <div className="p-24 text-center flex flex-col items-center gap-5 opacity-20 animate-in fade-in zoom-in duration-700">
+                    <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M3 12h18M3 6h18M3 18h18"/></svg>
+                    <p className="text-[11px] font-black uppercase tracking-[0.4em]">{convert('播放队列为空')}</p>
                 </div>
-              );
-            })
+            )
           ) : (
             <>
               {historyTracks.length > 0 ? (

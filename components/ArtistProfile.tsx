@@ -107,12 +107,11 @@ const ArtistProfile: React.FC<ArtistProfileProps> = ({
               {artistName}
             </h1>
 
-            {/* 简化后的简介与统计 */}
+            {/* 简介与统计 */}
             <div className="max-w-2xl">
               <p className="text-zinc-400 text-sm md:text-base leading-relaxed font-medium mb-8 opacity-80 italic">
                 在您的本地音乐库中，这位艺术家贡献了 <span className="text-white font-bold">{stats.count}</span> 首曲目，
                 分布在 <span className="text-white font-bold">{stats.albumCount}</span> 张不同的专辑中。
-                这些收藏为您累计提供了约 <span className="text-white font-bold">{stats.duration}</span> 分钟的沉浸式听觉体验。
               </p>
 
               <div className="flex flex-wrap items-center justify-center md:justify-start gap-6">
@@ -139,19 +138,19 @@ const ArtistProfile: React.FC<ArtistProfileProps> = ({
       {/* 内容区域 */}
       <div className="px-6 md:px-12 py-12 space-y-20 max-w-7xl mx-auto w-full">
         
-        {/* 专辑展示 */}
+        {/* 专辑展示 - 优化为单行横向滑动 */}
         <section>
           <div className="flex items-baseline gap-4 mb-8">
-            <h2 className="text-2xl font-black text-white uppercase tracking-tighter">全部专辑</h2>
+            <h2 className="text-2xl font-black text-white uppercase tracking-tighter text-nowrap">全部专辑</h2>
             <div className="h-px flex-1 bg-zinc-900" />
-            <span className="text-[10px] text-zinc-600 font-black uppercase tracking-widest">{albums.length} Albums</span>
+            <span className="text-[10px] text-zinc-600 font-black uppercase tracking-widest text-nowrap">{albums.length} Albums</span>
           </div>
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-6 md:gap-8">
+          <div className="flex overflow-x-auto gap-6 md:gap-8 pb-8 custom-scrollbar scroll-smooth">
             {albums.map(([name, tracks]) => (
               <div 
                 key={name}
                 onClick={() => onNavigateToAlbum(name)}
-                className="group cursor-pointer"
+                className="group cursor-pointer flex-shrink-0 w-40 sm:w-48"
               >
                 <div className="aspect-square rounded-[2rem] bg-zinc-900 border border-white/5 overflow-hidden shadow-lg group-hover:scale-105 group-hover:shadow-2xl transition-all duration-500 relative">
                   {tracks[0].coverUrl ? (
@@ -201,7 +200,7 @@ const ArtistProfile: React.FC<ArtistProfileProps> = ({
                 <div className="hidden md:block text-zinc-700 font-mono text-xs">{formatTime(track.duration || 0)}</div>
                 <button 
                   onClick={(e) => { e.stopPropagation(); onToggleFavorite(track.id); }}
-                  className={`p-2 transition-all active:scale-75 ${favorites.has(track.id) ? 'text-red-500 drop-shadow-[0_0_8px_rgba(239,68,68,0.3)]' : 'text-zinc-800 hover:text-white'}`}
+                  className={`p-2 transition-all active:scale-75 ${favorites.has(track.id) ? 'text-red-500 drop-shadow-[0_0_8px_rgba(234,179,8,0.3)]' : 'text-zinc-800 hover:text-white'}`}
                 >
                   <svg width="16" height="16" viewBox="0 0 24 24" fill={favorites.has(track.id) ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2.5"><path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"/></svg>
                 </button>

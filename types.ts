@@ -40,7 +40,11 @@ export interface LibraryGroup {
   coverUrl?: string;
 }
 
-export type ViewType = 'all' | 'collection' | 'player' | 'favorites' | 'folders' | 'artistProfile' | 'settings' | 'history';
+/**
+ * 修复: 在 ViewType 中添加缺少的 'albums' 和 'artists' 类型。
+ * 这解决了 App.tsx 中在渲染逻辑中进行类型比较时，由于类型不重叠导致的编译错误。
+ */
+export type ViewType = 'all' | 'collection' | 'player' | 'favorites' | 'folders' | 'artistProfile' | 'settings' | 'history' | 'albums' | 'artists';
 
 export type PlaybackMode = 'normal' | 'shuffle' | 'loop';
 
