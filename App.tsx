@@ -94,7 +94,7 @@ const App: React.FC = () => {
   }, [player.isPlaying, player.currentTrackIndex]);
 
   useEffect(() => {
-    // 初始静默同步，仅恢复已记录曲目
+    // 初始加载：执行静默同步。不显示 UI 进度，仅尝试在后台恢复已存在的本地文件句柄连接。
     library.syncAll(true).then(hasData => {
       if (hasData && player.currentTrackIndex === null && library.tracks.length > 0) {
         player.setCurrentTrackIndex(0);
@@ -144,7 +144,6 @@ const App: React.FC = () => {
         onClose={() => setIsImportWindowOpen(false)} 
         onImport={async () => {
            try {
-             // 仅注册文件夹，不自动同步，不关闭窗口
              const handle = await window.showDirectoryPicker();
              await library.registerFolder(handle);
            } catch (e) {}
@@ -183,8 +182,8 @@ const App: React.FC = () => {
              </div>
           </div>
           <div className="flex items-center gap-3">
-            {/* 紧凑型扫描进度显示 */}
-            {library.isImporting && (
+            {/* 仅在非静默导入时显示扫描进度 */}
+            {library.isImporting && library.currentProcessingFile && (
               <div className="hidden md:flex items-center gap-3 px-4 py-2 bg-black/40 border border-white/5 rounded-2xl backdrop-blur-md animate-in fade-in slide-in-from-right-4">
                 <div className="flex flex-col items-end min-w-0 max-w-[120px]">
                   <span className="text-white text-[10px] font-black italic">{library.importProgress}%</span>

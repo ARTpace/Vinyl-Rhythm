@@ -33,6 +33,9 @@ export const useLibraryManager = () => {
     return saved ? new Set(JSON.parse(saved)) : new Set();
   });
 
+  // 记录文件夹是否在本次会话中已成功重连
+  const resolvedFolders = useRef<Set<string>>(new Set());
+
   // 1. 初始化时优先从数据库缓存加载
   useEffect(() => {
     const loadCache = async () => {
@@ -130,7 +133,10 @@ export const useLibraryManager = () => {
     async function recursiveScan(dirHandle: FileSystemDirectoryHandle) {
       for await (const entry of (dirHandle as any).values()) {
         if (entry.kind === 'file' && SUPPORTED_FORMATS.some(ext => entry.name.toLowerCase().endsWith(ext))) {
-          foundFiles.push(await entry.getFile());
+          // getFile() 是耗时操作，但在 Web File System API 中获取大小必须调用它
+          try {
+            foundFiles.push(await entry.getFile());
+          } catch (e) {}
         } else if (entry.kind === 'directory') {
           await recursiveScan(entry);
         }
@@ -154,39 +160,53 @@ export const useLibraryManager = () => {
   };
 
   /**
-   * 核心优化逻辑：同步所有文件夹
-   * 如果 isSilent 为真，则尝试后台“重连”文件，而不重新解析元数据
+   * 同步所有文件夹
+   * 优化：如果是静默模式，不显示任何 UI，不设置 isImporting
    */
   const syncAll = async (isSilent: boolean = false) => {
-    setIsImporting(true);
-    setImportProgress(0);
-    setCurrentProcessingFile(isSilent ? '正在恢复文件连接...' : '正在同步库...');
+    // 静默模式下不触发全局加载状态
+    if (!isSilent) {
+      setIsImporting(true);
+      setImportProgress(0);
+      setCurrentProcessingFile('正在检查本地曲库...');
+    }
 
     return new Promise<boolean>(async (resolve) => {
+      // 稍微延迟确保不会阻塞主线程 UI
       setTimeout(async () => {
         const savedFolders = await getAllLibraryFolders();
         if (savedFolders.length === 0) {
-          setIsImporting(false);
+          if (!isSilent) setIsImporting(false);
           resolve(false);
           return;
         }
 
-        // 建立当前内存中曲目的映射
         const currentTracksMap = new Map<string, Track>(tracks.map(t => [t.fingerprint, t]));
         let allUpdatedTracks: Track[] = [];
-        let nextImportedFolders: LibraryFolder[] = importedFolders.filter(f => f.id.startsWith('manual_'));
+        let nextImportedFolders: LibraryFolder[] = [...importedFolders];
         let filesToParse: { file: File, folderId: string }[] = [];
+        let hasChanges = false;
 
-        for (const folder of savedFolders) {
-          setCurrentProcessingFile(`检查文件夹: ${folder.name}`);
+        for (let i = 0; i < savedFolders.length; i++) {
+          const folder = savedFolders[i];
+          
+          // 如果是静默模式且文件夹已解析过，跳过
+          if (isSilent && resolvedFolders.current.has(folder.id)) {
+            const folderTracks = tracks.filter(t => t.folderId === folder.id);
+            allUpdatedTracks.push(...folderTracks);
+            continue;
+          }
+
           try {
             let permission = await folder.handle.queryPermission({ mode: 'read' });
-            // 如果是静默同步且没权限，跳过（防止弹窗干扰）
+            // 静默模式下如果没权限，直接保留缓存记录（不尝试播放），不弹窗
             if (permission !== 'granted' && !isSilent) {
               permission = await folder.handle.requestPermission({ mode: 'read' });
             }
             
             if (permission === 'granted') {
+              if (!isSilent) setCurrentProcessingFile(`正在读取: ${folder.name}`);
+              
               const diskFiles = await scanDirectory(folder.handle);
               let folderTrackCount = 0;
 
@@ -195,7 +215,7 @@ export const useLibraryManager = () => {
                 const cachedTrack = currentTracksMap.get(fingerprint);
 
                 if (cachedTrack) {
-                  // 命中缓存：直接“重连” File 和 URL，跳过元数据解析
+                  // 命中缓存：快速重连，不需要重新解析元数据
                   allUpdatedTracks.push({
                     ...cachedTrack,
                     file: file,
@@ -203,53 +223,62 @@ export const useLibraryManager = () => {
                   });
                   folderTrackCount++;
                 } else {
-                  // 未命中的新文件才需要加入解析队列
+                  // 新文件
                   filesToParse.push({ file, folderId: folder.id });
                 }
               }
               
-              nextImportedFolders.push({
-                id: folder.id,
-                name: folder.name,
-                lastSync: Date.now(),
-                trackCount: folderTrackCount
-              });
+              // 更新文件夹状态
+              const folderIdx = nextImportedFolders.findIndex(f => f.id === folder.id);
+              if (folderIdx > -1) {
+                nextImportedFolders[folderIdx] = {
+                  ...nextImportedFolders[folderIdx],
+                  lastSync: Date.now(),
+                  trackCount: folderTrackCount + filesToParse.filter(f => f.folderId === folder.id).length
+                };
+              }
+              
+              resolvedFolders.current.add(folder.id);
+              hasChanges = true;
             } else {
-              // 没权限的文件夹，保留原有缓存（虽然不能播放，但能看）
-              const orphanTracks = tracks.filter(t => t.folderId === folder.id);
-              allUpdatedTracks.push(...orphanTracks);
-              const existingFolder = importedFolders.find(f => f.id === folder.id);
-              if (existingFolder) nextImportedFolders.push(existingFolder);
+              // 没权限时，保留原样（显示但不能播放）
+              const folderTracks = tracks.filter(t => t.folderId === folder.id);
+              allUpdatedTracks.push(...folderTracks);
             }
           } catch (e) { console.error(e); }
         }
 
-        // 深度解析新文件
+        // 解析新发现的文件（这是最慢的一步）
         if (filesToParse.length > 0) {
+          hasChanges = true;
           for (let i = 0; i < filesToParse.length; i++) {
             const item = filesToParse[i];
-            setCurrentProcessingFile(`解析新曲目: ${item.file.name}`);
+            if (!isSilent) {
+              setCurrentProcessingFile(`解析新曲目: ${item.file.name}`);
+              setImportProgress(Math.round(((i + 1) / filesToParse.length) * 100));
+            }
             try {
               const track: Track = await parseFileToTrack(item.file);
               track.folderId = item.folderId;
               allUpdatedTracks.push(track);
-              setImportProgress(Math.round(((i + 1) / filesToParse.length) * 100));
-              
-              if (i % 5 === 0) setTracks([...allUpdatedTracks]);
+              // 增量更新 UI
+              if (i % 10 === 0 && !isSilent) setTracks([...allUpdatedTracks]);
             } catch (e) {}
           }
         }
 
-        setTracks(allUpdatedTracks);
-        setImportedFolders(nextImportedFolders);
-        saveTracksToCache(allUpdatedTracks); // 更新数据库缓存
+        if (hasChanges) {
+          setTracks(allUpdatedTracks);
+          setImportedFolders(nextImportedFolders);
+          saveTracksToCache(allUpdatedTracks);
+        }
 
-        setTimeout(() => {
+        if (!isSilent) {
           setIsImporting(false);
           setImportProgress(0);
           setCurrentProcessingFile('');
-          resolve(allUpdatedTracks.length > 0);
-        }, 500);
+        }
+        resolve(allUpdatedTracks.length > 0);
       }, 50);
     });
   };
@@ -273,11 +302,7 @@ export const useLibraryManager = () => {
     setTracks(totalTracks);
     saveTracksToCache(totalTracks);
     setImportedFolders(prev => [...prev, { id: folderId, name: "本地导入", lastSync: Date.now(), trackCount: files.length }]);
-    setTimeout(() => {
-      setIsImporting(false);
-      setImportProgress(0);
-      setCurrentProcessingFile('');
-    }, 500);
+    setIsImporting(false);
     return true;
   };
 
@@ -287,6 +312,7 @@ export const useLibraryManager = () => {
     setImportedFolders(prev => prev.filter(f => f.id !== id));
     setTracks(nextTracks);
     saveTracksToCache(nextTracks);
+    resolvedFolders.current.delete(id);
   };
 
   return {
