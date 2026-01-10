@@ -108,17 +108,15 @@ const TrackRow = React.memo<{
         setFlyEffect({
             startX: startRect.left,
             startY: startRect.top,
-            endX: endRect.left - startRect.left + (endRect.width / 2) - 20, // 20是动画小圆圈的一半宽度
+            endX: endRect.left - startRect.left + (endRect.width / 2) - 20, 
             endY: endRect.top - startRect.top + (endRect.height / 2) - 20
         });
 
-        // 0.8s 后移除动画元素
         setTimeout(() => setFlyEffect(null), 800);
     }
 
     setIsAdded(true);
     onAddToPlaylist?.(track);
-    // 1.5秒后恢复状态
     setTimeout(() => setIsAdded(false), 1500);
   };
 
@@ -127,7 +125,10 @@ const TrackRow = React.memo<{
       className="group flex items-center gap-4 p-3 md:p-4 hover:bg-white/5 transition-all cursor-pointer border-b border-white/[0.03] last:border-0"
       onClick={() => onPlay(track)}
     >
-        <div className="w-6 text-center text-zinc-700 font-mono text-xs group-hover:text-yellow-500">{String(index + 1).padStart(2, '0')}</div>
+        {/* 1. 编号列 - 固定宽度 */}
+        <div className="w-6 text-center text-zinc-700 font-mono text-xs group-hover:text-yellow-500 shrink-0">{String(index + 1).padStart(2, '0')}</div>
+        
+        {/* 2. 封面列 - 固定宽度 */}
         <div className="w-10 h-10 md:w-12 md:h-12 rounded-lg md:rounded-xl bg-zinc-800 overflow-hidden relative shrink-0 shadow-lg group-hover:scale-110 transition-transform">
           {track.coverUrl ? (
             <img key={track.coverUrl} src={track.coverUrl} className="w-full h-full object-cover animate-in fade-in duration-700" loading="lazy" />
@@ -143,6 +144,7 @@ const TrackRow = React.memo<{
           )}
         </div>
         
+        {/* 3. 歌曲信息列 - 弹性填充 (flex-1) */}
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 mb-0.5">
             <div className="text-white font-black truncate text-sm md:text-base tracking-tight">{convert(track.name)}</div>
@@ -162,7 +164,8 @@ const TrackRow = React.memo<{
           </button>
         </div>
         
-        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+        {/* 4. 操作按钮列 - 固定宽度，确保“添加”按钮垂直对齐 */}
+        <div className="flex items-center gap-1 w-16 md:w-20 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity justify-end">
           <button 
             ref={btnRef}
             onClick={handleAdd}
@@ -185,21 +188,26 @@ const TrackRow = React.memo<{
           </button>
         </div>
 
+        {/* 5. 专辑列 - 固定宽度 (lg及以上显示) */}
         <button 
           onClick={(e) => { e.stopPropagation(); onNavigate?.('albums', track.album); }}
-          className="hidden lg:block text-zinc-500 text-sm font-black uppercase tracking-widest max-w-[150px] truncate hover:text-yellow-500 transition-colors"
+          className="hidden lg:block text-zinc-500 text-sm font-black uppercase tracking-widest w-32 md:w-40 shrink-0 truncate text-left hover:text-yellow-500 transition-colors"
         >
           {convert(track.album)}
         </button>
         
-        <div className="hidden md:block text-zinc-600 font-mono text-sm w-16 text-right group-hover:text-zinc-400 transition-colors">{formatTime(track.duration || 0)}</div>
+        {/* 6. 时长列 - 固定宽度 (md及以上显示) */}
+        <div className="hidden md:block text-zinc-600 font-mono text-sm w-16 shrink-0 text-right group-hover:text-zinc-400 transition-colors">{formatTime(track.duration || 0)}</div>
         
-        <button 
-          onClick={(e) => { e.stopPropagation(); onToggleFavorite(track.id); }}
-          className={`p-2 rounded-full transition-all active:scale-75 ${isFavorite ? 'text-red-500 shadow-[0_0_15px_rgba(239,68,68,0.2)]' : 'text-zinc-800 hover:text-white group-hover:opacity-100'}`}
-        >
-          <svg width="16" height="16" viewBox="0 0 24 24" fill={isFavorite ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2.5"><path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"/></svg>
-        </button>
+        {/* 7. 收藏列 - 固定宽度 */}
+        <div className="w-10 flex justify-end shrink-0">
+          <button 
+            onClick={(e) => { e.stopPropagation(); onToggleFavorite(track.id); }}
+            className={`p-2 rounded-full transition-all active:scale-75 ${isFavorite ? 'text-red-500 shadow-[0_0_15px_rgba(239,68,68,0.2)]' : 'text-zinc-800 hover:text-white group-hover:opacity-100'}`}
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill={isFavorite ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2.5"><path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"/></svg>
+          </button>
+        </div>
 
         {/* 飞入动效 Portal */}
         {flyEffect && ReactDOM.createPortal(
@@ -211,7 +219,7 @@ const TrackRow = React.memo<{
                     '--fly-x-end': `${flyEffect.endX}px`,
                     '--fly-y-end': `${flyEffect.endY}px`,
                     '--fly-x-mid': `${flyEffect.endX * 0.4}px`,
-                    '--fly-y-mid': `${-200}px` // 向上划一道明显的弧线
+                    '--fly-y-mid': `${-200}px` 
                 } as any}
             >
                 <div className="w-10 h-10 rounded-full bg-zinc-900 border-2 border-yellow-500 overflow-hidden shadow-2xl">
