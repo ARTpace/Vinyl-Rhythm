@@ -10,7 +10,8 @@ export interface Track {
   duration?: number;
   bitrate?: number;
   fingerprint: string; 
-  folderId?: string; // 关联到具体的导入文件夹
+  folderId?: string;
+  isUnsupported?: boolean; // 新增：是否为浏览器不支持的格式
 }
 
 export interface LibraryFolder {
