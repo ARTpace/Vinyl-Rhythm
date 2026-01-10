@@ -59,7 +59,7 @@ const IconButton: React.FC<{
   disabled?: boolean;
 }> = ({ onClick, icon, title, colorClass, disabled }) => (
   <button 
-    onClick={onClick}
+    onClick={(e) => { e.preventDefault(); onClick(); }}
     disabled={disabled}
     title={title}
     className={`w-10 h-10 flex items-center justify-center rounded-xl bg-white/5 border border-white/5 transition-all active:scale-90 disabled:opacity-20 ${colorClass}`}
@@ -71,29 +71,9 @@ const IconButton: React.FC<{
 const SettingsView: React.FC<SettingsViewProps> = ({ settings, onUpdate, onReset, onClearHistory }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const clearAICache = () => {
-    if (confirm("【预警】确定要清除所有 AI 音乐解读缓存吗？\n\n清除后，原本已生成的歌曲背景故事将全部消失，再次播放时需联网重新生成。")) {
-      const request = indexedDB.deleteDatabase('VinylRhythmDB');
-      request.onsuccess = () => {
-         alert("已成功清除 AI 解读数据。应用将刷新以重新初始化。");
-         window.location.reload();
-      };
-    }
-  };
-
   const handleClearHistory = () => {
-    if (confirm("确定要彻底清空播放历史记录吗？")) {
+    if (window.confirm("确定要清空播放历史记录吗？")) {
       onClearHistory?.();
-    }
-  };
-
-  const clearLibraryCache = () => {
-    if (confirm("【严重预警】确定要清空音乐库缓存吗？\n\n此操作将移除本地存储的所有音乐元数据（歌手、专辑信息）和封面图片预览。虽然不会删除您的实际音乐文件，但您需要重新通过“管理库”来扫描所有文件夹。")) {
-      const request = indexedDB.deleteDatabase('VinylRhythmDB');
-      request.onsuccess = () => {
-         alert("已清空音乐库缓存。应用将重置，请在重启后重新导入您的音乐文件夹。");
-         window.location.reload();
-      };
     }
   };
 
@@ -101,7 +81,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ settings, onUpdate, onReset
     try {
       await exportDatabase();
     } catch (e) {
-      alert("备份导出过程中发生错误，请检查权限。");
+      alert("备份导出过程中发生错误。");
     }
   };
 
@@ -122,7 +102,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ settings, onUpdate, onReset
           alert("还原成功！所有收藏、AI 解读和曲库元数据已恢复。应用即将刷新。");
           window.location.reload();
         } else {
-          alert("还原失败：文件格式不兼容或已损坏。");
+          alert("还原失败：文件格式不兼容。");
         }
       } catch (err) {
         alert("解析备份文件时发生错误。");
@@ -155,16 +135,13 @@ const SettingsView: React.FC<SettingsViewProps> = ({ settings, onUpdate, onReset
             checked={settings.enableAI} 
             onChange={(val) => onUpdate({ enableAI: val })} 
           />
-          <div className="pt-2">
-            <button onClick={clearAICache} className="text-[10px] font-black uppercase tracking-widest text-zinc-500 hover:text-red-500 transition-colors">清除解读缓存</button>
-          </div>
         </SettingsCard>
 
-        <SettingsCard title="数据管理" icon={<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>}>
+        <SettingsCard title="数据与备份" icon={<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>}>
            <div className="flex items-center justify-between">
               <div>
-                <div className="text-sm font-bold text-zinc-200">播放历史记录</div>
-                <div className="text-[10px] text-zinc-500 font-medium uppercase tracking-wider mt-0.5">本地存储的最近播放曲目清单</div>
+                <div className="text-sm font-bold text-zinc-200">播放历史</div>
+                <div className="text-[10px] text-zinc-500 font-medium uppercase tracking-wider mt-0.5">本地存储的最近播放清单</div>
               </div>
               <button 
                 onClick={handleClearHistory}
@@ -176,8 +153,8 @@ const SettingsView: React.FC<SettingsViewProps> = ({ settings, onUpdate, onReset
            <div className="h-px bg-white/5 my-4" />
            <div className="flex items-center justify-between">
               <div>
-                <div className="text-sm font-bold text-zinc-200">音乐库缓存</div>
-                <div className="text-[10px] text-zinc-500 font-medium uppercase tracking-wider mt-0.5">本地存储的曲目元数据、封面及 AI 故事备份</div>
+                <div className="text-sm font-bold text-zinc-200">库文件持久化</div>
+                <div className="text-[10px] text-zinc-500 font-medium uppercase tracking-wider mt-0.5">导出完整曲库数据或通过备份还原</div>
               </div>
               <div className="flex items-center gap-2">
                 <IconButton 
@@ -191,12 +168,6 @@ const SettingsView: React.FC<SettingsViewProps> = ({ settings, onUpdate, onReset
                   onClick={handleRestoreClick}
                   colorClass="hover:bg-blue-500/10 hover:text-blue-400 hover:border-blue-500/30"
                   icon={<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12"/></svg>}
-                />
-                <IconButton 
-                  title="清空缓存(预警)"
-                  onClick={clearLibraryCache}
-                  colorClass="hover:bg-red-500/10 hover:text-red-500 hover:border-red-500/30"
-                  icon={<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M10 11v6M14 11v6"/></svg>}
                 />
               </div>
            </div>
@@ -238,16 +209,16 @@ const SettingsView: React.FC<SettingsViewProps> = ({ settings, onUpdate, onReset
           />
         </SettingsCard>
 
-        <div className="mt-12 flex items-center justify-between px-6 py-8 border border-red-500/20 rounded-3xl bg-red-500/5">
+        <div className="mt-12 flex items-center justify-between px-6 py-8 border border-white/5 rounded-3xl bg-white/[0.02]">
           <div>
-            <div className="text-white font-black uppercase text-xs tracking-widest mb-1">重置所有配置</div>
-            <div className="text-red-500/60 text-[10px] font-bold uppercase tracking-tighter">恢复初始设置，不影响音乐文件</div>
+            <div className="text-white font-black uppercase text-xs tracking-widest mb-1">重置界面配置</div>
+            <div className="text-zinc-500 text-[10px] font-bold uppercase tracking-tighter">恢复视觉和偏好设置到初始状态，不会影响您的音乐收藏</div>
           </div>
           <button 
-            onClick={() => { if(confirm("确定恢复默认设置吗？")) onReset(); }}
-            className="px-6 py-2 bg-red-500 text-white rounded-full text-[10px] font-black uppercase tracking-widest hover:bg-red-600 transition-all active:scale-95 shadow-lg shadow-red-500/10"
+            onClick={() => { if(window.confirm("确定恢复默认设置吗？")) onReset(); }}
+            className="px-6 py-2 bg-white/10 text-white rounded-full text-[10px] font-black uppercase tracking-widest hover:bg-white/20 transition-all active:scale-95"
           >
-            Reset
+            Reset UI
           </button>
         </div>
       </div>

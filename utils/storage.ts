@@ -6,7 +6,11 @@ const STORIES_STORE = 'trackStories';
 const HISTORY_STORE = 'playbackHistory';
 const TRACKS_CACHE_STORE = 'tracksCache';
 
+let dbInstance: IDBDatabase | null = null;
+
 const initDB = async (): Promise<IDBDatabase> => {
+  if (dbInstance) return dbInstance;
+  
   if (navigator.storage && navigator.storage.persist) {
     await navigator.storage.persist();
   }
@@ -32,7 +36,10 @@ const initDB = async (): Promise<IDBDatabase> => {
         store.createIndex('folderId', 'folderId', { unique: false });
       }
     };
-    request.onsuccess = () => resolve(request.result);
+    request.onsuccess = () => {
+      dbInstance = request.result;
+      resolve(request.result);
+    };
     request.onerror = () => reject(request.error);
   });
 };
@@ -75,12 +82,6 @@ export const getCachedTracks = async (): Promise<any[]> => {
     };
     request.onerror = () => reject(request.error);
   });
-};
-
-export const clearTracksCache = async () => {
-  const db = await initDB();
-  const tx = db.transaction(TRACKS_CACHE_STORE, 'readwrite');
-  tx.objectStore(TRACKS_CACHE_STORE).clear();
 };
 
 export const addToHistory = async (track: any) => {
@@ -174,7 +175,6 @@ export const saveStoryToStore = async (artist: string, trackName: string, story:
 export const exportDatabase = async () => {
   const db = await initDB();
   
-  // 1. 获取文件夹元数据 (Handle 不能序列化，但我们要保留名字和ID)
   const txFolders = db.transaction(STORE_NAME, 'readonly');
   const folders = await new Promise<any[]>(resolve => {
     txFolders.objectStore(STORE_NAME).getAll().onsuccess = (e: any) => {
@@ -183,13 +183,11 @@ export const exportDatabase = async () => {
     };
   });
 
-  // 2. 获取 AI 解读
   const txStories = db.transaction(STORIES_STORE, 'readonly');
   const stories = await new Promise<any[]>(resolve => {
     txStories.objectStore(STORIES_STORE).getAll().onsuccess = (e: any) => resolve(e.target.result);
   });
 
-  // 3. 获取曲库缓存
   const txTracks = db.transaction(TRACKS_CACHE_STORE, 'readonly');
   const tracks = await new Promise<any[]>(resolve => {
     txTracks.objectStore(TRACKS_CACHE_STORE).getAll().onsuccess = (e: any) => {
@@ -211,7 +209,7 @@ export const exportDatabase = async () => {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = `VinylRhythm_FullBackup_${new Date().toISOString().split('T')[0]}.json`;
+  a.download = `VinylRhythm_Backup_${new Date().toISOString().split('T')[0]}.json`;
   a.click();
   URL.revokeObjectURL(url);
 };
@@ -221,7 +219,6 @@ export const importDatabase = async (jsonString: string) => {
     const data = JSON.parse(jsonString);
     const db = await initDB();
     
-    // 恢复文件夹元数据 (无 handle 模式)
     if (data.folders && Array.isArray(data.folders)) {
       const tx = db.transaction(STORE_NAME, 'readwrite');
       const store = tx.objectStore(STORE_NAME);
@@ -231,7 +228,6 @@ export const importDatabase = async (jsonString: string) => {
       await new Promise(res => tx.oncomplete = res);
     }
 
-    // 恢复 AI Stories
     if (data.stories && Array.isArray(data.stories)) {
       const tx = db.transaction(STORIES_STORE, 'readwrite');
       const store = tx.objectStore(STORIES_STORE);
@@ -239,11 +235,9 @@ export const importDatabase = async (jsonString: string) => {
       await new Promise(res => tx.oncomplete = res);
     }
 
-    // 恢复曲目元数据
     if (data.tracks && Array.isArray(data.tracks)) {
         const tx = db.transaction(TRACKS_CACHE_STORE, 'readwrite');
         const store = tx.objectStore(TRACKS_CACHE_STORE);
-        // 使用批处理写入以提高性能并确保完整性
         for (const item of data.tracks) {
           store.put(item);
         }
