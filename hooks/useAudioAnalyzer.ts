@@ -1,5 +1,6 @@
 
-import { useState, useEffect, useRef, useCallback } from 'react';
+// 修复: 导入 React 模块以支持 React.RefObject 命名空间的使用
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 
 // 使用全局标识记录是否已连接
 const connectedElements = new WeakSet<HTMLAudioElement>();
