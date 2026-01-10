@@ -8,7 +8,7 @@ import ReactDOM from 'react-dom';
 interface LibraryViewProps {
   view: ViewType;
   tracks: Track[];
-  folders?: LibraryFolder[]; // 新增：文件夹列表映射
+  folders?: LibraryFolder[]; 
   onPlay: (track: Track) => void;
   onAddToPlaylist?: (track: Track) => void;
   favorites: Set<string>;
@@ -94,6 +94,9 @@ const TrackRow = React.memo<{
   const bitrateKbps = track.bitrate ? Math.round(track.bitrate / 1000) : 0;
   const isHires = bitrateKbps >= 2000;
   const isLossless = bitrateKbps >= 800 && bitrateKbps < 2000;
+  
+  // 识别是否处于“等待授权恢复封面”状态
+  const isGhostTrack = !track.coverUrl && !track.coverBlob && track.folderId;
 
   const handleAdd = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -117,7 +120,7 @@ const TrackRow = React.memo<{
 
   return (
     <div 
-      className="group flex items-center gap-4 p-3 md:p-4 hover:bg-white/5 transition-all cursor-pointer border-b border-white/[0.03] last:border-0"
+      className={`group flex items-center gap-4 p-3 md:p-4 hover:bg-white/5 transition-all cursor-pointer border-b border-white/[0.03] last:border-0 ${isGhostTrack ? 'opacity-60' : ''}`}
       onClick={() => onPlay(track)}
     >
         <div className="w-6 text-center text-zinc-700 font-mono text-xs group-hover:text-yellow-500 shrink-0">{String(index + 1).padStart(2, '0')}</div>
@@ -126,7 +129,11 @@ const TrackRow = React.memo<{
             <img key={track.coverUrl} src={track.coverUrl} className="w-full h-full object-cover animate-in fade-in duration-700" loading="lazy" />
           ) : (
             <div className="w-full h-full flex items-center justify-center text-zinc-600">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/></svg>
+                {isGhostTrack ? (
+                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="animate-pulse"><path d="M12 2v4M4.93 4.93l2.83 2.83M2 12h4M4.93 19.07l2.83-2.83M12 18v4M16.24 16.24l2.83 2.83M18 12h4M16.24 7.76l2.83-2.83"/></svg>
+                ) : (
+                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/></svg>
+                )}
             </div>
           )}
           {isScraping && (
@@ -138,6 +145,7 @@ const TrackRow = React.memo<{
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 mb-0.5">
             <div className="text-white font-black truncate text-sm md:text-base tracking-tight">{convert(track.name)}</div>
+            {isGhostTrack && <span className="text-[8px] bg-white/10 text-zinc-500 px-1.5 py-0.5 rounded uppercase font-black">Restored</span>}
             <div className="flex items-center gap-1.5 shrink-0 opacity-60 group-hover:opacity-100 transition-opacity">
                {bitrateKbps > 0 && (
                  <span className={`text-[8px] font-mono px-1 rounded ${isHires ? 'bg-yellow-500/20 text-yellow-500' : isLossless ? 'bg-blue-500/20 text-blue-400' : 'bg-zinc-800 text-zinc-500'}`}>
@@ -199,7 +207,6 @@ const LibraryView: React.FC<LibraryViewProps> = ({
   const lastViewRef = useRef(view);
   const convert = (s: string) => displayConverter ? displayConverter(s) : s;
 
-  // 映射 ID 到 名称
   const folderIdToName = useMemo(() => {
     const map = new Map<string, string>();
     folders.forEach(f => map.set(f.id, f.name));
@@ -382,13 +389,30 @@ const LibraryView: React.FC<LibraryViewProps> = ({
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-6">
             {groups.map(([id, groupTracks]) => {
               const displayName = folderIdToName.get(id) || (id === 'undefined' ? '未知' : id);
+              // 检查该组是否全无封面
+              const isGroupEmpty = groupTracks.every(t => !t.coverUrl && !t.coverBlob);
+              
               return (
                 <div key={id} onClick={() => setActiveGroup(id)} className="group cursor-pointer bg-white/5 border border-white/5 rounded-3xl p-4 hover:bg-white/10 transition-all">
                   <div className="aspect-square rounded-2xl bg-zinc-900 overflow-hidden mb-4 shadow-xl">
-                    {groupTracks[0]?.coverUrl ? <img src={groupTracks[0].coverUrl} className="w-full h-full object-cover opacity-60 group-hover:opacity-100 transition-opacity" /> : <div className="w-full h-full flex items-center justify-center text-zinc-700 text-4xl font-black">{displayName[0]}</div>}
+                    {groupTracks.find(t => t.coverUrl)?.coverUrl ? (
+                       <img src={groupTracks.find(t => t.coverUrl)!.coverUrl} className="w-full h-full object-cover opacity-60 group-hover:opacity-100 transition-opacity" />
+                    ) : (
+                       <div className="w-full h-full flex items-center justify-center text-zinc-700 text-4xl font-black relative">
+                          {displayName[0]}
+                          {isGroupEmpty && (
+                            <div className="absolute top-2 right-2">
+                               <div className="w-2 h-2 rounded-full bg-yellow-500 animate-pulse" />
+                            </div>
+                          )}
+                       </div>
+                    )}
                   </div>
                   <h3 className="text-white font-bold text-sm truncate uppercase tracking-tight">{convert(displayName)}</h3>
-                  <p className="text-[10px] text-zinc-600 font-bold uppercase tracking-widest mt-1">{groupTracks.length} TRACKS</p>
+                  <div className="flex items-center justify-between mt-1">
+                    <p className="text-[10px] text-zinc-600 font-bold uppercase tracking-widest">{groupTracks.length} TRACKS</p>
+                    {isGroupEmpty && <span className="text-[8px] text-yellow-500/50 font-black uppercase">Pending Sync</span>}
+                  </div>
                 </div>
               );
             })}

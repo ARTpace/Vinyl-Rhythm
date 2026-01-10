@@ -43,10 +43,10 @@ export const useLibraryManager = () => {
       })));
 
       if (cached && cached.length > 0) {
+        // 还原回来的 tracks 可能没有 coverUrl（因为没有 blob）
         setTracks(cached.map(t => ({ ...t, file: null as any, url: '' })));
       }
 
-      // 如果存在没有任何 handle 的文件夹，说明是刚还原回来的，标记需要权限
       if (folders.length > 0 && folders.some(f => !f.handle)) {
         setNeedsPermission(true);
       }
@@ -70,7 +70,6 @@ export const useLibraryManager = () => {
     const folders = await getAllLibraryFolders();
     const folder = folders.find(f => f.id === track.folderId);
     
-    // 如果文件夹没有 handle（还原后的状态），无法直接解析，需要用户重新同步
     if (!folder || !folder.handle) {
       setNeedsPermission(true);
       return null;
@@ -98,67 +97,80 @@ export const useLibraryManager = () => {
       const file = await findFile(folder.handle, (track as any).fileName || "");
       if (file) {
         const url = URL.createObjectURL(file);
-        setTracks(prev => prev.map(t => t.fingerprint === track.fingerprint ? { ...t, file, url } : t));
-        return { ...track, file, url };
+        // 如果顺便发现没有封面，补一下
+        let updatedTrack = { ...track, file, url };
+        if (!track.coverBlob) {
+          const fresh = await parseFileToTrack(file);
+          updatedTrack.coverBlob = fresh.coverBlob;
+          updatedTrack.coverUrl = fresh.coverUrl;
+          // 异步存入 DB，不阻塞播放
+          saveTracksToCache([updatedTrack]);
+        }
+        
+        setTracks(prev => prev.map(t => t.fingerprint === track.fingerprint ? updatedTrack : t));
+        return updatedTrack;
       }
     } catch (e) { console.error(e); }
     return null;
   }, []);
 
-  const handleManualFilesSelect = async (files: FileList) => {
+  // 修复: 实现 handleManualFilesSelect 方法，支持通过传统的 FileList (非 FileSystem API) 导入音乐
+  const handleManualFilesSelect = useCallback(async (files: FileList) => {
     setIsImporting(true);
     setImportProgress(0);
+    const total = files.length;
     const newTracks: Track[] = [];
-    const validFiles = Array.from(files).filter(f => SUPPORTED_FORMATS.some(ext => f.name.toLowerCase().endsWith(ext)));
-    const total = validFiles.length;
-
-    if (total === 0) { setIsImporting(false); return false; }
-
-    const batchSize = 10;
-    for (let i = 0; i < total; i += batchSize) {
-      const batch = validFiles.slice(i, i + batchSize);
-      for (const file of batch) {
+    
+    for (let i = 0; i < total; i++) {
+      const file = files[i];
+      if (SUPPORTED_FORMATS.some(ext => file.name.toLowerCase().endsWith(ext))) {
         setCurrentProcessingFile(file.name);
         try {
           const track = await parseFileToTrack(file);
           newTracks.push(track);
-        } catch (e) { console.error(e); }
+        } catch (e) {
+          console.error(`解析文件失败: ${file.name}`, e);
+        }
       }
-      setImportProgress(Math.floor(((i + batch.length) / total) * 100));
-      await new Promise(r => setTimeout(r, 0));
+      setImportProgress(Math.floor(((i + 1) / total) * 100));
+      // 让出主线程，防止 UI 冻结
+      if (i % 5 === 0) await new Promise(r => setTimeout(r, 0));
     }
 
-    if (newTracks.length > 0) {
-      setTracks(prev => {
-        const next = [...prev, ...newTracks];
-        saveTracksToCache(next);
-        return next;
+    setTracks(prev => {
+      const combined = [...prev, ...newTracks];
+      // 简单去重
+      const seen = new Set();
+      const unique = combined.filter(t => {
+        if (seen.has(t.fingerprint)) return false;
+        seen.add(t.fingerprint);
+        return true;
       });
-    }
-    setImportProgress(100);
+      saveTracksToCache(unique);
+      return unique;
+    });
+
     setIsImporting(false);
     return true;
-  };
+  }, []);
 
   const syncAll = useCallback(async () => {
     setIsImporting(true);
     setImportProgress(0);
-    setCurrentProcessingFile('正在盘点文件...');
+    setCurrentProcessingFile('正在盘点曲目...');
 
     const savedFolders = await getAllLibraryFolders();
-    // 如果存在没有 handle 的文件夹，必须先让用户通过 registerFolder 重新建立联系
     if (savedFolders.length === 0) { setIsImporting(false); return false; }
 
-    // 检查是否有缺失 handle 的文件夹
     const missingHandleFolders = savedFolders.filter(f => !f.handle);
     if (missingHandleFolders.length > 0) {
-      alert(`检测到 ${missingHandleFolders.length} 个文件夹需要重新授权以恢复播放。请在管理库中重新添加同名文件夹。`);
+      alert(`还原后的 ${missingHandleFolders.length} 个文件夹需要“重新添加”以恢复封面和播放功能。`);
       setIsImporting(false);
       return false;
     }
 
     const currentTracksMap = new Map<string, Track>(tracks.map(t => [t.fingerprint, t]));
-    let allUpdatedTracks: Track[] = tracks.filter(t => !t.folderId); 
+    let allUpdatedTracks: Track[] = []; 
     
     let totalFilesCount = 0;
     const filesToProcess: { handle: FileSystemFileHandle, folderId: string }[] = [];
@@ -187,7 +199,7 @@ export const useLibraryManager = () => {
     if (totalFilesCount === 0) { setIsImporting(false); return false; }
 
     let processedCount = 0;
-    const batchSize = 8;
+    const batchSize = 5; // 修复封面比较耗能，减小并发
     
     for (let i = 0; i < filesToProcess.length; i += batchSize) {
       const batch = filesToProcess.slice(i, i + batchSize);
@@ -197,12 +209,17 @@ export const useLibraryManager = () => {
           setCurrentProcessingFile(file.name);
           const fingerprint = `${file.name}-${file.size}`;
           const cached = currentTracksMap.get(fingerprint);
-          if (cached) {
+          
+          // 修复核心逻辑：如果 cached 存在但没有封面，我们需要重新解析文件来补齐封面
+          if (cached && cached.coverBlob) {
             allUpdatedTracks.push({ ...cached, fileName: file.name, folderId: item.folderId } as any);
           } else {
+            // 重新提取（涵盖了新文件和从还原回来的无封面记录）
             const t = await parseFileToTrack(file);
             t.folderId = item.folderId;
             (t as any).fileName = file.name;
+            // 继承原来可能存在的收藏状态或ID
+            if (cached) t.id = cached.id;
             allUpdatedTracks.push(t);
           }
         } catch (err) { console.error(err); }
@@ -226,18 +243,14 @@ export const useLibraryManager = () => {
   }, [tracks]);
 
   const registerFolder = async (handle: FileSystemDirectoryHandle) => {
-    // 检查是否是重连现有文件夹
     const existing = importedFolders.find(f => f.name === handle.name);
     const id = existing ? existing.id : handle.name + "_" + Date.now();
-    
     await saveLibraryFolder(id, handle);
     
     if (!existing) {
       setImportedFolders(prev => [...prev, { id, name: handle.name, lastSync: 0, trackCount: 0 }]);
     } else {
-      // 如果是重连，清除 needsPermission 标记
-      const stillMissing = importedFolders.some(f => f.id !== id && !tracks.some(t => t.folderId === f.id));
-      if (!stillMissing) setNeedsPermission(false);
+      setNeedsPermission(false);
     }
     return id;
   };
