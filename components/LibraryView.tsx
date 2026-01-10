@@ -140,12 +140,12 @@ const TrackRow = React.memo<{
 
         <button 
           onClick={(e) => { e.stopPropagation(); onNavigate?.('albums', track.album); }}
-          className="hidden lg:block text-zinc-500 text-xs font-black uppercase tracking-widest max-w-[200px] truncate hover:text-yellow-500 transition-colors"
+          className="hidden lg:block text-zinc-500 text-sm font-black uppercase tracking-widest max-w-[200px] truncate hover:text-yellow-500 transition-colors"
         >
           {convert(track.album)}
         </button>
         
-        <div className="hidden md:block text-zinc-700 font-mono text-[10px] w-12 text-right">{formatTime(track.duration || 0)}</div>
+        <div className="hidden md:block text-zinc-600 font-mono text-sm w-16 text-right group-hover:text-zinc-400 transition-colors">{formatTime(track.duration || 0)}</div>
         
         <button 
           onClick={(e) => { e.stopPropagation(); onToggleFavorite(track.id); }}
