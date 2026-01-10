@@ -1,7 +1,7 @@
 
-import React from 'react';
+import React, { useRef } from 'react';
 import { AppSettings } from '../types';
-import { exportDatabase } from '../utils/storage';
+import { exportDatabase, importDatabase } from '../utils/storage';
 
 interface SettingsViewProps {
   settings: AppSettings;
@@ -51,28 +51,47 @@ const Slider: React.FC<{ label: string; value: number; min: number; max: number;
   </div>
 );
 
+const IconButton: React.FC<{ 
+  onClick: () => void; 
+  icon: React.ReactNode; 
+  title: string; 
+  colorClass: string;
+  disabled?: boolean;
+}> = ({ onClick, icon, title, colorClass, disabled }) => (
+  <button 
+    onClick={onClick}
+    disabled={disabled}
+    title={title}
+    className={`w-10 h-10 flex items-center justify-center rounded-xl bg-white/5 border border-white/5 transition-all active:scale-90 disabled:opacity-20 ${colorClass}`}
+  >
+    {icon}
+  </button>
+);
+
 const SettingsView: React.FC<SettingsViewProps> = ({ settings, onUpdate, onReset, onClearHistory }) => {
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
   const clearAICache = () => {
-    if (confirm("确定要清除所有 AI 音乐解读缓存吗？清除后再次播放时需重新联网生成。")) {
+    if (confirm("【预警】确定要清除所有 AI 音乐解读缓存吗？\n\n清除后，原本已生成的歌曲背景故事将全部消失，再次播放时需联网重新生成。")) {
       const request = indexedDB.deleteDatabase('VinylRhythmDB');
       request.onsuccess = () => {
-         alert("已清除 AI 解读数据，应用将刷新以重新初始化。");
+         alert("已成功清除 AI 解读数据。应用将刷新以重新初始化。");
          window.location.reload();
       };
     }
   };
 
   const handleClearHistory = () => {
-    if (confirm("确定要清除播放历史记录吗？")) {
+    if (confirm("确定要彻底清空播放历史记录吗？")) {
       onClearHistory?.();
     }
   };
 
   const clearLibraryCache = () => {
-    if (confirm("确定要清除音乐库缓存吗？清除后需要重新扫描音乐文件。")) {
+    if (confirm("【严重预警】确定要清空音乐库缓存吗？\n\n此操作将移除本地存储的所有音乐元数据（歌手、专辑信息）和封面图片预览。虽然不会删除您的实际音乐文件，但您需要重新通过“管理库”来扫描所有文件夹。")) {
       const request = indexedDB.deleteDatabase('VinylRhythmDB');
       request.onsuccess = () => {
-         alert("已清除音乐库缓存，应用将刷新以重新初始化。");
+         alert("已清空音乐库缓存。应用将重置，请在重启后重新导入您的音乐文件夹。");
          window.location.reload();
       };
     }
@@ -82,8 +101,35 @@ const SettingsView: React.FC<SettingsViewProps> = ({ settings, onUpdate, onReset
     try {
       await exportDatabase();
     } catch (e) {
-      alert("备份失败，请重试。");
+      alert("备份导出过程中发生错误，请检查权限。");
     }
+  };
+
+  const handleRestoreClick = () => {
+    fileInputRef.current?.click();
+  };
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = async (event) => {
+      const content = event.target?.result as string;
+      try {
+        const ok = await importDatabase(content);
+        if (ok) {
+          alert("还原成功！所有收藏、AI 解读和曲库元数据已恢复。应用即将刷新。");
+          window.location.reload();
+        } else {
+          alert("还原失败：文件格式不兼容或已损坏。");
+        }
+      } catch (err) {
+        alert("解析备份文件时发生错误。");
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = '';
   };
 
   return (
@@ -92,6 +138,14 @@ const SettingsView: React.FC<SettingsViewProps> = ({ settings, onUpdate, onReset
         <h2 className="text-3xl md:text-5xl font-black text-white tracking-tighter uppercase italic">控制中心</h2>
         <div className="h-1 w-20 bg-yellow-500 mt-4 rounded-full shadow-[0_0_15px_rgba(234,179,8,0.5)]"></div>
       </header>
+
+      <input 
+        type="file" 
+        ref={fileInputRef} 
+        style={{ display: 'none' }} 
+        accept=".json" 
+        onChange={handleFileChange} 
+      />
 
       <div className="max-w-3xl">
         <SettingsCard title="AI 实验室" icon={<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M12 2v4m0 12v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>}>
@@ -114,7 +168,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ settings, onUpdate, onReset
               </div>
               <button 
                 onClick={handleClearHistory}
-                className="px-4 py-1.5 rounded-full bg-white/5 hover:bg-red-500/20 text-red-500 text-[10px] font-black uppercase tracking-widest transition-all"
+                className="px-4 py-1.5 rounded-full bg-white/5 hover:bg-red-500/20 text-red-500 text-[10px] font-black uppercase tracking-widest transition-all border border-white/5 hover:border-red-500/30"
               >
                 Clear History
               </button>
@@ -123,21 +177,27 @@ const SettingsView: React.FC<SettingsViewProps> = ({ settings, onUpdate, onReset
            <div className="flex items-center justify-between">
               <div>
                 <div className="text-sm font-bold text-zinc-200">音乐库缓存</div>
-                <div className="text-[10px] text-zinc-500 font-medium uppercase tracking-wider mt-0.5">本地存储的音乐元数据和封面缓存</div>
+                <div className="text-[10px] text-zinc-500 font-medium uppercase tracking-wider mt-0.5">本地存储的曲目元数据、封面及 AI 故事备份</div>
               </div>
               <div className="flex items-center gap-2">
-                <button 
+                <IconButton 
+                  title="导出备份"
                   onClick={handleBackup}
-                  className="px-4 py-1.5 rounded-full bg-white/5 hover:bg-yellow-500/20 text-yellow-500 text-[10px] font-black uppercase tracking-widest transition-all"
-                >
-                  Backup Cache
-                </button>
-                <button 
+                  colorClass="hover:bg-yellow-500/10 hover:text-yellow-500 hover:border-yellow-500/30"
+                  icon={<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>}
+                />
+                <IconButton 
+                  title="还原备份"
+                  onClick={handleRestoreClick}
+                  colorClass="hover:bg-blue-500/10 hover:text-blue-400 hover:border-blue-500/30"
+                  icon={<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12"/></svg>}
+                />
+                <IconButton 
+                  title="清空缓存(预警)"
                   onClick={clearLibraryCache}
-                  className="px-4 py-1.5 rounded-full bg-white/5 hover:bg-red-500/20 text-red-500 text-[10px] font-black uppercase tracking-widest transition-all"
-                >
-                  Clear Cache
-                </button>
+                  colorClass="hover:bg-red-500/10 hover:text-red-500 hover:border-red-500/30"
+                  icon={<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M10 11v6M14 11v6"/></svg>}
+                />
               </div>
            </div>
         </SettingsCard>
@@ -185,7 +245,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ settings, onUpdate, onReset
           </div>
           <button 
             onClick={() => { if(confirm("确定恢复默认设置吗？")) onReset(); }}
-            className="px-6 py-2 bg-red-500 text-white rounded-full text-[10px] font-black uppercase tracking-widest hover:bg-red-600 transition-all active:scale-95"
+            className="px-6 py-2 bg-red-500 text-white rounded-full text-[10px] font-black uppercase tracking-widest hover:bg-red-600 transition-all active:scale-95 shadow-lg shadow-red-500/10"
           >
             Reset
           </button>
