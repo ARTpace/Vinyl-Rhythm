@@ -1,6 +1,7 @@
 
 import React from 'react';
 import { AppSettings } from '../types';
+import { exportDatabase } from '../utils/storage';
 
 interface SettingsViewProps {
   settings: AppSettings;
@@ -77,6 +78,14 @@ const SettingsView: React.FC<SettingsViewProps> = ({ settings, onUpdate, onReset
     }
   };
 
+  const handleBackup = async () => {
+    try {
+      await exportDatabase();
+    } catch (e) {
+      alert("备份失败，请重试。");
+    }
+  };
+
   return (
     <div className="p-4 md:p-12 h-full overflow-y-auto custom-scrollbar animate-in fade-in slide-in-from-bottom-4 duration-700 pb-32">
       <header className="mb-10">
@@ -116,12 +125,20 @@ const SettingsView: React.FC<SettingsViewProps> = ({ settings, onUpdate, onReset
                 <div className="text-sm font-bold text-zinc-200">音乐库缓存</div>
                 <div className="text-[10px] text-zinc-500 font-medium uppercase tracking-wider mt-0.5">本地存储的音乐元数据和封面缓存</div>
               </div>
-              <button 
-                onClick={clearLibraryCache}
-                className="px-4 py-1.5 rounded-full bg-white/5 hover:bg-red-500/20 text-red-500 text-[10px] font-black uppercase tracking-widest transition-all"
-              >
-                Clear Cache
-              </button>
+              <div className="flex items-center gap-2">
+                <button 
+                  onClick={handleBackup}
+                  className="px-4 py-1.5 rounded-full bg-white/5 hover:bg-yellow-500/20 text-yellow-500 text-[10px] font-black uppercase tracking-widest transition-all"
+                >
+                  Backup Cache
+                </button>
+                <button 
+                  onClick={clearLibraryCache}
+                  className="px-4 py-1.5 rounded-full bg-white/5 hover:bg-red-500/20 text-red-500 text-[10px] font-black uppercase tracking-widest transition-all"
+                >
+                  Clear Cache
+                </button>
+              </div>
            </div>
         </SettingsCard>
 

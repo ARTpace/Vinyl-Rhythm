@@ -44,19 +44,14 @@ const App: React.FC = () => {
     hydratePlaylist
   } = usePlaylist();
 
-  // 核心修复逻辑：当主曲库从数据库加载出含有有效 Blob URL 的曲目后，同步给播放列表
   useEffect(() => {
     if (library.tracks.length > 0) {
       hydratePlaylist(library.tracks);
     }
   }, [library.tracks, hydratePlaylist]);
 
-  // 核心变更：播放器现在仅对播放列表(playlist)负责
   const player = useAudioPlayer(playlist, library.resolveTrackFile);
-  
-  // 调用音频分析器，获取用于黑胶唱片视觉跳动的实时强度数据
   const { audioIntensity } = useAudioAnalyzer(player.audioRef, player.isPlaying);
-
   const currentTrack = player.currentTrackIndex !== null ? playlist[player.currentTrackIndex] : null;
   const { rhythmColor } = useThemeColor(currentTrack?.coverUrl);
 
@@ -106,7 +101,6 @@ const App: React.FC = () => {
     library.setSearchQuery('');
   };
 
-  // 处理从曲库中点击“播放”
   const handlePlayFromLibrary = useCallback((track: Track) => {
     const idx = playlist.findIndex(t => t.fingerprint === track.fingerprint);
     if (idx !== -1) {
@@ -120,7 +114,6 @@ const App: React.FC = () => {
     player.setIsPlaying(true);
   }, [playlist, player, setPlaylist]);
 
-  // 新增：播放整张专辑
   const handlePlayAlbum = useCallback((albumName: string) => {
     const albumTracks = library.tracks.filter(t => t.album === albumName);
     if (albumTracks.length > 0) {
@@ -131,7 +124,6 @@ const App: React.FC = () => {
     }
   }, [library.tracks, setPlaylist, player]);
 
-  // 新增：播放歌手全部歌曲
   const handlePlayArtist = useCallback((artistName: string) => {
     const artistTracks = library.tracks.filter(t => t.artist === artistName);
     if (artistTracks.length > 0) {
@@ -142,10 +134,9 @@ const App: React.FC = () => {
     }
   }, [library.tracks, setPlaylist, player]);
 
-  // 处理从播放队列中选择并播放
   const handleSelectTrackFromQueue = useCallback((index: number) => {
     player.setCurrentTrackIndex(index);
-    player.setIsPlaying(true); // 显式触发播放
+    player.setIsPlaying(true); 
   }, [player]);
 
   return (
@@ -195,7 +186,7 @@ const App: React.FC = () => {
             {library.isImporting && (
               <div className="hidden md:flex items-center gap-3 px-4 py-2 bg-black/40 border border-white/5 rounded-2xl backdrop-blur-md animate-in fade-in">
                 <div className="flex flex-col items-end min-w-0 max-w-[120px]">
-                  <span className="text-white text-[10px] font-black italic">{Math.round(library.importProgress)}%</span>
+                  <span className="text-white text-[10px] font-black italic">{library.importProgress}%</span>
                   <span className="text-zinc-500 text-[8px] font-bold uppercase tracking-tighter truncate w-full text-right">{library.currentProcessingFile}</span>
                 </div>
                 <div className="w-16 h-1.5 bg-white/5 rounded-full overflow-hidden">
@@ -250,7 +241,7 @@ const App: React.FC = () => {
                       <div className="mt-8 flex items-center gap-3 animate-in fade-in zoom-in duration-1000">
                         <div className="flex items-center gap-2 px-4 py-1 rounded-full bg-white/5 border border-white/5 backdrop-blur-sm">
                            <span className={`w-1.5 h-1.5 rounded-full ${qualityInfo.color} ${player.isPlaying ? 'animate-pulse' : 'opacity-50'}`} style={{ boxShadow: player.isPlaying ? `0 0 8px currentColor` : 'none' }}></span>
-                           <span className={`text-[10px] font-black uppercase tracking-[0.15em] ${qualityInfo.color}`}>{qualityInfo.label}</span>
+                           <span className={`text-[10px] font-black uppercase tracking-[0.15em] ${qualityInfo.label === 'Hi-Res' ? 'text-yellow-400' : qualityInfo.color}`}>{qualityInfo.label}</span>
                            <span className="text-[10px] text-zinc-600 font-mono tracking-tighter">{qualityInfo.bitrate}</span>
                         </div>
                       </div>
@@ -272,6 +263,7 @@ const App: React.FC = () => {
                   <LibraryView 
                     view={view} 
                     tracks={library.filteredTracks} 
+                    folders={library.importedFolders} // 新增传参
                     onPlay={handlePlayFromLibrary} 
                     onAddToPlaylist={addToPlaylist}
                     favorites={library.favorites} 

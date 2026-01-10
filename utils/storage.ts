@@ -182,21 +182,35 @@ export const saveStoryToStore = async (artist: string, trackName: string, story:
 
 export const exportDatabase = async () => {
   const db = await initDB();
+  
+  // 1. 获取 AI 解读
   const txStories = db.transaction(STORIES_STORE, 'readonly');
   const stories = await new Promise<any[]>(resolve => {
     txStories.objectStore(STORIES_STORE).getAll().onsuccess = (e: any) => resolve(e.target.result);
   });
+
+  // 2. 获取曲库缓存元数据 (排除 Blob 以减小文件体积)
+  const txTracks = db.transaction(TRACKS_CACHE_STORE, 'readonly');
+  const tracks = await new Promise<any[]>(resolve => {
+    txTracks.objectStore(TRACKS_CACHE_STORE).getAll().onsuccess = (e: any) => {
+        const raw = e.target.result || [];
+        resolve(raw.map(({ coverBlob, ...rest }: any) => rest));
+    };
+  });
+
   const data = { 
     version: DB_VERSION, 
     exportDate: Date.now(), 
     stories, 
+    tracks,
     favorites: JSON.parse(localStorage.getItem('vinyl_favorites') || '[]') 
   };
+
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = `VinylRhythm_Backup_${new Date().toISOString().split('T')[0]}.json`;
+  a.download = `VinylRhythm_FullBackup_${new Date().toISOString().split('T')[0]}.json`;
   a.click();
   URL.revokeObjectURL(url);
 };
@@ -205,11 +219,21 @@ export const importDatabase = async (jsonString: string) => {
   try {
     const data = JSON.parse(jsonString);
     const db = await initDB();
+    
+    // 恢复 AI Stories
     if (data.stories && Array.isArray(data.stories)) {
       const tx = db.transaction(STORIES_STORE, 'readwrite');
       const store = tx.objectStore(STORIES_STORE);
       for (const item of data.stories) store.put(item);
     }
+
+    // 恢复曲目元数据列表 (注意：由于不包含 Blob，恢复后封面会显示默认图，直到重新扫描)
+    if (data.tracks && Array.isArray(data.tracks)) {
+        const tx = db.transaction(TRACKS_CACHE_STORE, 'readwrite');
+        const store = tx.objectStore(TRACKS_CACHE_STORE);
+        for (const item of data.tracks) store.put(item);
+    }
+
     if (data.favorites) localStorage.setItem('vinyl_favorites', JSON.stringify(data.favorites));
     return true;
   } catch (e) { return false; }

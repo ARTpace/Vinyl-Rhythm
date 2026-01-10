@@ -1,5 +1,5 @@
 
-import { Track, ViewType } from '../types';
+import { Track, ViewType, LibraryFolder } from '../types';
 import { formatTime } from '../utils/audioParser';
 import { scrapeNeteaseMusic } from '../services/metadataService';
 import React, { useMemo, useState, useEffect, useCallback, useRef } from 'react';
@@ -8,6 +8,7 @@ import ReactDOM from 'react-dom';
 interface LibraryViewProps {
   view: ViewType;
   tracks: Track[];
+  folders?: LibraryFolder[]; // 新增：文件夹列表映射
   onPlay: (track: Track) => void;
   onAddToPlaylist?: (track: Track) => void;
   favorites: Set<string>;
@@ -97,24 +98,18 @@ const TrackRow = React.memo<{
   const handleAdd = (e: React.MouseEvent) => {
     e.stopPropagation();
     if (isAdded) return;
-
-    // 动态获取目标元素坐标
     const target = document.getElementById('queue-target');
     if (btnRef.current && target) {
         const startRect = btnRef.current.getBoundingClientRect();
         const endRect = target.getBoundingClientRect();
-
-        // 计算相对偏移量
         setFlyEffect({
             startX: startRect.left,
             startY: startRect.top,
             endX: endRect.left - startRect.left + (endRect.width / 2) - 20, 
             endY: endRect.top - startRect.top + (endRect.height / 2) - 20
         });
-
         setTimeout(() => setFlyEffect(null), 800);
     }
-
     setIsAdded(true);
     onAddToPlaylist?.(track);
     setTimeout(() => setIsAdded(false), 1500);
@@ -125,10 +120,7 @@ const TrackRow = React.memo<{
       className="group flex items-center gap-4 p-3 md:p-4 hover:bg-white/5 transition-all cursor-pointer border-b border-white/[0.03] last:border-0"
       onClick={() => onPlay(track)}
     >
-        {/* 1. 编号列 - 固定宽度 */}
         <div className="w-6 text-center text-zinc-700 font-mono text-xs group-hover:text-yellow-500 shrink-0">{String(index + 1).padStart(2, '0')}</div>
-        
-        {/* 2. 封面列 - 固定宽度 */}
         <div className="w-10 h-10 md:w-12 md:h-12 rounded-lg md:rounded-xl bg-zinc-800 overflow-hidden relative shrink-0 shadow-lg group-hover:scale-110 transition-transform">
           {track.coverUrl ? (
             <img key={track.coverUrl} src={track.coverUrl} className="w-full h-full object-cover animate-in fade-in duration-700" loading="lazy" />
@@ -143,8 +135,6 @@ const TrackRow = React.memo<{
             </div>
           )}
         </div>
-        
-        {/* 3. 歌曲信息列 - 弹性填充 (flex-1) */}
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 mb-0.5">
             <div className="text-white font-black truncate text-sm md:text-base tracking-tight">{convert(track.name)}</div>
@@ -156,90 +146,40 @@ const TrackRow = React.memo<{
                )}
             </div>
           </div>
-          <button 
-            onClick={(e) => { e.stopPropagation(); onNavigate?.('artistProfile', track.artist); }}
-            className="text-zinc-500 text-[9px] md:text-xs font-bold uppercase tracking-widest hover:text-yellow-500 transition-colors"
-          >
+          <button onClick={(e) => { e.stopPropagation(); onNavigate?.('artistProfile', track.artist); }} className="text-zinc-500 text-[9px] md:text-xs font-bold uppercase tracking-widest hover:text-yellow-500 transition-colors">
             {convert(track.artist)}
           </button>
         </div>
-        
-        {/* 4. 操作按钮列 - 固定宽度，确保“添加”按钮垂直对齐 */}
         <div className="flex items-center gap-1 w-16 md:w-20 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity justify-end">
-          <button 
-            ref={btnRef}
-            onClick={handleAdd}
-            title="添加至播放队列"
-            className={`p-2 rounded-full transition-all duration-300 active:scale-90 ${isAdded ? 'bg-green-500 text-black shadow-[0_0_10px_rgba(34,197,94,0.4)]' : 'hover:bg-yellow-500 hover:text-black text-yellow-500/80'}`}
-          >
-            {isAdded ? (
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="4" className="animate-in zoom-in"><path d="M20 6L9 17l-5-5"/></svg>
-            ) : (
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><path d="M12 5v14M5 12h14"/></svg>
-            )}
+          <button ref={btnRef} onClick={handleAdd} className={`p-2 rounded-full transition-all duration-300 active:scale-90 ${isAdded ? 'bg-green-500 text-black shadow-[0_0_10px_rgba(34,197,94,0.4)]' : 'hover:bg-yellow-500 hover:text-black text-yellow-500/80'}`}>
+            {isAdded ? <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="4" className="animate-in zoom-in"><path d="M20 6L9 17l-5-5"/></svg> : <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><path d="M12 5v14M5 12h14"/></svg>}
           </button>
-          
-          <button 
-            onClick={(e) => { e.stopPropagation(); onScrape(track); }}
-            title="智能更正信息"
-            className="hidden md:flex p-2 rounded-full transition-all hover:bg-white/10 text-zinc-700 hover:text-red-500"
-          >
+          <button onClick={(e) => { e.stopPropagation(); onScrape(track); }} className="hidden md:flex p-2 rounded-full transition-all hover:bg-white/10 text-zinc-700 hover:text-red-500">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12a9 9 0 1 1-6.219-8.56"/><path d="M16 10l4 4 4-4"/><path d="M20 4v10"/></svg>
           </button>
         </div>
-
-        {/* 5. 专辑列 - 固定宽度 (lg及以上显示) */}
-        <button 
-          onClick={(e) => { e.stopPropagation(); onNavigate?.('albums', track.album); }}
-          className="hidden lg:block text-zinc-500 text-sm font-black uppercase tracking-widest w-32 md:w-40 shrink-0 truncate text-left hover:text-yellow-500 transition-colors"
-        >
+        <button onClick={(e) => { e.stopPropagation(); onNavigate?.('albums', track.album); }} className="hidden lg:block text-zinc-500 text-sm font-black uppercase tracking-widest w-32 md:w-40 shrink-0 truncate text-left hover:text-yellow-500 transition-colors">
           {convert(track.album)}
         </button>
-        
-        {/* 6. 时长列 - 固定宽度 (md及以上显示) */}
         <div className="hidden md:block text-zinc-600 font-mono text-sm w-16 shrink-0 text-right group-hover:text-zinc-400 transition-colors">{formatTime(track.duration || 0)}</div>
-        
-        {/* 7. 收藏列 - 固定宽度 */}
         <div className="w-10 flex justify-end shrink-0">
-          <button 
-            onClick={(e) => { e.stopPropagation(); onToggleFavorite(track.id); }}
-            className={`p-2 rounded-full transition-all active:scale-75 ${isFavorite ? 'text-red-500 shadow-[0_0_15px_rgba(239,68,68,0.2)]' : 'text-zinc-800 hover:text-white group-hover:opacity-100'}`}
-          >
+          <button onClick={(e) => { e.stopPropagation(); onToggleFavorite(track.id); }} className={`p-2 rounded-full transition-all active:scale-75 ${isFavorite ? 'text-red-500 shadow-[0_0_15px_rgba(239,68,68,0.2)]' : 'text-zinc-800 hover:text-white group-hover:opacity-100'}`}>
             <svg width="16" height="16" viewBox="0 0 24 24" fill={isFavorite ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2.5"><path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"/></svg>
           </button>
         </div>
-
-        {/* 飞入动效 Portal */}
         {flyEffect && ReactDOM.createPortal(
-            <div 
-                className="fixed pointer-events-none z-[999] animate-fly"
-                style={{ 
-                    left: flyEffect.startX, 
-                    top: flyEffect.startY,
-                    '--fly-x-end': `${flyEffect.endX}px`,
-                    '--fly-y-end': `${flyEffect.endY}px`,
-                    '--fly-x-mid': `${flyEffect.endX * 0.4}px`,
-                    '--fly-y-mid': `${-200}px` 
-                } as any}
-            >
+            <div className="fixed pointer-events-none z-[999] animate-fly" style={{ left: flyEffect.startX, top: flyEffect.startY, '--fly-x-end': `${flyEffect.endX}px`, '--fly-y-end': `${flyEffect.endY}px`, '--fly-x-mid': `${flyEffect.endX * 0.4}px`, '--fly-y-mid': `${-200}px` } as any}>
                 <div className="w-10 h-10 rounded-full bg-zinc-900 border-2 border-yellow-500 overflow-hidden shadow-2xl">
-                    {track.coverUrl ? (
-                        <img src={track.coverUrl} className="w-full h-full object-cover" />
-                    ) : (
-                        <div className="w-full h-full flex items-center justify-center bg-zinc-800 text-yellow-500">
-                             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/></svg>
-                        </div>
-                    )}
+                    {track.coverUrl ? <img src={track.coverUrl} className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center bg-zinc-800 text-yellow-500"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/></svg></div>}
                 </div>
-            </div>,
-            document.body
+            </div>, document.body
         )}
     </div>
   );
 });
 
 const LibraryView: React.FC<LibraryViewProps> = ({ 
-  view, tracks, onPlay, onAddToPlaylist, favorites, onToggleFavorite, onUpdateTrack, onNavigate, onBack,
+  view, tracks, folders = [], onPlay, onAddToPlaylist, favorites, onToggleFavorite, onUpdateTrack, onNavigate, onBack,
   navigationRequest, onNavigationProcessed, isSearching = false, displayConverter
 }) => {
   const [activeGroup, setActiveGroup] = useState<string | null>(null);
@@ -259,7 +199,13 @@ const LibraryView: React.FC<LibraryViewProps> = ({
   const lastViewRef = useRef(view);
   const convert = (s: string) => displayConverter ? displayConverter(s) : s;
 
-  // 响应钻取请求（Drill-down）
+  // 映射 ID 到 名称
+  const folderIdToName = useMemo(() => {
+    const map = new Map<string, string>();
+    folders.forEach(f => map.set(f.id, f.name));
+    return map;
+  }, [folders]);
+
   useEffect(() => {
     if (navigationRequest) {
       if (navigationRequest.type === 'folders') {
@@ -276,7 +222,6 @@ const LibraryView: React.FC<LibraryViewProps> = ({
     }
   }, [navigationRequest, onNavigationProcessed]);
 
-  // 只有在手动切换主视图且没有挂起的钻取请求时，才重置状态
   useEffect(() => {
     if (view === 'all' && lastViewRef.current !== 'all' && !navigationRequest) {
       setActiveGroup(null);
@@ -299,11 +244,7 @@ const LibraryView: React.FC<LibraryViewProps> = ({
           coverUrl: newData.coverUrl || track.coverUrl
         });
       }
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setScrapingId(null);
-    }
+    } catch (err) { console.error(err); } finally { setScrapingId(null); }
   };
 
   useEffect(() => {
@@ -367,10 +308,7 @@ const LibraryView: React.FC<LibraryViewProps> = ({
     list.sort((a, b) => {
       let valA: any = (a as any)[sortKey] ?? '';
       let valB: any = (b as any)[sortKey] ?? '';
-      if (typeof valA === 'string' && typeof valB === 'string') {
-        valA = valA.toLowerCase();
-        valB = valB.toLowerCase();
-      }
+      if (typeof valA === 'string' && typeof valB === 'string') { valA = valA.toLowerCase(); valB = valB.toLowerCase(); }
       if (valA < valB) return sortOrder === 'asc' ? -1 : 1;
       if (valA > valB) return sortOrder === 'asc' ? 1 : -1;
       return 0;
@@ -379,27 +317,15 @@ const LibraryView: React.FC<LibraryViewProps> = ({
   }, [tracks, favorites, subTab, activeGroup, activeAlbum, sortKey, sortOrder, isSearching, filterQuality, filterDecade, filterDuration]);
 
   const pageTitle = useMemo(() => {
-    if (activeGroup) return activeGroup;
+    if (activeGroup) return folderIdToName.get(activeGroup) || activeGroup;
     if (activeAlbum) return activeAlbum;
     if (view === 'history') return '最近播放';
     return '本地曲库';
-  }, [activeGroup, activeAlbum, view]);
+  }, [activeGroup, activeAlbum, view, folderIdToName]);
 
-  const sortOptions = [
-    { key: 'lastModified', label: '最近添加' },
-    { key: 'name', label: '名称' },
-    { key: 'artist', label: '艺人' },
-    { key: 'album', label: '专辑' }
-  ] as const;
-
-  const resetFilters = () => {
-    setFilterQuality('all');
-    setFilterDecade('all');
-    setFilterDuration('all');
-  };
-
+  const sortOptions = [{ key: 'lastModified', label: '最近添加' }, { key: 'name', label: '名称' }, { key: 'artist', label: '艺人' }, { key: 'album', label: '专辑' }] as const;
+  const resetFilters = () => { setFilterQuality('all'); setFilterDecade('all'); setFilterDuration('all'); };
   const hasActiveFilters = filterQuality !== 'all' || filterDecade !== 'all' || filterDuration !== 'all';
-
   const subTabs = [
     { id: 'all', label: '全部曲目', icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M3 12h18M3 6h18M3 18h18"/></svg> },
     { id: 'fav', label: '收藏曲目', icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"/></svg> },
@@ -410,17 +336,11 @@ const LibraryView: React.FC<LibraryViewProps> = ({
     <div className="flex flex-col h-full bg-zinc-950/20 overflow-hidden animate-in fade-in duration-500">
       <header className="p-4 md:p-8 flex flex-col md:flex-row md:items-end justify-between gap-4 shrink-0">
         <div className="space-y-1">
-          <h2 className="text-2xl md:text-4xl font-black text-white tracking-tighter uppercase italic">
-            {convert(pageTitle)}
-          </h2>
+          <h2 className="text-2xl md:text-4xl font-black text-white tracking-tighter uppercase italic">{convert(pageTitle)}</h2>
           <div className="h-0.5 w-12 bg-yellow-500 rounded-full shadow-[0_0_10px_rgba(234,179,8,0.5)]"></div>
         </div>
-
         {(activeGroup || activeAlbum) && (
-          <button 
-            onClick={() => { setActiveGroup(null); setActiveAlbum(null); }}
-            className="flex items-center gap-2 text-zinc-500 hover:text-yellow-500 transition-colors uppercase font-black text-[10px] tracking-widest"
-          >
+          <button onClick={() => { setActiveGroup(null); setActiveAlbum(null); }} className="flex items-center gap-2 text-zinc-500 hover:text-yellow-500 transition-colors uppercase font-black text-[10px] tracking-widest">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><path d="m15 18-6-6 6-6"/></svg>
             BACK TO LIST
           </button>
@@ -432,69 +352,26 @@ const LibraryView: React.FC<LibraryViewProps> = ({
           <div className="flex flex-col lg:flex-row items-center justify-between gap-4">
             <div className="flex bg-black/60 p-1.5 rounded-[1.5rem] border border-white/5 backdrop-blur-xl w-full lg:w-auto gap-1">
               {subTabs.map(tab => (
-                <button 
-                  key={tab.id}
-                  onClick={() => setSubTab(tab.id as any)}
-                  className={`flex-1 md:flex-none flex items-center justify-center gap-3 px-6 md:px-8 py-3 text-xs font-black uppercase tracking-widest rounded-2xl transition-all duration-300 ${subTab === tab.id ? 'bg-zinc-800 text-yellow-500 shadow-[0_10px_20px_rgba(0,0,0,0.4)] border border-white/10' : 'text-zinc-500 hover:text-zinc-300 hover:bg-white/5'}`}
-                >
+                <button key={tab.id} onClick={() => setSubTab(tab.id as any)} className={`flex-1 md:flex-none flex items-center justify-center gap-3 px-6 md:px-8 py-3 text-xs font-black uppercase tracking-widest rounded-2xl transition-all duration-300 ${subTab === tab.id ? 'bg-zinc-800 text-yellow-500 shadow-[0_10px_20px_rgba(0,0,0,0.4)] border border-white/10' : 'text-zinc-500 hover:text-zinc-300 hover:bg-white/5'}`}>
                   <span className={`transition-transform duration-500 ${subTab === tab.id ? 'scale-110 drop-shadow-[0_0_8px_rgba(234,179,8,0.4)]' : ''}`}>{tab.icon}</span>
                   <span className="hidden sm:inline">{convert(tab.label)}</span>
                 </button>
               ))}
             </div>
-
             <div className="flex items-center gap-2 bg-white/5 p-1 rounded-2xl border border-white/5 w-full lg:w-auto overflow-x-auto custom-scrollbar no-scrollbar">
               <span className="hidden xl:block text-[9px] font-black text-zinc-600 uppercase tracking-widest pl-3 pr-2 opacity-50">Sort</span>
               {sortOptions.map(opt => (
-                <button
-                  key={opt.key}
-                  onClick={() => {
-                    if (sortKey === opt.key) {
-                      setSortOrder(prev => prev === 'asc' ? 'desc' : 'asc');
-                    } else {
-                      setSortKey(opt.key);
-                      setSortOrder(opt.key === 'lastModified' ? 'desc' : 'asc');
-                    }
-                  }}
-                  className={`px-3 py-2.5 rounded-xl text-[9px] font-black uppercase tracking-widest whitespace-nowrap transition-all flex items-center gap-1.5 ${sortKey === opt.key ? 'bg-yellow-500 text-black shadow-lg shadow-yellow-500/10' : 'text-zinc-500 hover:text-zinc-300'}`}
-                >
+                <button key={opt.key} onClick={() => { if (sortKey === opt.key) setSortOrder(prev => prev === 'asc' ? 'desc' : 'asc'); else { setSortKey(opt.key); setSortOrder(opt.key === 'lastModified' ? 'desc' : 'asc'); } }} className={`px-3 py-2.5 rounded-xl text-[9px] font-black uppercase tracking-widest whitespace-nowrap transition-all flex items-center gap-1.5 ${sortKey === opt.key ? 'bg-yellow-500 text-black shadow-lg shadow-yellow-500/10' : 'text-zinc-500 hover:text-zinc-300'}`}>
                   {convert(opt.label)}
-                  {sortKey === opt.key && (
-                    <svg 
-                      width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="4"
-                      className={`transition-transform duration-300 ${sortOrder === 'desc' ? 'rotate-180' : ''}`}
-                    >
-                      <path d="m18 15-6-6-6 6"/>
-                    </svg>
-                  )}
+                  {sortKey === opt.key && <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="4" className={`transition-transform duration-300 ${sortOrder === 'desc' ? 'rotate-180' : ''}`}><path d="m18 15-6-6-6 6"/></svg>}
                 </button>
               ))}
             </div>
           </div>
-
           {subTab !== 'folders' && (
             <div className="flex flex-wrap items-center gap-3">
-              <FilterDropdown 
-                value={filterQuality}
-                options={[
-                  { id: 'all', label: '全部音质' },
-                  { id: 'hires', label: 'Hi-Res (≥2k)' },
-                  { id: 'lossless', label: '无损 (FLAC/WAV)' },
-                  { id: 'hq', label: '高品质 (HQ)' },
-                  { id: 'sd', label: '标准 (SD)' }
-                ]}
-                onChange={setFilterQuality}
-                icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><circle cx="12" cy="12" r="10"/><path d="M12 6v12M6 12h12"/></svg>}
-              />
-              {hasActiveFilters && (
-                <button
-                  onClick={resetFilters}
-                  className="px-4 py-2.5 rounded-2xl text-[9px] font-black uppercase tracking-widest text-red-500 bg-red-500/10 hover:bg-red-500/20 transition-all border border-red-500/20 flex items-center gap-2"
-                >
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><path d="M18 6 6 18M6 6l12 12"/></svg>
-                  Reset
-                </button>
-              )}
+              <FilterDropdown value={filterQuality} options={[{ id: 'all', label: '全部音质' }, { id: 'hires', label: 'Hi-Res (≥2k)' }, { id: 'lossless', label: '无损 (FLAC/WAV)' }, { id: 'hq', label: '高品质 (HQ)' }, { id: 'sd', label: '标准 (SD)' }]} onChange={setFilterQuality} icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><circle cx="12" cy="12" r="10"/><path d="M12 6v12M6 12h12"/></svg>} />
+              {hasActiveFilters && <button onClick={resetFilters} className="px-4 py-2.5 rounded-2xl text-[9px] font-black uppercase tracking-widest text-red-500 bg-red-500/10 hover:bg-red-500/20 transition-all border border-red-500/20 flex items-center gap-2"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><path d="M18 6 6 18M6 6l12 12"/></svg>Reset</button>}
             </div>
           )}
         </div>
@@ -503,23 +380,18 @@ const LibraryView: React.FC<LibraryViewProps> = ({
       <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 md:px-8 pb-32 custom-scrollbar">
         {groups && !activeGroup && !activeAlbum ? (
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-6">
-            {groups.map(([name, groupTracks]) => (
-              <div 
-                key={name} 
-                onClick={() => setActiveGroup(name)}
-                className="group cursor-pointer bg-white/5 border border-white/5 rounded-3xl p-4 hover:bg-white/10 transition-all"
-              >
-                <div className="aspect-square rounded-2xl bg-zinc-900 overflow-hidden mb-4 shadow-xl">
-                  {groupTracks[0]?.coverUrl ? (
-                    <img src={groupTracks[0].coverUrl} className="w-full h-full object-cover opacity-60 group-hover:opacity-100 transition-opacity" />
-                  ) : (
-                    <div className="w-full h-full flex items-center justify-center text-zinc-700 text-4xl font-black">{name[0]}</div>
-                  )}
+            {groups.map(([id, groupTracks]) => {
+              const displayName = folderIdToName.get(id) || (id === 'undefined' ? '未知' : id);
+              return (
+                <div key={id} onClick={() => setActiveGroup(id)} className="group cursor-pointer bg-white/5 border border-white/5 rounded-3xl p-4 hover:bg-white/10 transition-all">
+                  <div className="aspect-square rounded-2xl bg-zinc-900 overflow-hidden mb-4 shadow-xl">
+                    {groupTracks[0]?.coverUrl ? <img src={groupTracks[0].coverUrl} className="w-full h-full object-cover opacity-60 group-hover:opacity-100 transition-opacity" /> : <div className="w-full h-full flex items-center justify-center text-zinc-700 text-4xl font-black">{displayName[0]}</div>}
+                  </div>
+                  <h3 className="text-white font-bold text-sm truncate uppercase tracking-tight">{convert(displayName)}</h3>
+                  <p className="text-[10px] text-zinc-600 font-bold uppercase tracking-widest mt-1">{groupTracks.length} TRACKS</p>
                 </div>
-                <h3 className="text-white font-bold text-sm truncate uppercase tracking-tight">{convert(name === 'undefined' ? '未知' : name)}</h3>
-                <p className="text-[10px] text-zinc-600 font-bold uppercase tracking-widest mt-1">{groupTracks.length} TRACKS</p>
-              </div>
-            ))}
+              );
+            })}
           </div>
         ) : (
           <div className="space-y-1">
@@ -531,11 +403,7 @@ const LibraryView: React.FC<LibraryViewProps> = ({
             ) : (
               <>
                 {filteredAndSortedTracks.slice(0, displayLimit).map((track, index) => (
-                  <TrackRow 
-                    key={track.id} track={track} index={index} isFavorite={favorites.has(track.id)} 
-                    onPlay={onPlay} onAddToPlaylist={onAddToPlaylist} onToggleFavorite={onToggleFavorite} onScrape={handleScrape}
-                    isScraping={scrapingId === track.id} onNavigate={onNavigate} displayConverter={displayConverter}
-                  />
+                  <TrackRow key={track.id} track={track} index={index} isFavorite={favorites.has(track.id)} onPlay={onPlay} onAddToPlaylist={onAddToPlaylist} onToggleFavorite={onToggleFavorite} onScrape={handleScrape} isScraping={scrapingId === track.id} onNavigate={onNavigate} displayConverter={displayConverter} />
                 ))}
               </>
             )}
