@@ -67,7 +67,9 @@ const PlayerControls: React.FC<PlayerControlsProps> = ({
   const [showQueue, setShowQueue] = useState(false);
   const [queueTab, setQueueTab] = useState<'queue' | 'history'>('queue');
   const [lastVolume, setLastVolume] = useState(0.8);
+  const [isQueuePulsing, setIsQueuePulsing] = useState(false);
   const queueEndRef = useRef<HTMLDivElement>(null);
+  const prevQueueLength = useRef(tracks.length);
   
   const [draggedOverId, setDraggedOverId] = useState<string | null>(null);
   const [isDraggingSeek, setIsDraggingSeek] = useState(false);
@@ -79,6 +81,16 @@ const PlayerControls: React.FC<PlayerControlsProps> = ({
   const mobileProgressBarRef = useRef<HTMLDivElement>(null);
 
   const convert = (s: string) => displayConverter ? displayConverter(s) : s;
+
+  // 监听队列长度，触发脉冲动画
+  useEffect(() => {
+    if (tracks.length > prevQueueLength.current) {
+        setIsQueuePulsing(true);
+        const timer = setTimeout(() => setIsQueuePulsing(false), 400);
+        return () => clearTimeout(timer);
+    }
+    prevQueueLength.current = tracks.length;
+  }, [tracks.length]);
 
   useEffect(() => {
     const now = Date.now();
@@ -100,7 +112,6 @@ const PlayerControls: React.FC<PlayerControlsProps> = ({
   };
 
   const getVolumeIcon = () => {
-    // 增大图标尺寸至 22px
     const iconSize = "22";
     const stroke = "2.2";
     if (volume === 0) return <svg width={iconSize} height={iconSize} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={stroke}><path d="M11 5L6 9H2v6h4l5 4V5zM23 9l-6 6M17 9l6 6"/></svg>;
@@ -307,7 +318,6 @@ const PlayerControls: React.FC<PlayerControlsProps> = ({
 
         <div className="flex flex-col items-center justify-center gap-1 w-2/4 h-full pt-1">
            <div className="w-full flex items-center gap-4 px-4 group select-none mb-1">
-              {/* 增大时间显示尺寸 */}
               <span className="text-sm text-zinc-400 font-mono font-bold min-w-[50px] text-right">{formatTime(localProgress)}</span>
               <div ref={progressBarRef} onPointerDown={handleSeekStart} onPointerMove={handleSeekMove} onPointerUp={handleSeekEnd} onPointerCancel={handleSeekEnd} className={`flex-1 h-2 ${trackGrooveClass} relative cursor-pointer touch-none`}>
                  <div className="absolute top-0 left-0 h-full bg-yellow-500 rounded-full opacity-80" style={{ width: `${progressPercent}%` }}></div>
@@ -331,17 +341,21 @@ const PlayerControls: React.FC<PlayerControlsProps> = ({
                 </div>
               </button>
               <button onClick={onNext} disabled={tracks.length === 0} className={`w-10 h-10 ${convexButtonClass} disabled:opacity-30`}><svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M5 4l10 8-10 8V4zM19 5v14h-2V5h2z"/></svg></button>
-              <button onClick={() => setShowQueue(!showQueue)} className={`w-8 h-8 ${insetButtonClass(showQueue)} ${showQueue ? 'text-yellow-500' : ''}`}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg></button>
+              <button 
+                id="queue-target"
+                onClick={() => setShowQueue(!showQueue)} 
+                className={`w-8 h-8 ${insetButtonClass(showQueue)} ${showQueue ? 'text-yellow-500' : ''} ${isQueuePulsing ? 'animate-pulse-once' : ''}`}
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+              </button>
            </div>
         </div>
 
         <div className="flex items-center gap-5 w-1/4 justify-end pl-4">
-           {/* 扩大音量控制区的整体尺寸 */}
            <div className="flex items-center gap-4 w-full max-w-[200px]">
               <button onClick={handleToggleMute} className="text-[#555] hover:text-white transition-colors">
                 {getVolumeIcon()}
               </button>
-              {/* 增加音量条高度至 h-2 */}
               <div className={`flex-1 h-2 ${trackGrooveClass} relative cursor-pointer group/vol`}>
                 <div className="absolute top-0 left-0 h-full bg-yellow-500 rounded-full" style={{ width: `${volume * 100}%` }}></div>
                 <input 
@@ -353,7 +367,6 @@ const PlayerControls: React.FC<PlayerControlsProps> = ({
                   onChange={(e) => onVolumeChange(parseFloat(e.target.value))} 
                   className="absolute inset-0 opacity-0 cursor-pointer w-full h-full z-10" 
                 />
-                {/* 音量滑块的小指示点 */}
                 <div 
                   className="absolute top-1/2 -translate-y-1/2 w-3 h-3 bg-white rounded-full shadow-lg opacity-0 group-hover/vol:opacity-100 transition-opacity pointer-events-none -ml-1.5"
                   style={{ left: `${volume * 100}%` }}

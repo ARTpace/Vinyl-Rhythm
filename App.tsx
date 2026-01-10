@@ -19,6 +19,7 @@ import { useAudioPlayer } from './hooks/useAudioPlayer';
 import { useAudioAnalyzer } from './hooks/useAudioAnalyzer';
 import { useThemeColor } from './hooks/useThemeColor';
 import { useAppSettings } from './hooks/useAppSettings';
+import { usePlaylist } from './hooks/usePlaylist';
 
 const App: React.FC = () => {
   const { settings, updateSettings, resetSettings } = useAppSettings();
@@ -33,11 +34,22 @@ const App: React.FC = () => {
   }, [settings.useTraditionalChinese]);
 
   const library = useLibraryManager();
-  // 传入 resolveTrackFile 用于大曲库的延迟解析
-  const player = useAudioPlayer(library.tracks, library.resolveTrackFile);
-  const { audioIntensity } = useAudioAnalyzer(player.audioRef, player.isPlaying);
+  const { 
+    playlist, 
+    setPlaylist, 
+    addToPlaylist, 
+    removeFromPlaylist, 
+    clearPlaylist, 
+    reorderPlaylist 
+  } = usePlaylist();
+
+  // 核心变更：播放器现在仅对播放列表(playlist)负责
+  const player = useAudioPlayer(playlist, library.resolveTrackFile);
   
-  const currentTrack = player.currentTrackIndex !== null ? library.tracks[player.currentTrackIndex] : null;
+  // FIX: 调用音频分析器，获取用于黑胶唱片视觉跳动的实时强度数据
+  const { audioIntensity } = useAudioAnalyzer(player.audioRef, player.isPlaying);
+
+  const currentTrack = player.currentTrackIndex !== null ? playlist[player.currentTrackIndex] : null;
   const { rhythmColor } = useThemeColor(currentTrack?.coverUrl);
 
   const [trackStory, setTrackStory] = useState('');
@@ -69,7 +81,6 @@ const App: React.FC = () => {
     }
   }, [currentTrack, settings.enableAI, processDisplayString]);
 
-  // 移除首屏自动全量 syncAll，只进行静默同步以更新状态
   useEffect(() => {
     library.fetchHistory(); 
   }, []);
@@ -86,6 +97,22 @@ const App: React.FC = () => {
     setSelectedArtist(null);
     library.setSearchQuery('');
   };
+
+  // 处理从曲库中点击“播放”
+  const handlePlayFromLibrary = useCallback((track: Track) => {
+    // 查找该歌曲是否已在列表中
+    const idx = playlist.findIndex(t => t.fingerprint === track.fingerprint);
+    if (idx !== -1) {
+      player.setCurrentTrackIndex(idx);
+    } else {
+      // 如果不在，加入列表并播放
+      const newPlaylist = [...playlist, track];
+      setPlaylist(newPlaylist);
+      player.setCurrentTrackIndex(newPlaylist.length - 1);
+    }
+    setView('player');
+    player.setIsPlaying(true);
+  }, [playlist, player, setPlaylist]);
 
   return (
     <div className="flex h-screen overflow-hidden font-sans selection:bg-yellow-500/30">
@@ -202,24 +229,60 @@ const App: React.FC = () => {
                     )}
                   </div>
                 ) : view === 'artistProfile' && selectedArtist ? (
-                  <ArtistProfile artistName={selectedArtist} allTracks={library.tracks} onBack={() => { setView('collection'); setSelectedArtist(null); }} onPlayTrack={(t) => { const idx = library.tracks.findIndex(item => item.id === t.id); player.setCurrentTrackIndex(idx); setView('player'); player.setIsPlaying(true); }} onNavigateToAlbum={(album) => handleNavigate('albums', album)} favorites={library.favorites} onToggleFavorite={library.handleToggleFavorite} />
+                  <ArtistProfile artistName={selectedArtist} allTracks={library.tracks} onBack={() => { setView('collection'); setSelectedArtist(null); }} onPlayTrack={handlePlayFromLibrary} onNavigateToAlbum={(album) => handleNavigate('albums', album)} favorites={library.favorites} onToggleFavorite={library.handleToggleFavorite} />
                 ) : view === 'settings' ? (
                   <SettingsView settings={settings} onUpdate={updateSettings} onReset={resetSettings} onClearHistory={library.clearHistory} />
                 ) : view === 'collection' ? (
                   <CollectionView tracks={library.tracks} onNavigate={handleNavigate} displayConverter={processDisplayString} />
                 ) : (
-                  <LibraryView view={view} tracks={library.filteredTracks} onPlay={(t) => { const idx = library.tracks.findIndex(item => item.id === t.id); player.setCurrentTrackIndex(idx); setView('player'); player.setIsPlaying(true); }} favorites={library.favorites} navigationRequest={navigationRequest} onNavigationProcessed={() => setNavigationRequest(null)} onNavigate={handleNavigate} isSearching={library.searchQuery.length > 0} onToggleFavorite={library.handleToggleFavorite} onUpdateTrack={library.handleUpdateTrack} displayConverter={processDisplayString} />
+                  <LibraryView 
+                    view={view} 
+                    tracks={library.filteredTracks} 
+                    onPlay={handlePlayFromLibrary} 
+                    onAddToPlaylist={addToPlaylist}
+                    favorites={library.favorites} 
+                    navigationRequest={navigationRequest} 
+                    onNavigationProcessed={() => setNavigationRequest(null)} 
+                    onNavigate={handleNavigate} 
+                    isSearching={library.searchQuery.length > 0} 
+                    onToggleFavorite={library.handleToggleFavorite} 
+                    onUpdateTrack={library.handleUpdateTrack} 
+                    displayConverter={processDisplayString} 
+                  />
                 )}
             </div>
         </div>
         
         <audio ref={player.audioRef} src={currentTrack?.url} preload="auto" />
         <PlayerControls
-          currentTrack={currentTrack} tracks={library.tracks} historyTracks={library.historyTracks} currentIndex={player.currentTrackIndex}
-          isPlaying={player.isPlaying} onTogglePlay={player.togglePlay} onNext={player.nextTrack} onPrev={player.prevTrack} onSelectTrack={player.setCurrentTrackIndex} onRemoveTrack={(id) => library.setTracks(prev => prev.filter(t => t.id !== id))}
-          progress={player.progress} duration={player.duration} volume={player.volume} onVolumeChange={player.setVolume} onSeek={player.seek} isFavorite={currentTrack ? library.favorites.has(currentTrack.id) : false} favorites={library.favorites} onNavigate={handleNavigate} onToggleFavorite={(id) => library.handleToggleFavorite(id || currentTrack?.id || '')}
-          playbackMode={player.playbackMode} onTogglePlaybackMode={() => player.setPlaybackMode(p => p === 'normal' ? 'shuffle' : p === 'shuffle' ? 'loop' : 'normal')}
-          onReorder={library.reorderTracks} onClearHistory={library.clearHistory} onClearQueue={() => { library.setTracks([]); player.setCurrentTrackIndex(null); }} onPlayFromHistory={(t) => { const idx = library.tracks.findIndex(item => item.fingerprint === t.fingerprint); if(idx !== -1) { player.setCurrentTrackIndex(idx); setView('player'); player.setIsPlaying(true); } }} themeColor="#eab308" settings={settings} displayConverter={processDisplayString}
+          currentTrack={currentTrack} 
+          tracks={playlist} 
+          historyTracks={library.historyTracks} 
+          currentIndex={player.currentTrackIndex}
+          isPlaying={player.isPlaying} 
+          onTogglePlay={player.togglePlay} 
+          onNext={player.nextTrack} 
+          onPrev={player.prevTrack} 
+          onSelectTrack={player.setCurrentTrackIndex} 
+          onRemoveTrack={removeFromPlaylist}
+          progress={player.progress} 
+          duration={player.duration} 
+          volume={player.volume} 
+          onVolumeChange={player.setVolume} 
+          onSeek={player.seek} 
+          isFavorite={currentTrack ? library.favorites.has(currentTrack.id) : false} 
+          favorites={library.favorites} 
+          onNavigate={handleNavigate} 
+          onToggleFavorite={(id) => library.handleToggleFavorite(id || currentTrack?.id || '')}
+          playbackMode={player.playbackMode} 
+          onTogglePlaybackMode={() => player.setPlaybackMode(p => p === 'normal' ? 'shuffle' : p === 'shuffle' ? 'loop' : 'normal')}
+          onReorder={reorderPlaylist} 
+          onClearHistory={library.clearHistory} 
+          onClearQueue={clearPlaylist} 
+          onPlayFromHistory={handlePlayFromLibrary} 
+          themeColor="#eab308" 
+          settings={settings} 
+          displayConverter={processDisplayString}
         />
         <MobileNav activeView={view} onViewChange={handleSidebarViewChange} trackCount={library.tracks.length} themeColor="#eab308" />
       </main>

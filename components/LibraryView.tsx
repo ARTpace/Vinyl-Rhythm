@@ -3,11 +3,13 @@ import { Track, ViewType } from '../types';
 import { formatTime } from '../utils/audioParser';
 import { scrapeNeteaseMusic } from '../services/metadataService';
 import React, { useMemo, useState, useEffect, useCallback, useRef } from 'react';
+import ReactDOM from 'react-dom';
 
 interface LibraryViewProps {
   view: ViewType;
   tracks: Track[];
   onPlay: (track: Track) => void;
+  onAddToPlaylist?: (track: Track) => void;
   favorites: Set<string>;
   onToggleFavorite: (trackId: string) => void;
   onUpdateTrack?: (trackId: string, updates: Partial<Track>) => void;
@@ -19,7 +21,6 @@ interface LibraryViewProps {
   displayConverter?: (str: string) => string; 
 }
 
-// 极简版下拉选择器组件
 const FilterDropdown: React.FC<{
   value: string;
   options: { id: string; label: string }[];
@@ -76,17 +77,50 @@ const TrackRow = React.memo<{
   index: number;
   isFavorite: boolean;
   onPlay: (track: Track) => void;
+  onAddToPlaylist?: (track: Track) => void;
   onToggleFavorite: (id: string) => void;
   onScrape: (track: Track) => void;
   isScraping: boolean;
   onNavigate?: (type: 'artists' | 'albums' | 'folders' | 'artistProfile', name: string) => void;
   displayConverter?: (str: string) => string;
-}>(({ track, index, isFavorite, onPlay, onToggleFavorite, onScrape, isScraping, onNavigate, displayConverter }) => {
+}>(({ track, index, isFavorite, onPlay, onAddToPlaylist, onToggleFavorite, onScrape, isScraping, onNavigate, displayConverter }) => {
+  const [isAdded, setIsAdded] = useState(false);
+  const [flyEffect, setFlyEffect] = useState<{ startX: number, startY: number, endX: number, endY: number } | null>(null);
+  const btnRef = useRef<HTMLButtonElement>(null);
+
   const convert = (s: string) => displayConverter ? displayConverter(s) : s;
   
   const bitrateKbps = track.bitrate ? Math.round(track.bitrate / 1000) : 0;
   const isHires = bitrateKbps >= 2000;
   const isLossless = bitrateKbps >= 800 && bitrateKbps < 2000;
+
+  const handleAdd = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (isAdded) return;
+
+    // 动态获取目标元素坐标
+    const target = document.getElementById('queue-target');
+    if (btnRef.current && target) {
+        const startRect = btnRef.current.getBoundingClientRect();
+        const endRect = target.getBoundingClientRect();
+
+        // 计算相对偏移量
+        setFlyEffect({
+            startX: startRect.left,
+            startY: startRect.top,
+            endX: endRect.left - startRect.left + (endRect.width / 2) - 20, // 20是动画小圆圈的一半宽度
+            endY: endRect.top - startRect.top + (endRect.height / 2) - 20
+        });
+
+        // 0.8s 后移除动画元素
+        setTimeout(() => setFlyEffect(null), 800);
+    }
+
+    setIsAdded(true);
+    onAddToPlaylist?.(track);
+    // 1.5秒后恢复状态
+    setTimeout(() => setIsAdded(false), 1500);
+  };
 
   return (
     <div 
@@ -118,9 +152,6 @@ const TrackRow = React.memo<{
                    {bitrateKbps}K
                  </span>
                )}
-               {track.year && (
-                 <span className="text-[8px] font-mono text-zinc-600 border border-white/5 px-1 rounded">{track.year}</span>
-               )}
             </div>
           </div>
           <button 
@@ -131,16 +162,32 @@ const TrackRow = React.memo<{
           </button>
         </div>
         
-        <button 
-          onClick={(e) => { e.stopPropagation(); onScrape(track); }}
-          className="hidden md:flex p-2 rounded-full transition-all hover:bg-white/10 text-zinc-700 hover:text-red-500 opacity-0 group-hover:opacity-100"
-        >
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12a9 9 0 1 1-6.219-8.56"/><path d="M16 10l4 4 4-4"/><path d="M20 4v10"/></svg>
-        </button>
+        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+          <button 
+            ref={btnRef}
+            onClick={handleAdd}
+            title="添加至播放队列"
+            className={`p-2 rounded-full transition-all duration-300 active:scale-90 ${isAdded ? 'bg-green-500 text-black shadow-[0_0_10px_rgba(34,197,94,0.4)]' : 'hover:bg-yellow-500 hover:text-black text-yellow-500/80'}`}
+          >
+            {isAdded ? (
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="4" className="animate-in zoom-in"><path d="M20 6L9 17l-5-5"/></svg>
+            ) : (
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><path d="M12 5v14M5 12h14"/></svg>
+            )}
+          </button>
+          
+          <button 
+            onClick={(e) => { e.stopPropagation(); onScrape(track); }}
+            title="智能更正信息"
+            className="hidden md:flex p-2 rounded-full transition-all hover:bg-white/10 text-zinc-700 hover:text-red-500"
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12a9 9 0 1 1-6.219-8.56"/><path d="M16 10l4 4 4-4"/><path d="M20 4v10"/></svg>
+          </button>
+        </div>
 
         <button 
           onClick={(e) => { e.stopPropagation(); onNavigate?.('albums', track.album); }}
-          className="hidden lg:block text-zinc-500 text-sm font-black uppercase tracking-widest max-w-[200px] truncate hover:text-yellow-500 transition-colors"
+          className="hidden lg:block text-zinc-500 text-sm font-black uppercase tracking-widest max-w-[150px] truncate hover:text-yellow-500 transition-colors"
         >
           {convert(track.album)}
         </button>
@@ -153,12 +200,38 @@ const TrackRow = React.memo<{
         >
           <svg width="16" height="16" viewBox="0 0 24 24" fill={isFavorite ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2.5"><path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"/></svg>
         </button>
+
+        {/* 飞入动效 Portal */}
+        {flyEffect && ReactDOM.createPortal(
+            <div 
+                className="fixed pointer-events-none z-[999] animate-fly"
+                style={{ 
+                    left: flyEffect.startX, 
+                    top: flyEffect.startY,
+                    '--fly-x-end': `${flyEffect.endX}px`,
+                    '--fly-y-end': `${flyEffect.endY}px`,
+                    '--fly-x-mid': `${flyEffect.endX * 0.4}px`,
+                    '--fly-y-mid': `${-200}px` // 向上划一道明显的弧线
+                } as any}
+            >
+                <div className="w-10 h-10 rounded-full bg-zinc-900 border-2 border-yellow-500 overflow-hidden shadow-2xl">
+                    {track.coverUrl ? (
+                        <img src={track.coverUrl} className="w-full h-full object-cover" />
+                    ) : (
+                        <div className="w-full h-full flex items-center justify-center bg-zinc-800 text-yellow-500">
+                             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/></svg>
+                        </div>
+                    )}
+                </div>
+            </div>,
+            document.body
+        )}
     </div>
   );
 });
 
 const LibraryView: React.FC<LibraryViewProps> = ({ 
-  view, tracks, onPlay, favorites, onToggleFavorite, onUpdateTrack, onNavigate, onBack,
+  view, tracks, onPlay, onAddToPlaylist, favorites, onToggleFavorite, onUpdateTrack, onNavigate, onBack,
   navigationRequest, onNavigationProcessed, isSearching = false, displayConverter
 }) => {
   const [activeGroup, setActiveGroup] = useState<string | null>(null);
@@ -170,7 +243,6 @@ const LibraryView: React.FC<LibraryViewProps> = ({
   const [sortKey, setSortKey] = useState<'name' | 'artist' | 'album' | 'lastModified'>('lastModified');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
 
-  // 筛选器状态
   const [filterQuality, setFilterQuality] = useState<'all' | 'hires' | 'lossless' | 'hq' | 'sd'>('all');
   const [filterDecade, setFilterDecade] = useState<'all' | '2020s' | '2010s' | '2000s' | '90s' | '80s' | '70s' | 'pre70s'>('all');
   const [filterDuration, setFilterDuration] = useState<'all' | 'short' | 'medium' | 'long'>('all');
@@ -231,7 +303,6 @@ const LibraryView: React.FC<LibraryViewProps> = ({
 
   const groups = useMemo(() => {
     if (view !== 'all' || subTab !== 'folders' || activeGroup || activeAlbum || isSearching) return null;
-
     const map = new Map<string, Track[]>();
     tracks.forEach(track => {
       let key = track.folderId || '默认导入';
@@ -243,17 +314,9 @@ const LibraryView: React.FC<LibraryViewProps> = ({
 
   const filteredAndSortedTracks = useMemo(() => {
     let list = [...tracks];
-    
-    if (subTab === 'fav' && !isSearching) {
-      list = list.filter(t => favorites.has(t.id));
-    }
-    
-    if (activeGroup) {
-      list = list.filter(t => (t.folderId || '默认导入') === activeGroup);
-    }
-    if (activeAlbum) {
-      list = list.filter(t => t.album === activeAlbum);
-    }
+    if (subTab === 'fav' && !isSearching) list = list.filter(t => favorites.has(t.id));
+    if (activeGroup) list = list.filter(t => (t.folderId || '默认导入') === activeGroup);
+    if (activeAlbum) list = list.filter(t => t.album === activeAlbum);
 
     if (filterQuality !== 'all') {
       list = list.filter(t => {
@@ -302,7 +365,6 @@ const LibraryView: React.FC<LibraryViewProps> = ({
       if (valA > valB) return sortOrder === 'asc' ? 1 : -1;
       return 0;
     });
-
     return list;
   }, [tracks, favorites, subTab, activeGroup, activeAlbum, sortKey, sortOrder, isSearching, filterQuality, filterDecade, filterDuration]);
 
@@ -355,11 +417,9 @@ const LibraryView: React.FC<LibraryViewProps> = ({
         )}
       </header>
 
-      {/* 排序与筛选工具栏 */}
       {!activeGroup && !activeAlbum && view !== 'history' && !isSearching && (
         <div className="px-4 md:px-8 space-y-6 shrink-0 animate-in slide-in-from-top-2 duration-500 mb-6">
           <div className="flex flex-col lg:flex-row items-center justify-between gap-4">
-            {/* 增强型子标签导航 */}
             <div className="flex bg-black/60 p-1.5 rounded-[1.5rem] border border-white/5 backdrop-blur-xl w-full lg:w-auto gap-1">
               {subTabs.map(tab => (
                 <button 
@@ -402,7 +462,6 @@ const LibraryView: React.FC<LibraryViewProps> = ({
             </div>
           </div>
 
-          {/* 高级过滤下拉菜单 */}
           {subTab !== 'folders' && (
             <div className="flex flex-wrap items-center gap-3">
               <FilterDropdown 
@@ -417,35 +476,6 @@ const LibraryView: React.FC<LibraryViewProps> = ({
                 onChange={setFilterQuality}
                 icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><circle cx="12" cy="12" r="10"/><path d="M12 6v12M6 12h12"/></svg>}
               />
-
-              <FilterDropdown 
-                value={filterDecade}
-                options={[
-                  { id: 'all', label: '全部年代' },
-                  { id: '2020s', label: '2020s' },
-                  { id: '2010s', label: '2010s' },
-                  { id: '2000s', label: '2000s' },
-                  { id: '90s', label: '1990s' },
-                  { id: '80s', label: '1980s' },
-                  { id: '70s', label: '1970s' },
-                  { id: 'pre70s', label: '早期' }
-                ]}
-                onChange={setFilterDecade}
-                icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>}
-              />
-
-              <FilterDropdown 
-                value={filterDuration}
-                options={[
-                  { id: 'all', label: '全部时长' },
-                  { id: 'short', label: '短曲 <3m' },
-                  { id: 'medium', label: '中等 3-5m' },
-                  { id: 'long', label: '长篇 >5m' }
-                ]}
-                onChange={setFilterDuration}
-                icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>}
-              />
-
               {hasActiveFilters && (
                 <button
                   onClick={resetFilters}
@@ -487,25 +517,16 @@ const LibraryView: React.FC<LibraryViewProps> = ({
               <div className="py-20 text-center flex flex-col items-center gap-4">
                  <div className="text-zinc-800"><svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3M8 11h6"/></svg></div>
                  <p className="text-zinc-700 font-black uppercase tracking-[0.3em]">No matching tracks</p>
-                 {hasActiveFilters && <button onClick={resetFilters} className="text-yellow-500 font-bold text-xs uppercase tracking-widest hover:underline">Clear all filters</button>}
               </div>
             ) : (
               <>
                 {filteredAndSortedTracks.slice(0, displayLimit).map((track, index) => (
                   <TrackRow 
                     key={track.id} track={track} index={index} isFavorite={favorites.has(track.id)} 
-                    onPlay={onPlay} onToggleFavorite={onToggleFavorite} onScrape={handleScrape}
+                    onPlay={onPlay} onAddToPlaylist={onAddToPlaylist} onToggleFavorite={onToggleFavorite} onScrape={handleScrape}
                     isScraping={scrapingId === track.id} onNavigate={onNavigate} displayConverter={displayConverter}
                   />
                 ))}
-                {filteredAndSortedTracks.length > displayLimit && (
-                  <button 
-                    onClick={() => setDisplayLimit(prev => prev + 100)}
-                    className="w-full py-8 text-zinc-600 hover:text-yellow-500 font-black uppercase text-[10px] tracking-[0.3em] transition-colors"
-                  >
-                    Load More ({filteredAndSortedTracks.length - displayLimit})
-                  </button>
-                )}
               </>
             )}
           </div>
