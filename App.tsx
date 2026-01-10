@@ -131,6 +131,17 @@ const App: React.FC = () => {
     }
   }, [library.tracks, setPlaylist, player]);
 
+  // 新增：播放歌手全部歌曲
+  const handlePlayArtist = useCallback((artistName: string) => {
+    const artistTracks = library.tracks.filter(t => t.artist === artistName);
+    if (artistTracks.length > 0) {
+      setPlaylist(artistTracks);
+      player.setCurrentTrackIndex(0);
+      player.setIsPlaying(true);
+      setView('player');
+    }
+  }, [library.tracks, setPlaylist, player]);
+
   // 处理从播放队列中选择并播放
   const handleSelectTrackFromQueue = useCallback((index: number) => {
     player.setCurrentTrackIndex(index);
@@ -252,7 +263,7 @@ const App: React.FC = () => {
                     )}
                   </div>
                 ) : view === 'artistProfile' && selectedArtist ? (
-                  <ArtistProfile artistName={selectedArtist} allTracks={library.tracks} onBack={() => { setView('collection'); setSelectedArtist(null); }} onPlayTrack={handlePlayFromLibrary} onAddToPlaylist={addToPlaylist} onPlayAlbum={handlePlayAlbum} onNavigateToAlbum={(album) => handleNavigate('albums', album)} favorites={library.favorites} onToggleFavorite={library.handleToggleFavorite} />
+                  <ArtistProfile artistName={selectedArtist} allTracks={library.tracks} onBack={() => { setView('collection'); setSelectedArtist(null); }} onPlayTrack={handlePlayFromLibrary} onAddToPlaylist={addToPlaylist} onPlayAlbum={handlePlayAlbum} onPlayArtist={handlePlayArtist} onNavigateToAlbum={(album) => handleNavigate('albums', album)} favorites={library.favorites} onToggleFavorite={library.handleToggleFavorite} />
                 ) : view === 'settings' ? (
                   <SettingsView settings={settings} onUpdate={updateSettings} onReset={resetSettings} onClearHistory={library.clearHistory} />
                 ) : (view === 'collection' || view === 'albums' || view === 'artists') ? (

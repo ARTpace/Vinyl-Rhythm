@@ -11,6 +11,7 @@ interface ArtistProfileProps {
   onPlayTrack: (track: Track) => void;
   onAddToPlaylist?: (track: Track) => void;
   onPlayAlbum?: (albumName: string) => void;
+  onPlayArtist?: (artistName: string) => void;
   onNavigateToAlbum: (albumName: string) => void;
   favorites: Set<string>;
   onToggleFavorite: (id: string) => void;
@@ -23,6 +24,7 @@ const ArtistProfile: React.FC<ArtistProfileProps> = ({
   onPlayTrack,
   onAddToPlaylist,
   onPlayAlbum,
+  onPlayArtist,
   onNavigateToAlbum,
   favorites,
   onToggleFavorite
@@ -140,27 +142,37 @@ const ArtistProfile: React.FC<ArtistProfileProps> = ({
             </h1>
 
             <div className="max-w-2xl">
-              <p className="text-zinc-400 text-sm md:text-base leading-relaxed font-medium mb-8 opacity-80 italic">
+              <div className="flex flex-col md:flex-row items-center gap-6 mb-8">
+                <button 
+                  onClick={() => onPlayArtist?.(artistName)}
+                  className="bg-yellow-500 hover:bg-yellow-400 text-black px-10 py-4 rounded-full font-black text-sm uppercase tracking-widest flex items-center gap-3 transition-all active:scale-95 shadow-[0_10px_30px_rgba(234,179,8,0.3)]"
+                >
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M5 3l14 9-14 9V3z"/></svg>
+                  播放全部
+                </button>
+                
+                <div className="flex items-center gap-6">
+                   <div className="flex flex-col">
+                      <span className="text-white font-black text-xl leading-none">{stats.albumCount}</span>
+                      <span className="text-zinc-600 text-[9px] font-black uppercase tracking-widest mt-1">Albums</span>
+                   </div>
+                   <div className="w-px h-6 bg-zinc-800" />
+                   <div className="flex flex-col">
+                      <span className="text-white font-black text-xl leading-none">{stats.count}</span>
+                      <span className="text-zinc-600 text-[9px] font-black uppercase tracking-widest mt-1">Tracks</span>
+                   </div>
+                   <div className="w-px h-6 bg-zinc-800" />
+                   <div className="flex flex-col">
+                      <span className="text-white font-black text-xl leading-none">{stats.duration}</span>
+                      <span className="text-zinc-600 text-[9px] font-black uppercase tracking-widest mt-1">Mins</span>
+                   </div>
+                </div>
+              </div>
+
+              <p className="text-zinc-400 text-sm md:text-base leading-relaxed font-medium mb-4 opacity-80 italic">
                 在您的本地音乐库中，这位艺术家贡献了 <span className="text-white font-bold">{stats.count}</span> 首曲目，
                 分布在 <span className="text-white font-bold">{stats.albumCount}</span> 张不同的专辑中。
               </p>
-
-              <div className="flex flex-wrap items-center justify-center md:justify-start gap-6">
-                 <div className="flex flex-col">
-                    <span className="text-white font-black text-xl leading-none">{stats.albumCount}</span>
-                    <span className="text-zinc-600 text-[9px] font-black uppercase tracking-widest mt-1">Albums</span>
-                 </div>
-                 <div className="w-px h-6 bg-zinc-800" />
-                 <div className="flex flex-col">
-                    <span className="text-white font-black text-xl leading-none">{stats.count}</span>
-                    <span className="text-zinc-600 text-[9px] font-black uppercase tracking-widest mt-1">Tracks</span>
-                 </div>
-                 <div className="w-px h-6 bg-zinc-800" />
-                 <div className="flex flex-col">
-                    <span className="text-white font-black text-xl leading-none">{stats.duration}</span>
-                    <span className="text-zinc-600 text-[9px] font-black uppercase tracking-widest mt-1">Mins</span>
-                 </div>
-              </div>
             </div>
           </div>
         </div>
