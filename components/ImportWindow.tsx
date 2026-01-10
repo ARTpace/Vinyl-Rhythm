@@ -23,8 +23,6 @@ const ImportWindow: React.FC<ImportWindowProps> = ({
   importedFolders,
   onManualFilesSelect,
   isImporting = false,
-  importProgress = 0,
-  currentProcessingFile = ''
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const importInputRef = useRef<HTMLInputElement>(null);
@@ -66,34 +64,6 @@ const ImportWindow: React.FC<ImportWindowProps> = ({
     <div className="fixed inset-0 bg-black/80 backdrop-blur-md flex items-center justify-center z-[100] animate-in fade-in duration-300">
       <div className="bg-[#181818] border border-white/10 rounded-[2.5rem] p-8 w-[32rem] shadow-2xl relative overflow-hidden min-h-[500px] flex flex-col">
         
-        {/* 扫描进度覆盖层 */}
-        {isImporting && (
-          <div className="absolute inset-0 z-50 bg-[#181818]/95 backdrop-blur-xl flex flex-col items-center justify-center p-12 text-center animate-in fade-in duration-300">
-            <div className="relative w-40 h-40 mb-10">
-              {/* 旋转背景 */}
-              <div className="absolute inset-0 rounded-full border-[6px] border-white/5 border-t-yellow-500 animate-spin"></div>
-              {/* 百分比数值 */}
-              <div className="absolute inset-0 flex flex-col items-center justify-center">
-                <span className="text-4xl font-black text-white italic tracking-tighter">{importProgress}%</span>
-                <span className="text-[10px] font-black text-zinc-500 uppercase tracking-widest mt-1">Syncing</span>
-              </div>
-            </div>
-
-            <div className="w-full space-y-4">
-              <div className="h-2 w-full bg-black/40 rounded-full overflow-hidden border border-white/5">
-                <div 
-                  className="h-full bg-yellow-500 shadow-[0_0_15px_rgba(234,179,8,0.5)] transition-all duration-300 ease-out"
-                  style={{ width: `${importProgress}%` }}
-                />
-              </div>
-              <div className="flex flex-col gap-1">
-                <p className="text-xs font-bold text-zinc-400 uppercase tracking-widest animate-pulse">正在解析音轨元数据...</p>
-                <p className="text-[10px] font-mono text-zinc-600 truncate max-w-xs mx-auto italic">{currentProcessingFile}</p>
-              </div>
-            </div>
-          </div>
-        )}
-
         <input 
           type="file" 
           ref={fileInputRef} 
