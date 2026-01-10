@@ -67,6 +67,16 @@ const SettingsView: React.FC<SettingsViewProps> = ({ settings, onUpdate, onReset
     }
   };
 
+  const clearLibraryCache = () => {
+    if (confirm("确定要清除音乐库缓存吗？清除后需要重新扫描音乐文件。")) {
+      const request = indexedDB.deleteDatabase('VinylRhythmDB');
+      request.onsuccess = () => {
+         alert("已清除音乐库缓存，应用将刷新以重新初始化。");
+         window.location.reload();
+      };
+    }
+  };
+
   return (
     <div className="p-4 md:p-12 h-full overflow-y-auto custom-scrollbar animate-in fade-in slide-in-from-bottom-4 duration-700 pb-32">
       <header className="mb-10">
@@ -98,6 +108,19 @@ const SettingsView: React.FC<SettingsViewProps> = ({ settings, onUpdate, onReset
                 className="px-4 py-1.5 rounded-full bg-white/5 hover:bg-red-500/20 text-red-500 text-[10px] font-black uppercase tracking-widest transition-all"
               >
                 Clear History
+              </button>
+           </div>
+           <div className="h-px bg-white/5 my-4" />
+           <div className="flex items-center justify-between">
+              <div>
+                <div className="text-sm font-bold text-zinc-200">音乐库缓存</div>
+                <div className="text-[10px] text-zinc-500 font-medium uppercase tracking-wider mt-0.5">本地存储的音乐元数据和封面缓存</div>
+              </div>
+              <button 
+                onClick={clearLibraryCache}
+                className="px-4 py-1.5 rounded-full bg-white/5 hover:bg-red-500/20 text-red-500 text-[10px] font-black uppercase tracking-widest transition-all"
+              >
+                Clear Cache
               </button>
            </div>
         </SettingsCard>

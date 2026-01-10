@@ -114,33 +114,42 @@ export const useLibraryManager = () => {
     const newTracks: Track[] = [];
     const total = files.length;
 
-    for (let i = 0; i < total; i++) {
-      const file = files[i];
-      if (SUPPORTED_FORMATS.some(ext => file.name.toLowerCase().endsWith(ext))) {
-        setCurrentProcessingFile(file.name);
-        try {
-          const track = await parseFileToTrack(file);
-          newTracks.push(track);
-        } catch (e) {
-          console.error("解析文件元数据失败:", file.name, e);
+    // 分批处理，每批10个文件，避免主线程阻塞
+    const batchSize = 10;
+    for (let i = 0; i < total; i += batchSize) {
+      const batch = Array.from(files).slice(i, i + batchSize);
+      
+      for (const file of batch) {
+        if (SUPPORTED_FORMATS.some(ext => file.name.toLowerCase().endsWith(ext))) {
+          setCurrentProcessingFile(file.name);
+          try {
+            const track = await parseFileToTrack(file);
+            newTracks.push(track);
+          } catch (e) {
+            console.error("解析文件元数据失败:", file.name, e);
+          }
         }
       }
-      setImportProgress(Math.round(((i + 1) / total) * 100));
+      
+      setImportProgress(Math.round(Math.min(((i + batchSize) / total) * 100, 99)));
+      // 给主线程喘息的机会
+      await new Promise(resolve => setTimeout(resolve, 0));
     }
 
     if (newTracks.length > 0) {
-      setTracks(prev => {
-        const next = [...prev, ...newTracks];
-        saveTracksToCache(next);
-        return next;
-      });
-    }
+            setTracks(prev => {
+              const next = [...prev, ...newTracks];
+              saveTracksToCache(next);
+              return next;
+            });
+          }
 
+    setImportProgress(100);
     setIsImporting(false);
     return newTracks.length > 0;
   };
 
-  const syncAll = async (isSilent: boolean = false) => {
+  const syncAll = useCallback(async () => {
     setIsImporting(true);
     setImportProgress(0);
     setCurrentProcessingFile('正在扫描...');
@@ -158,33 +167,47 @@ export const useLibraryManager = () => {
     for (const folder of savedFolders) {
       try {
         let permission = await folder.handle.queryPermission({ mode: 'read' });
-        if (permission !== 'granted' && !isSilent) {
+        if (permission !== 'granted') {
           permission = await folder.handle.requestPermission({ mode: 'read' });
         }
 
         if (permission === 'granted') {
           setNeedsPermission(false);
           const scan = async (dirHandle: FileSystemDirectoryHandle) => {
+            const entries = [];
             for await (const entry of (dirHandle as any).values()) {
-              if (entry.kind === 'file' && SUPPORTED_FORMATS.some(ext => entry.name.toLowerCase().endsWith(ext))) {
-                processedCount++;
-                setCurrentProcessingFile(entry.name);
-                const file = await entry.getFile();
-                const fingerprint = `${file.name}-${file.size}`;
-                const cached = currentTracksMap.get(fingerprint);
-                
-                if (cached) {
-                  allUpdatedTracks.push({ ...cached, fileName: file.name } as any);
-                } else {
-                  const t = await parseFileToTrack(file);
-                  t.folderId = folder.id;
-                  (t as any).fileName = file.name;
-                  allUpdatedTracks.push(t);
+              entries.push(entry);
+            }
+            
+            // 分批处理目录条目
+            const batchSize = 10;
+            for (let i = 0; i < entries.length; i += batchSize) {
+              const batch = entries.slice(i, i + batchSize);
+              
+              for (const entry of batch) {
+                if (entry.kind === 'file' && SUPPORTED_FORMATS.some(ext => entry.name.toLowerCase().endsWith(ext))) {
+                  processedCount++;
+                  setCurrentProcessingFile(entry.name);
+                  const file = await entry.getFile();
+                  const fingerprint = `${file.name}-${file.size}`;
+                  const cached = currentTracksMap.get(fingerprint);
+                  
+                  if (cached) {
+                    allUpdatedTracks.push({ ...cached, fileName: file.name } as any);
+                  } else {
+                    const t = await parseFileToTrack(file);
+                    t.folderId = folder.id;
+                    (t as any).fileName = file.name;
+                    allUpdatedTracks.push(t);
+                  }
+                  setImportProgress(prev => Math.min(99, prev + 0.1));
+                } else if (entry.kind === 'directory') {
+                  await scan(entry);
                 }
-                setImportProgress(prev => Math.min(99, prev + 0.1));
-              } else if (entry.kind === 'directory') {
-                await scan(entry);
               }
+              
+              // 给主线程喘息的机会
+              await new Promise(resolve => setTimeout(resolve, 0));
             }
           };
           await scan(folder.handle);
@@ -199,7 +222,7 @@ export const useLibraryManager = () => {
     setImportProgress(100);
     setIsImporting(false);
     return true;
-  };
+  }, [tracks]);
 
   const registerFolder = async (handle: FileSystemDirectoryHandle) => {
     const id = handle.name + "_" + Date.now();
@@ -225,6 +248,30 @@ export const useLibraryManager = () => {
     });
   }, []);
 
+  const reorderTracks = useCallback((draggedId: string, targetId: string | null) => {
+    setTracks(prev => {
+      const draggedIndex = prev.findIndex(t => t.id === draggedId);
+      if (draggedIndex === -1) return prev;
+      
+      const newTracks = [...prev];
+      const [draggedItem] = newTracks.splice(draggedIndex, 1);
+      
+      if (targetId === null) {
+        newTracks.push(draggedItem);
+      } else {
+        const targetIndex = newTracks.findIndex(t => t.id === targetId);
+        if (targetIndex !== -1) {
+          newTracks.splice(targetIndex, 0, draggedItem);
+        } else {
+          newTracks.push(draggedItem);
+        }
+      }
+      
+      saveTracksToCache(newTracks);
+      return newTracks;
+    });
+  }, []);
+
   const filteredTracks = useMemo(() => {
     if (!searchQuery.trim()) return tracks;
     const q = normalizeChinese(searchQuery);
@@ -239,7 +286,7 @@ export const useLibraryManager = () => {
     tracks, setTracks, importedFolders,
     isImporting, importProgress, currentProcessingFile,
     searchQuery, setSearchQuery, filteredTracks,
-    favorites, handleToggleFavorite, handleUpdateTrack,
+    favorites, handleToggleFavorite, handleUpdateTrack, reorderTracks,
     syncAll, registerFolder, removeFolder: removeLibraryFolder, resolveTrackFile,
     handleManualFilesSelect,
     historyTracks: historyEntries.map(e => tracks.find(t => t.fingerprint === e.fingerprint)).filter(Boolean) as Track[],

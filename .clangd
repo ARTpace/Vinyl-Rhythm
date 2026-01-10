@@ -1,0 +1,6 @@
+If:
+  PathExclude:
+    - 'electron/bass'
+---
+CompileFlags:
+  Add: [-Wno-unknown-warning-option, -fsyntax-only]

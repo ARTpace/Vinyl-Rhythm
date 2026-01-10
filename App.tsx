@@ -97,7 +97,7 @@ const App: React.FC = () => {
         }} 
         onManualFilesSelect={async (files) => {
           const ok = await library.handleManualFilesSelect(files);
-          if (ok) { if (player.currentTrackIndex === null) player.setCurrentTrackIndex(0); setView('player'); setIsImportWindowOpen(false); }
+          if (ok) { setView('all'); setIsImportWindowOpen(false); }
         }}
         onRemoveFolder={library.removeFolder} 
         importedFolders={library.importedFolders} 
@@ -219,7 +219,7 @@ const App: React.FC = () => {
           isPlaying={player.isPlaying} onTogglePlay={player.togglePlay} onNext={player.nextTrack} onPrev={player.prevTrack} onSelectTrack={player.setCurrentTrackIndex} onRemoveTrack={(id) => library.setTracks(prev => prev.filter(t => t.id !== id))}
           progress={player.progress} duration={player.duration} volume={player.volume} onVolumeChange={player.setVolume} onSeek={player.seek} isFavorite={currentTrack ? library.favorites.has(currentTrack.id) : false} favorites={library.favorites} onNavigate={handleNavigate} onToggleFavorite={(id) => library.handleToggleFavorite(id || currentTrack?.id || '')}
           playbackMode={player.playbackMode} onTogglePlaybackMode={() => player.setPlaybackMode(p => p === 'normal' ? 'shuffle' : p === 'shuffle' ? 'loop' : 'normal')}
-          onReorder={() => {}} onClearHistory={library.clearHistory} onPlayFromHistory={(t) => { const idx = library.tracks.findIndex(item => item.fingerprint === t.fingerprint); if(idx !== -1) { player.setCurrentTrackIndex(idx); setView('player'); player.setIsPlaying(true); } }} themeColor="#eab308" settings={settings} displayConverter={processDisplayString}
+          onReorder={library.reorderTracks} onClearHistory={library.clearHistory} onClearQueue={() => { library.setTracks([]); player.setCurrentTrackIndex(null); }} onPlayFromHistory={(t) => { const idx = library.tracks.findIndex(item => item.fingerprint === t.fingerprint); if(idx !== -1) { player.setCurrentTrackIndex(idx); setView('player'); player.setIsPlaying(true); } }} themeColor="#eab308" settings={settings} displayConverter={processDisplayString}
         />
         <MobileNav activeView={view} onViewChange={handleSidebarViewChange} trackCount={library.tracks.length} themeColor="#eab308" />
       </main>

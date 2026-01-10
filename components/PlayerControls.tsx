@@ -27,6 +27,7 @@ interface PlayerControlsProps {
   onTogglePlaybackMode: () => void;
   onReorder: (draggedId: string, targetId: string | null) => void;
   onClearHistory?: () => void;
+  onClearQueue?: () => void;
   onPlayFromHistory?: (track: Track) => void;
   themeColor?: string;
   settings?: AppSettings; 
@@ -34,34 +35,35 @@ interface PlayerControlsProps {
 }
 
 const PlayerControls: React.FC<PlayerControlsProps> = ({
-  currentTrack,
-  tracks,
-  historyTracks = [],
-  currentIndex,
-  isPlaying,
-  onTogglePlay,
-  onNext,
-  onPrev,
-  onSelectTrack,
-  onRemoveTrack,
-  progress,
-  duration,
-  volume,
-  onVolumeChange,
-  onSeek,
-  isFavorite,
-  onToggleFavorite,
-  onNavigate,
-  favorites = new Set(),
-  playbackMode,
-  onTogglePlaybackMode,
-  onReorder,
-  onClearHistory,
-  onPlayFromHistory,
-  themeColor = '#eab308',
-  settings,
-  displayConverter
-}) => {
+    currentTrack,
+    tracks,
+    historyTracks = [],
+    currentIndex,
+    isPlaying,
+    onTogglePlay,
+    onNext,
+    onPrev,
+    onSelectTrack,
+    onRemoveTrack,
+    progress,
+    duration,
+    volume,
+    onVolumeChange,
+    onSeek,
+    isFavorite,
+    onToggleFavorite,
+    onNavigate,
+    favorites = new Set(),
+    playbackMode,
+    onTogglePlaybackMode,
+    onReorder,
+    onClearHistory,
+    onClearQueue,
+    onPlayFromHistory,
+    themeColor = '#eab308',
+    settings,
+    displayConverter
+  }) => {
   const [showQueue, setShowQueue] = useState(false);
   const [queueTab, setQueueTab] = useState<'queue' | 'history'>('queue');
   const [lastVolume, setLastVolume] = useState(0.8);
@@ -165,19 +167,33 @@ const PlayerControls: React.FC<PlayerControlsProps> = ({
       <div className={`fixed right-0 md:right-6 bottom-16 md:bottom-28 w-full md:w-[460px] bg-[#161616] md:border border-[#333] rounded-t-3xl md:rounded-3xl shadow-[0_-10px_40px_rgba(0,0,0,0.9)] z-[90] transform transition-all duration-300 flex flex-col ${showQueue ? 'translate-y-0 opacity-100' : 'translate-y-full opacity-0 pointer-events-none'}`} style={{ maxHeight: '70vh' }}>
         
         <div className="p-2 border-b border-[#2a2a2a] bg-gradient-to-b from-[#222] to-[#161616] rounded-t-3xl">
-          <div className="flex bg-black/40 p-1 rounded-2xl">
-             <button 
-                onClick={() => setQueueTab('queue')}
-                className={`flex-1 py-2 text-[10px] font-black uppercase tracking-[0.2em] rounded-xl transition-all ${queueTab === 'queue' ? 'bg-zinc-800 text-yellow-500 shadow-lg' : 'text-zinc-600 hover:text-zinc-400'}`}
-             >
-                {convert('当前队列')}
-             </button>
-             <button 
-                onClick={() => setQueueTab('history')}
-                className={`flex-1 py-2 text-[10px] font-black uppercase tracking-[0.2em] rounded-xl transition-all ${queueTab === 'history' ? 'bg-zinc-800 text-yellow-500 shadow-lg' : 'text-zinc-600 hover:text-zinc-400'}`}
-             >
-                {convert('播放历史')}
-             </button>
+          <div className="flex items-center justify-between">
+            <div className="flex bg-black/40 p-1 rounded-2xl flex-1 mr-2">
+               <button 
+                  onClick={() => setQueueTab('queue')}
+                  className={`flex-1 py-2 text-[10px] font-black uppercase tracking-[0.2em] rounded-xl transition-all ${queueTab === 'queue' ? 'bg-zinc-800 text-yellow-500 shadow-lg' : 'text-zinc-600 hover:text-zinc-400'}`}
+               >
+                  {convert('当前队列')}
+               </button>
+               <button 
+                  onClick={() => setQueueTab('history')}
+                  className={`flex-1 py-2 text-[10px] font-black uppercase tracking-[0.2em] rounded-xl transition-all ${queueTab === 'history' ? 'bg-zinc-800 text-yellow-500 shadow-lg' : 'text-zinc-600 hover:text-zinc-400'}`}
+               >
+                  {convert('播放历史')}
+               </button>
+            </div>
+            {queueTab === 'queue' && onClearQueue && (
+              <button 
+                onClick={() => {
+                  if (confirm('确定要清空播放队列吗？')) {
+                    onClearQueue();
+                  }
+                }}
+                className="px-3 py-2 text-[10px] font-black uppercase tracking-[0.2em] rounded-xl bg-red-600/20 text-red-500 hover:bg-red-600/40 transition-all"
+              >
+                {convert('清空队列')}
+              </button>
+            )}
           </div>
         </div>
 

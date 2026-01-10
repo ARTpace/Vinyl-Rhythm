@@ -49,7 +49,10 @@ export const saveTracksToCache = async (tracks: any[]) => {
     const { file, url, coverUrl, ...serializableTrack } = track;
     store.put(serializableTrack);
   }
-  return new Promise((resolve) => tx.oncomplete = resolve);
+  return new Promise<void>((resolve, reject) => {
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
 };
 
 /**
@@ -59,7 +62,7 @@ export const getCachedTracks = async (): Promise<any[]> => {
   const db = await initDB();
   const tx = db.transaction(TRACKS_CACHE_STORE, 'readonly');
   const request = tx.objectStore(TRACKS_CACHE_STORE).getAll();
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     request.onsuccess = () => {
       const results = request.result || [];
       // 关键修复：为每个有封面数据的曲目重新生成当前会话有效的 URL
@@ -79,7 +82,7 @@ export const getCachedTracks = async (): Promise<any[]> => {
       });
       resolve(hydratedResults);
     };
-    request.onerror = () => resolve([]);
+    request.onerror = () => reject(request.error);
   });
 };
 
@@ -145,13 +148,18 @@ export const removeLibraryFolder = async (id: string) => {
   const trackStore = tx.objectStore(TRACKS_CACHE_STORE);
   const index = trackStore.index('folderId');
   const request = index.openCursor(IDBKeyRange.only(id));
-  request.onsuccess = (event: any) => {
-    const cursor = event.target.result;
-    if (cursor) {
-      cursor.delete();
-      cursor.continue();
-    }
-  };
+  return new Promise<void>((resolve, reject) => {
+    request.onsuccess = (event: any) => {
+      const cursor = event.target.result;
+      if (cursor) {
+        cursor.delete();
+        cursor.continue();
+      } else {
+        resolve();
+      }
+    };
+    request.onerror = () => reject(request.error);
+  });
 };
 
 export const getStoredStory = async (artist: string, trackName: string): Promise<string | null> => {
