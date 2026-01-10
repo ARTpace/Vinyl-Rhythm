@@ -171,15 +171,21 @@ const PlayerControls: React.FC<PlayerControlsProps> = ({
   const trackGrooveClass = "bg-[#0a0a0a] rounded-full shadow-[inset_0_1px_3px_rgba(0,0,0,0.9),0_1px_0_rgba(255,255,255,0.05)]";
   const metallicThumbClass = "bg-gradient-to-b from-[#ccc] to-[#888] rounded-full shadow-[0_2px_4px_rgba(0,0,0,0.5),inset_0_1px_2px_rgba(255,255,255,0.8)] border border-[#555]";
 
-  const handleClearQueueClick = () => {
-    if (tracks.length === 0) return;
-    if (confirm('确定要清空当前的播放队列吗？')) {
-        // 如果正在播放，先触发淡出
-        if (isPlaying) {
-            onTogglePlay(); // 触发淡出暂停
-            setTimeout(() => onClearQueue?.(), 500); // 确保淡出完成后再清除
-        } else {
-            onClearQueue?.();
+  const handleClearAction = () => {
+    if (queueTab === 'queue') {
+        if (tracks.length === 0) return;
+        if (confirm('确定要清空当前的播放队列吗？')) {
+            if (isPlaying) {
+                onTogglePlay(); 
+                setTimeout(() => onClearQueue?.(), 500); 
+            } else {
+                onClearQueue?.();
+            }
+        }
+    } else {
+        if (historyTracks.length === 0) return;
+        if (confirm('确定要清空播放历史记录吗？')) {
+            onClearHistory?.();
         }
     }
   };
@@ -188,51 +194,40 @@ const PlayerControls: React.FC<PlayerControlsProps> = ({
     <>
       {showQueue && <div className="fixed inset-0 z-[80] bg-black/40 backdrop-blur-sm transition-opacity" onClick={() => setShowQueue(false)} />}
       
-      <div className={`fixed right-0 md:right-6 bottom-16 md:bottom-28 w-full md:w-[460px] bg-[#161616] md:border border-[#333] rounded-t-3xl md:rounded-3xl shadow-[0_-10px_40px_rgba(0,0,0,0.9)] z-[90] transform transition-all duration-300 flex flex-col ${showQueue ? 'translate-y-0 opacity-100' : 'translate-y-full opacity-0 pointer-events-none'}`} style={{ maxHeight: '70vh' }}>
+      {/* 优化：固定高度 height: 60vh 替代 max-height，确保切换时面板不跳动 */}
+      <div className={`fixed right-0 md:right-6 bottom-16 md:bottom-28 w-full md:w-[480px] bg-[#161616] md:border border-[#333] rounded-t-3xl md:rounded-3xl shadow-[0_-10px_40px_rgba(0,0,0,0.9)] z-[90] transform transition-all duration-300 flex flex-col overflow-hidden ${showQueue ? 'translate-y-0 opacity-100' : 'translate-y-full opacity-0 pointer-events-none'}`} style={{ height: '60vh' }}>
         
-        <div className="p-3 border-b border-[#2a2a2a] bg-gradient-to-b from-[#222] to-[#161616] rounded-t-3xl shrink-0">
-          <div className="flex items-center justify-between">
-            <div className="flex bg-black/40 p-1.5 rounded-2xl flex-1 mr-3 relative">
+        {/* 顶部页签 + 清空图标 */}
+        <div className="p-3 border-b border-[#2a2a2a] bg-gradient-to-b from-[#222] to-[#161616] shrink-0">
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex bg-black/40 p-1 rounded-2xl flex-1 border border-white/5">
                <button 
                   onClick={() => setQueueTab('queue')}
-                  className={`flex-1 py-2 text-[10px] font-black uppercase tracking-[0.2em] rounded-xl transition-all ${queueTab === 'queue' ? 'bg-zinc-800 text-yellow-500 shadow-lg border border-white/5' : 'text-zinc-600 hover:text-zinc-400'}`}
+                  className={`flex-1 py-2 text-[10px] font-black uppercase tracking-[0.2em] rounded-xl transition-all ${queueTab === 'queue' ? 'bg-zinc-800 text-yellow-500 shadow-lg border border-white/10' : 'text-zinc-600 hover:text-zinc-400'}`}
                >
                   {convert('当前队列')}
                </button>
                <button 
                   onClick={() => setQueueTab('history')}
-                  className={`flex-1 py-2 text-[10px] font-black uppercase tracking-[0.2em] rounded-xl transition-all ${queueTab === 'history' ? 'bg-zinc-800 text-yellow-500 shadow-lg border border-white/5' : 'text-zinc-600 hover:text-zinc-400'}`}
+                  className={`flex-1 py-2 text-[10px] font-black uppercase tracking-[0.2em] rounded-xl transition-all ${queueTab === 'history' ? 'bg-zinc-800 text-yellow-500 shadow-lg border border-white/10' : 'text-zinc-600 hover:text-zinc-400'}`}
                >
                   {convert('播放历史')}
                </button>
             </div>
             
-            {/* 优化后的清除图标按钮 */}
-            {queueTab === 'queue' && onClearQueue && (
-              <button 
-                onClick={handleClearQueueClick}
-                disabled={tracks.length === 0}
-                title={convert('清空播放队列')}
-                className={`w-10 h-10 flex items-center justify-center rounded-full transition-all shrink-0 ${tracks.length === 0 ? 'opacity-10 cursor-not-allowed text-zinc-600' : 'bg-white/5 text-zinc-400 hover:bg-red-500/20 hover:text-red-500 border border-white/5'}`}
-              >
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M10 11v6M14 11v6"/></svg>
-              </button>
-            )}
-
-            {queueTab === 'history' && onClearHistory && (
-              <button 
-                onClick={onClearHistory}
-                disabled={historyTracks.length === 0}
-                title={convert('清空历史记录')}
-                className={`w-10 h-10 flex items-center justify-center rounded-full transition-all shrink-0 ${historyTracks.length === 0 ? 'opacity-10 cursor-not-allowed text-zinc-600' : 'bg-white/5 text-zinc-400 hover:bg-red-500/20 hover:text-red-500 border border-white/5'}`}
-              >
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M10 11v6M14 11v6"/></svg>
-              </button>
-            )}
+            <button 
+              onClick={handleClearAction}
+              disabled={(queueTab === 'queue' && tracks.length === 0) || (queueTab === 'history' && historyTracks.length === 0)}
+              title={convert(queueTab === 'queue' ? '清空队列' : '清空历史')}
+              className={`w-10 h-10 flex items-center justify-center rounded-full transition-all shrink-0 border border-white/5 bg-white/5 active:scale-90 ${((queueTab === 'queue' && tracks.length === 0) || (queueTab === 'history' && historyTracks.length === 0)) ? 'opacity-10 cursor-not-allowed text-zinc-600' : 'text-zinc-400 hover:bg-red-500/20 hover:text-red-500 hover:border-red-500/20'}`}
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M10 11v6M14 11v6"/></svg>
+            </button>
           </div>
         </div>
 
-        <div className="overflow-y-auto p-2 flex-1 custom-scrollbar bg-[#111] pb-10">
+        {/* 统一列表区域 */}
+        <div className="overflow-y-auto p-2 flex-1 custom-scrollbar bg-[#111]">
           {queueTab === 'queue' ? (
             tracks.length > 0 ? (
                 tracks.map((track, idx) => {
@@ -249,97 +244,94 @@ const PlayerControls: React.FC<PlayerControlsProps> = ({
                             const draggedId = e.dataTransfer.getData('trackId');
                             if (draggedId !== track.id) onReorder(draggedId, track.id);
                         }}
-                        className={`group flex items-center gap-4 p-3 rounded-2xl cursor-pointer transition-all border mb-1.5 relative ${idx === currentIndex ? 'bg-[#1a1a1a] border-[#333]' : 'border-transparent hover:bg-white/[0.03]'} ${draggedOverId === track.id ? 'border-t-2 border-t-yellow-500 pt-6' : ''}`}
+                        className={`group flex items-center gap-4 p-3 rounded-2xl cursor-pointer transition-all border mb-1 relative ${idx === currentIndex ? 'bg-[#1a1a1a] border-[#333]' : 'border-transparent hover:bg-white/[0.03]'} ${draggedOverId === track.id ? 'border-t-2 border-t-yellow-500 pt-6' : ''}`}
                         onClick={() => onSelectTrack(idx)}
                         >
-                        <div className="w-6 flex items-center justify-center shrink-0">
-                            <span className={`text-[11px] font-mono text-center ${idx === currentIndex ? 'text-yellow-500' : 'text-zinc-700'}`}>{idx + 1}</span>
+                        <div className="w-8 flex items-center justify-center shrink-0">
+                            <span className={`text-[11px] font-mono text-center ${idx === currentIndex ? 'text-yellow-500' : 'text-zinc-700'}`}>{String(idx + 1).padStart(2, '0')}</span>
                         </div>
-                        <div className="w-12 h-12 rounded-xl bg-zinc-800 overflow-hidden shrink-0 shadow-lg">
+                        <div className="w-11 h-11 rounded-xl bg-zinc-800 overflow-hidden shrink-0 shadow-lg">
                             {track.coverUrl ? <img src={track.coverUrl} className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-opacity" /> : <div className="w-full h-full bg-zinc-900 flex items-center justify-center text-zinc-700"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="10"/></svg></div>}
                         </div>
                         <div className="flex-1 min-w-0">
-                            <div className={`font-black text-sm truncate mb-0.5 tracking-tight ${idx === currentIndex ? 'text-yellow-500' : 'text-zinc-100'}`}>{convert(track.name)}</div>
+                            <div className={`font-bold text-sm truncate mb-0.5 tracking-tight ${idx === currentIndex ? 'text-yellow-500' : 'text-zinc-100'}`}>{convert(track.name)}</div>
                             <div className="text-[10px] text-zinc-500 truncate font-bold uppercase tracking-widest">
-                                {convert(track.artist)} <span className="opacity-30 mx-1">•</span> {convert(track.album || 'Single')}
+                                {convert(track.artist)}
                             </div>
                         </div>
                         
-                        <div className="flex items-center gap-2 shrink-0">
-                            {/* 收藏按钮 */}
+                        <div className="flex items-center gap-1 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
                             <button 
                                 onClick={(e) => { e.stopPropagation(); onToggleFavorite(track.id); }}
-                                className={`p-2 rounded-full transition-all active:scale-75 ${isFav ? 'text-red-500' : 'text-zinc-800 hover:text-zinc-400 opacity-0 group-hover:opacity-100'}`}
+                                className={`p-2 rounded-full transition-all active:scale-75 ${isFav ? 'text-red-500 opacity-100' : 'text-zinc-800 hover:text-zinc-400'}`}
                             >
                                 <svg width="14" height="14" viewBox="0 0 24 24" fill={isFav ? "currentColor" : "none"} stroke="currentColor" strokeWidth="3"><path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"/></svg>
                             </button>
-
-                            {/* 移除按钮 */}
                             <button 
                                 onClick={(e) => { e.stopPropagation(); onRemoveTrack(track.id); }}
-                                className="p-2 rounded-full transition-all active:scale-75 text-zinc-800 hover:text-red-400 opacity-0 group-hover:opacity-100"
-                                title="从队列移除"
+                                className="p-2 rounded-full transition-all active:scale-75 text-zinc-800 hover:text-red-400"
                             >
                                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M10 11v6M14 11v6"/></svg>
                             </button>
-
-                            <div className="text-xs font-mono text-zinc-600 group-hover:text-zinc-400 tabular-nums w-10 text-right">{formatTime(track.duration || 0)}</div>
                         </div>
+                        <div className="text-[11px] font-mono text-zinc-600 group-hover:text-zinc-400 tabular-nums w-12 text-right shrink-0">{formatTime(track.duration || 0)}</div>
                         </div>
                     );
                 })
             ) : (
-                <div className="p-24 text-center flex flex-col items-center gap-5 opacity-20 animate-in fade-in zoom-in duration-700">
-                    <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M3 12h18M3 6h18M3 18h18"/></svg>
+                <div className="h-full flex flex-col items-center justify-center gap-5 opacity-20 animate-in fade-in zoom-in duration-700">
+                    <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M3 12h18M3 6h18M3 18h18"/></svg>
                     <p className="text-[11px] font-black uppercase tracking-[0.4em]">{convert('播放队列为空')}</p>
                 </div>
             )
           ) : (
-            <>
-              {historyTracks.length > 0 ? (
-                <>
-                  {historyTracks.map((track) => {
-                    const isFav = favorites.has(track.id);
-                    return (
-                        <div 
-                        key={track.id + (track.historyTime || '')} 
-                        className="group flex items-center gap-4 p-3 rounded-2xl cursor-pointer hover:bg-white/[0.03] transition-all mb-1.5"
-                        onClick={() => onPlayFromHistory?.(track)}
+            historyTracks.length > 0 ? (
+                historyTracks.map((track, idx) => {
+                const isFav = favorites.has(track.id);
+                return (
+                    <div 
+                    key={track.id + (track.historyTime || idx)} 
+                    className="group flex items-center gap-4 p-3 rounded-2xl cursor-pointer hover:bg-white/[0.03] transition-all mb-1 border border-transparent"
+                    onClick={() => onPlayFromHistory?.(track)}
+                    >
+                    <div className="w-8 flex items-center justify-center shrink-0 text-zinc-700">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                    </div>
+                    <div className="w-11 h-11 rounded-xl bg-zinc-800 overflow-hidden shrink-0 shadow-lg">
+                        {track.coverUrl ? <img src={track.coverUrl} className="w-full h-full object-cover opacity-60 group-hover:opacity-100 transition-opacity" /> : <div className="w-full h-full bg-zinc-900" />}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                        <div className="font-bold text-sm truncate mb-0.5 text-zinc-300 group-hover:text-white tracking-tight">{convert(track.name)}</div>
+                        <div className="text-[10px] text-zinc-500 truncate font-bold uppercase tracking-widest">{convert(track.artist)}</div>
+                    </div>
+                    <div className="flex items-center gap-1 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <button 
+                            onClick={(e) => { e.stopPropagation(); onToggleFavorite(track.id); }}
+                            className={`p-2 rounded-full transition-all active:scale-75 ${isFav ? 'text-red-500 opacity-100' : 'text-zinc-800 hover:text-zinc-400'}`}
                         >
-                        <div className="w-12 h-12 rounded-xl bg-zinc-800 overflow-hidden shrink-0 shadow-lg">
-                            {track.coverUrl ? <img src={track.coverUrl} className="w-full h-full object-cover opacity-60 group-hover:opacity-100 transition-opacity" /> : <div className="w-full h-full bg-zinc-900" />}
-                        </div>
-                        <div className="flex-1 min-w-0">
-                            <div className="font-black text-sm truncate mb-0.5 text-zinc-300 group-hover:text-white tracking-tight">{convert(track.name)}</div>
-                            <div className="text-[10px] text-zinc-500 truncate font-bold uppercase tracking-widest">{convert(track.artist)}</div>
-                        </div>
-                        <div className="flex items-center gap-4 shrink-0">
-                            <button 
-                                onClick={(e) => { e.stopPropagation(); onToggleFavorite(track.id); }}
-                                className={`p-2 rounded-full transition-all active:scale-75 ${isFav ? 'text-red-500' : 'text-zinc-800 hover:text-zinc-400 opacity-0 group-hover:opacity-100'}`}
-                            >
-                                <svg width="14" height="14" viewBox="0 0 24 24" fill={isFav ? "currentColor" : "none"} stroke="currentColor" strokeWidth="3"><path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"/></svg>
-                            </button>
-                            <div className="text-[9px] font-black text-zinc-700 group-hover:text-zinc-500 uppercase tracking-tighter w-12 text-right">
-                                {formatHistoryTime(track.historyTime)}
-                            </div>
-                        </div>
-                        </div>
-                    );
-                  })}
-                </>
-              ) : (
-                <div className="p-24 text-center flex flex-col items-center gap-5 opacity-20">
-                   <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill={isFav ? "currentColor" : "none"} stroke="currentColor" strokeWidth="3"><path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"/></svg>
+                        </button>
+                    </div>
+                    <div className="text-[10px] font-black text-zinc-600 group-hover:text-zinc-500 uppercase tracking-tighter w-12 text-right shrink-0">
+                        {formatHistoryTime(track.historyTime)}
+                    </div>
+                    </div>
+                );
+                })
+            ) : (
+                <div className="h-full flex flex-col items-center justify-center gap-5 opacity-20">
+                   <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
                    <p className="text-[11px] font-black uppercase tracking-[0.4em]">{convert('暂无播放历史')}</p>
                 </div>
-              )}
-            </>
+            )
           )}
-          <div ref={queueEndRef} />
         </div>
+        
+        {/* 底部渐变遮罩，保持列表底部平滑感 */}
+        <div className="h-4 bg-gradient-to-t from-[#111] to-transparent shrink-0 pointer-events-none" />
       </div>
 
+      {/* 底部主控制栏 */}
       <div className={`hidden md:flex fixed bottom-0 left-0 right-0 h-28 px-8 items-center justify-between z-[100] ${metallicPanelClass}`}>
         <div className="flex items-center gap-5 w-1/4 min-w-0">
            <div className="w-16 h-16 rounded-md bg-[#111] p-1 flex-shrink-0 relative overflow-hidden group">
