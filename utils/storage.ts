@@ -37,15 +37,11 @@ const initDB = async (): Promise<IDBDatabase> => {
   });
 };
 
-/**
- * 批量持久化曲目元数据
- */
 export const saveTracksToCache = async (tracks: any[]) => {
   const db = await initDB();
   const tx = db.transaction(TRACKS_CACHE_STORE, 'readwrite');
   const store = tx.objectStore(TRACKS_CACHE_STORE);
   for (const track of tracks) {
-    // 关键修复：排除临时 URL，但保留 coverBlob 二进制数据
     const { file, url, coverUrl, ...serializableTrack } = track;
     store.put(serializableTrack);
   }
@@ -55,9 +51,6 @@ export const saveTracksToCache = async (tracks: any[]) => {
   });
 };
 
-/**
- * 从数据库获取所有缓存的曲目
- */
 export const getCachedTracks = async (): Promise<any[]> => {
   const db = await initDB();
   const tx = db.transaction(TRACKS_CACHE_STORE, 'readonly');
@@ -65,7 +58,6 @@ export const getCachedTracks = async (): Promise<any[]> => {
   return new Promise((resolve, reject) => {
     request.onsuccess = () => {
       const results = request.result || [];
-      // 关键修复：为每个有封面数据的曲目重新生成当前会话有效的 URL
       const hydratedResults = results.map(track => {
         if (track.coverBlob) {
           try {
@@ -74,7 +66,6 @@ export const getCachedTracks = async (): Promise<any[]> => {
               coverUrl: URL.createObjectURL(track.coverBlob)
             };
           } catch (e) {
-            console.error("恢复封面失败", e);
             return track;
           }
         }
@@ -183,13 +174,22 @@ export const saveStoryToStore = async (artist: string, trackName: string, story:
 export const exportDatabase = async () => {
   const db = await initDB();
   
-  // 1. 获取 AI 解读
+  // 1. 获取文件夹元数据 (Handle 不能序列化，但我们要保留名字和ID)
+  const txFolders = db.transaction(STORE_NAME, 'readonly');
+  const folders = await new Promise<any[]>(resolve => {
+    txFolders.objectStore(STORE_NAME).getAll().onsuccess = (e: any) => {
+      const raw = e.target.result || [];
+      resolve(raw.map(({ handle, ...rest }: any) => rest));
+    };
+  });
+
+  // 2. 获取 AI 解读
   const txStories = db.transaction(STORIES_STORE, 'readonly');
   const stories = await new Promise<any[]>(resolve => {
     txStories.objectStore(STORIES_STORE).getAll().onsuccess = (e: any) => resolve(e.target.result);
   });
 
-  // 2. 获取曲库缓存元数据 (排除 Blob 以减小文件体积)
+  // 3. 获取曲库缓存
   const txTracks = db.transaction(TRACKS_CACHE_STORE, 'readonly');
   const tracks = await new Promise<any[]>(resolve => {
     txTracks.objectStore(TRACKS_CACHE_STORE).getAll().onsuccess = (e: any) => {
@@ -201,6 +201,7 @@ export const exportDatabase = async () => {
   const data = { 
     version: DB_VERSION, 
     exportDate: Date.now(), 
+    folders,
     stories, 
     tracks,
     favorites: JSON.parse(localStorage.getItem('vinyl_favorites') || '[]') 
@@ -220,21 +221,39 @@ export const importDatabase = async (jsonString: string) => {
     const data = JSON.parse(jsonString);
     const db = await initDB();
     
+    // 恢复文件夹元数据 (无 handle 模式)
+    if (data.folders && Array.isArray(data.folders)) {
+      const tx = db.transaction(STORE_NAME, 'readwrite');
+      const store = tx.objectStore(STORE_NAME);
+      for (const item of data.folders) {
+        store.put(item);
+      }
+      await new Promise(res => tx.oncomplete = res);
+    }
+
     // 恢复 AI Stories
     if (data.stories && Array.isArray(data.stories)) {
       const tx = db.transaction(STORIES_STORE, 'readwrite');
       const store = tx.objectStore(STORIES_STORE);
       for (const item of data.stories) store.put(item);
+      await new Promise(res => tx.oncomplete = res);
     }
 
-    // 恢复曲目元数据列表 (注意：由于不包含 Blob，恢复后封面会显示默认图，直到重新扫描)
+    // 恢复曲目元数据
     if (data.tracks && Array.isArray(data.tracks)) {
         const tx = db.transaction(TRACKS_CACHE_STORE, 'readwrite');
         const store = tx.objectStore(TRACKS_CACHE_STORE);
-        for (const item of data.tracks) store.put(item);
+        // 使用批处理写入以提高性能并确保完整性
+        for (const item of data.tracks) {
+          store.put(item);
+        }
+        await new Promise(res => tx.oncomplete = res);
     }
 
     if (data.favorites) localStorage.setItem('vinyl_favorites', JSON.stringify(data.favorites));
     return true;
-  } catch (e) { return false; }
+  } catch (e) { 
+    console.error("还原失败", e);
+    return false; 
+  }
 };

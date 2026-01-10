@@ -34,6 +34,7 @@ export const useLibraryManager = () => {
     const loadCache = async () => {
       const cached = await getCachedTracks();
       const folders = await getAllLibraryFolders();
+      
       setImportedFolders(folders.map(f => ({
         id: f.id,
         name: f.name,
@@ -43,6 +44,11 @@ export const useLibraryManager = () => {
 
       if (cached && cached.length > 0) {
         setTracks(cached.map(t => ({ ...t, file: null as any, url: '' })));
+      }
+
+      // 如果存在没有任何 handle 的文件夹，说明是刚还原回来的，标记需要权限
+      if (folders.length > 0 && folders.some(f => !f.handle)) {
+        setNeedsPermission(true);
       }
     };
     loadCache();
@@ -63,7 +69,12 @@ export const useLibraryManager = () => {
     if (track.file && track.url) return track;
     const folders = await getAllLibraryFolders();
     const folder = folders.find(f => f.id === track.folderId);
-    if (!folder) return null;
+    
+    // 如果文件夹没有 handle（还原后的状态），无法直接解析，需要用户重新同步
+    if (!folder || !folder.handle) {
+      setNeedsPermission(true);
+      return null;
+    }
 
     try {
       let permission = await folder.handle.queryPermission({ mode: 'read' });
@@ -77,7 +88,7 @@ export const useLibraryManager = () => {
           if (entry.kind === 'file' && entry.name === fileName) {
             return await entry.getFile();
           } else if (entry.kind === 'directory') {
-            const result = await findFile(entry, fileName);
+            const result = await findFile(entry as FileSystemDirectoryHandle, fileName);
             if (result) return result;
           }
         }
@@ -113,7 +124,6 @@ export const useLibraryManager = () => {
           newTracks.push(track);
         } catch (e) { console.error(e); }
       }
-      // 强制取整，解决小数点问题
       setImportProgress(Math.floor(((i + batch.length) / total) * 100));
       await new Promise(r => setTimeout(r, 0));
     }
@@ -136,16 +146,25 @@ export const useLibraryManager = () => {
     setCurrentProcessingFile('正在盘点文件...');
 
     const savedFolders = await getAllLibraryFolders();
+    // 如果存在没有 handle 的文件夹，必须先让用户通过 registerFolder 重新建立联系
     if (savedFolders.length === 0) { setIsImporting(false); return false; }
+
+    // 检查是否有缺失 handle 的文件夹
+    const missingHandleFolders = savedFolders.filter(f => !f.handle);
+    if (missingHandleFolders.length > 0) {
+      alert(`检测到 ${missingHandleFolders.length} 个文件夹需要重新授权以恢复播放。请在管理库中重新添加同名文件夹。`);
+      setIsImporting(false);
+      return false;
+    }
 
     const currentTracksMap = new Map<string, Track>(tracks.map(t => [t.fingerprint, t]));
     let allUpdatedTracks: Track[] = tracks.filter(t => !t.folderId); 
     
-    // 第一阶段：预扫描文件总数，确保进度条准确
     let totalFilesCount = 0;
     const filesToProcess: { handle: FileSystemFileHandle, folderId: string }[] = [];
 
     for (const folder of savedFolders) {
+      if (!folder.handle) continue;
       try {
         let permission = await folder.handle.queryPermission({ mode: 'read' });
         if (permission !== 'granted') permission = await folder.handle.requestPermission({ mode: 'read' });
@@ -157,7 +176,7 @@ export const useLibraryManager = () => {
               if (entry.kind === 'file' && SUPPORTED_FORMATS.some(ext => entry.name.toLowerCase().endsWith(ext))) {
                 totalFilesCount++;
                 filesToProcess.push({ handle: entry as FileSystemFileHandle, folderId: folder.id });
-              } else if (entry.kind === 'directory') await fastScan(entry);
+              } else if (entry.kind === 'directory') await fastScan(entry as FileSystemDirectoryHandle);
             }
           };
           await fastScan(folder.handle);
@@ -167,7 +186,6 @@ export const useLibraryManager = () => {
 
     if (totalFilesCount === 0) { setIsImporting(false); return false; }
 
-    // 第二阶段：分批解析，取整进度
     let processedCount = 0;
     const batchSize = 8;
     
@@ -198,7 +216,6 @@ export const useLibraryManager = () => {
     setTracks(allUpdatedTracks);
     await saveTracksToCache(allUpdatedTracks);
     setImportProgress(100);
-    // 强制更新文件夹列表中的计数
     setImportedFolders(prev => prev.map(f => ({
         ...f,
         lastSync: Date.now(),
@@ -209,9 +226,19 @@ export const useLibraryManager = () => {
   }, [tracks]);
 
   const registerFolder = async (handle: FileSystemDirectoryHandle) => {
-    const id = handle.name + "_" + Date.now();
+    // 检查是否是重连现有文件夹
+    const existing = importedFolders.find(f => f.name === handle.name);
+    const id = existing ? existing.id : handle.name + "_" + Date.now();
+    
     await saveLibraryFolder(id, handle);
-    setImportedFolders(prev => [...prev, { id, name: handle.name, lastSync: 0, trackCount: 0 }]);
+    
+    if (!existing) {
+      setImportedFolders(prev => [...prev, { id, name: handle.name, lastSync: 0, trackCount: 0 }]);
+    } else {
+      // 如果是重连，清除 needsPermission 标记
+      const stillMissing = importedFolders.some(f => f.id !== id && !tracks.some(t => t.folderId === f.id));
+      if (!stillMissing) setNeedsPermission(false);
+    }
     return id;
   };
 
