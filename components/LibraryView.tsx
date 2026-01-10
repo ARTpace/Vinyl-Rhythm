@@ -22,6 +22,8 @@ interface LibraryViewProps {
   displayConverter?: (str: string) => string; 
 }
 
+const PAGE_SIZE = 50; // 每批次加载的数量
+
 const FilterDropdown: React.FC<{
   value: string;
   options: { id: string; label: string }[];
@@ -95,7 +97,6 @@ const TrackRow = React.memo<{
   const isHires = bitrateKbps >= 2000;
   const isLossless = bitrateKbps >= 800 && bitrateKbps < 2000;
   
-  // 识别是否处于“等待授权恢复封面”状态
   const isGhostTrack = !track.coverUrl && !track.coverBlob && track.folderId;
 
   const handleAdd = (e: React.MouseEvent) => {
@@ -192,7 +193,7 @@ const LibraryView: React.FC<LibraryViewProps> = ({
 }) => {
   const [activeGroup, setActiveGroup] = useState<string | null>(null);
   const [activeAlbum, setActiveAlbum] = useState<string | null>(null);
-  const [displayLimit, setDisplayLimit] = useState(100);
+  const [displayLimit, setDisplayLimit] = useState(PAGE_SIZE);
   const [scrapingId, setScrapingId] = useState<string | null>(null);
   const [subTab, setSubTab] = useState<'all' | 'fav' | 'folders'>('all');
   
@@ -204,8 +205,9 @@ const LibraryView: React.FC<LibraryViewProps> = ({
   const [filterDuration, setFilterDuration] = useState<'all' | 'short' | 'medium' | 'long'>('all');
 
   const scrollRef = useRef<HTMLDivElement>(null);
+  const observerRef = useRef<IntersectionObserver | null>(null);
+  const loadMoreRef = useRef<HTMLDivElement>(null);
   const lastViewRef = useRef(view);
-  const convert = (s: string) => displayConverter ? displayConverter(s) : s;
 
   const folderIdToName = useMemo(() => {
     const map = new Map<string, string>();
@@ -213,63 +215,7 @@ const LibraryView: React.FC<LibraryViewProps> = ({
     return map;
   }, [folders]);
 
-  useEffect(() => {
-    if (navigationRequest) {
-      if (navigationRequest.type === 'folders') {
-         setSubTab('folders');
-         setActiveGroup(navigationRequest.name);
-         setActiveAlbum(null);
-         onNavigationProcessed?.();
-      } else if (navigationRequest.type === 'albums') {
-         setSubTab('all');
-         setActiveAlbum(navigationRequest.name);
-         setActiveGroup(null);
-         onNavigationProcessed?.();
-      }
-    }
-  }, [navigationRequest, onNavigationProcessed]);
-
-  useEffect(() => {
-    if (view === 'all' && lastViewRef.current !== 'all' && !navigationRequest) {
-      setActiveGroup(null);
-      setActiveAlbum(null);
-      setSubTab('all');
-    }
-    lastViewRef.current = view;
-  }, [view, navigationRequest]);
-
-  const handleScrape = async (track: Track) => {
-    if (scrapingId) return;
-    setScrapingId(track.id);
-    try {
-      const newData = await scrapeNeteaseMusic(track.name, track.artist);
-      if (newData && onUpdateTrack) {
-        onUpdateTrack(track.id, {
-          name: newData.title,
-          artist: newData.artist,
-          album: newData.album,
-          coverUrl: newData.coverUrl || track.coverUrl
-        });
-      }
-    } catch (err) { console.error(err); } finally { setScrapingId(null); }
-  };
-
-  useEffect(() => {
-    setDisplayLimit(100);
-    if (scrollRef.current) scrollRef.current.scrollTop = 0;
-  }, [view, activeGroup, activeAlbum, isSearching, sortKey, sortOrder, subTab, filterQuality, filterDecade, filterDuration]);
-
-  const groups = useMemo(() => {
-    if (view !== 'all' || subTab !== 'folders' || activeGroup || activeAlbum || isSearching) return null;
-    const map = new Map<string, Track[]>();
-    tracks.forEach(track => {
-      let key = track.folderId || '默认导入';
-      if (!map.has(key)) map.set(key, []);
-      map.get(key)!.push(track);
-    });
-    return Array.from(map.entries()).sort((a, b) => a[0].localeCompare(b[0]));
-  }, [tracks, view, subTab, activeGroup, activeAlbum, isSearching]);
-
+  // FIX: Move filteredAndSortedTracks and groups useMemo before useEffect to avoid used-before-declaration errors
   const filteredAndSortedTracks = useMemo(() => {
     let list = [...tracks];
     if (subTab === 'fav' && !isSearching) list = list.filter(t => favorites.has(t.id));
@@ -322,6 +268,83 @@ const LibraryView: React.FC<LibraryViewProps> = ({
     });
     return list;
   }, [tracks, favorites, subTab, activeGroup, activeAlbum, sortKey, sortOrder, isSearching, filterQuality, filterDecade, filterDuration]);
+
+  const groups = useMemo(() => {
+    if (view !== 'all' || subTab !== 'folders' || activeGroup || activeAlbum || isSearching) return null;
+    const map = new Map<string, Track[]>();
+    tracks.forEach(track => {
+      let key = track.folderId || '默认导入';
+      if (!map.has(key)) map.set(key, []);
+      map.get(key)!.push(track);
+    });
+    return Array.from(map.entries()).sort((a, b) => a[0].localeCompare(b[0]));
+  }, [tracks, view, subTab, activeGroup, activeAlbum, isSearching]);
+
+  const convert = (s: string) => displayConverter ? displayConverter(s) : s;
+
+  useEffect(() => {
+    if (navigationRequest) {
+      if (navigationRequest.type === 'folders') {
+         setSubTab('folders');
+         setActiveGroup(navigationRequest.name);
+         setActiveAlbum(null);
+         onNavigationProcessed?.();
+      } else if (navigationRequest.type === 'albums') {
+         setSubTab('all');
+         setActiveAlbum(navigationRequest.name);
+         setActiveGroup(null);
+         onNavigationProcessed?.();
+      }
+    }
+  }, [navigationRequest, onNavigationProcessed]);
+
+  useEffect(() => {
+    if (view === 'all' && lastViewRef.current !== 'all' && !navigationRequest) {
+      setActiveGroup(null);
+      setActiveAlbum(null);
+      setSubTab('all');
+    }
+    lastViewRef.current = view;
+  }, [view, navigationRequest]);
+
+  const handleScrape = async (track: Track) => {
+    if (scrapingId) return;
+    setScrapingId(track.id);
+    try {
+      const newData = await scrapeNeteaseMusic(track.name, track.artist);
+      if (newData && onUpdateTrack) {
+        onUpdateTrack(track.id, {
+          name: newData.title,
+          artist: newData.artist,
+          album: newData.album,
+          coverUrl: newData.coverUrl || track.coverUrl
+        });
+      }
+    } catch (err) { console.error(err); } finally { setScrapingId(null); }
+  };
+
+  // 重置加载限制的触发器
+  useEffect(() => {
+    setDisplayLimit(PAGE_SIZE);
+    if (scrollRef.current) scrollRef.current.scrollTop = 0;
+  }, [view, activeGroup, activeAlbum, isSearching, sortKey, sortOrder, subTab, filterQuality, filterDecade, filterDuration]);
+
+  // 无限滚动观察者
+  useEffect(() => {
+    if (observerRef.current) observerRef.current.disconnect();
+
+    observerRef.current = new IntersectionObserver((entries) => {
+      if (entries[0].isIntersecting) {
+        setDisplayLimit(prev => prev + PAGE_SIZE);
+      }
+    }, { threshold: 0.1 });
+
+    if (loadMoreRef.current) {
+      observerRef.current.observe(loadMoreRef.current);
+    }
+
+    return () => observerRef.current?.disconnect();
+  }, [filteredAndSortedTracks, activeGroup, activeAlbum]);
 
   const pageTitle = useMemo(() => {
     if (activeGroup) return folderIdToName.get(activeGroup) || activeGroup;
@@ -389,7 +412,6 @@ const LibraryView: React.FC<LibraryViewProps> = ({
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-6">
             {groups.map(([id, groupTracks]) => {
               const displayName = folderIdToName.get(id) || (id === 'undefined' ? '未知' : id);
-              // 检查该组是否全无封面
               const isGroupEmpty = groupTracks.every(t => !t.coverUrl && !t.coverBlob);
               
               return (
@@ -430,6 +452,13 @@ const LibraryView: React.FC<LibraryViewProps> = ({
                   <TrackRow key={track.id} track={track} index={index} isFavorite={favorites.has(track.id)} onPlay={onPlay} onAddToPlaylist={onAddToPlaylist} onToggleFavorite={onToggleFavorite} onScrape={handleScrape} isScraping={scrapingId === track.id} onNavigate={onNavigate} displayConverter={displayConverter} />
                 ))}
               </>
+            )}
+            
+            {/* 无限滚动哨兵 */}
+            {displayLimit < filteredAndSortedTracks.length && (
+              <div ref={loadMoreRef} className="h-20 flex items-center justify-center">
+                 <div className="w-1.5 h-1.5 rounded-full bg-yellow-500/30 animate-pulse" />
+              </div>
             )}
           </div>
         )}
