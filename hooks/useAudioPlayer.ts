@@ -1,9 +1,12 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { Track, PlaybackMode } from '../types';
-import { addToHistory } from '../utils/storage';
 
-export const useAudioPlayer = (tracks: Track[], resolveTrackFile: (t: Track) => Promise<Track | null>) => {
+export const useAudioPlayer = (
+  tracks: Track[], 
+  resolveTrackFile: (t: Track) => Promise<Track | null>,
+  onTrackStart?: (track: Track) => void
+) => {
   const [currentTrackIndex, setCurrentTrackIndex] = useState<number | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [progress, setProgress] = useState(0);
@@ -16,7 +19,6 @@ export const useAudioPlayer = (tracks: Track[], resolveTrackFile: (t: Track) => 
   const [isSeeking, setIsSeeking] = useState(false);
   
   const audioRef = useRef<HTMLAudioElement | null>(null);
-  const lastRecordedTrack = useRef<string | null>(null);
   const currentFingerprintRef = useRef<string | null>(null);
 
   // 同步当前播放曲目的唯一标识，用于在列表变动时追踪位置
@@ -83,14 +85,14 @@ export const useAudioPlayer = (tracks: Track[], resolveTrackFile: (t: Track) => 
         await ctx.resume();
       }
       
-      // 切歌时的物理重置：关键修复
+      // 切歌时的物理重置
       if (audio.src !== sourceUrl) {
         audio.pause();
         audio.src = sourceUrl;
-        audio.load(); // 强制重新加载
-        audio.currentTime = 0; // 重置底层播放时间
-        setProgress(0); // 重置状态进度
-        setDuration(0); // 重置状态时长
+        audio.load(); 
+        audio.currentTime = 0; 
+        setProgress(0); 
+        setDuration(0); 
       }
       
       if (gainNode && ctx) {
@@ -101,16 +103,16 @@ export const useAudioPlayer = (tracks: Track[], resolveTrackFile: (t: Track) => 
       await audio.play();
       setIsPlaying(true);
       
-      if (track.fingerprint !== lastRecordedTrack.current) {
-        addToHistory(track);
-        lastRecordedTrack.current = track.fingerprint;
+      // 通知外部记录历史
+      if (onTrackStart) {
+        onTrackStart(track);
       }
       
       setTimeout(() => fadePhysicalVolume(volume, 0.5), 50);
     } catch (err) {
       console.error("播放失败:", err);
     }
-  }, [volume, fadePhysicalVolume, currentTrackIndex, tracks, resolveTrackFile]);
+  }, [volume, fadePhysicalVolume, currentTrackIndex, tracks, resolveTrackFile, onTrackStart]);
 
   const pauseWithFade = useCallback(() => {
     const audio = audioRef.current;
@@ -131,7 +133,6 @@ export const useAudioPlayer = (tracks: Track[], resolveTrackFile: (t: Track) => 
       ? Math.floor(Math.random() * tracks.length) 
       : (currentTrackIndex + 1) % tracks.length;
     
-    // 切歌前重置状态防止视觉堆叠
     setProgress(0);
     setDuration(0);
     setCurrentTrackIndex(nextIdx);
@@ -142,7 +143,6 @@ export const useAudioPlayer = (tracks: Track[], resolveTrackFile: (t: Track) => 
     if (tracks.length === 0 || currentTrackIndex === null) return;
     const prevIdx = (currentTrackIndex - 1 + tracks.length) % tracks.length;
     
-    // 切歌前重置状态防止视觉堆叠
     setProgress(0);
     setDuration(0);
     setCurrentTrackIndex(prevIdx);
@@ -157,7 +157,6 @@ export const useAudioPlayer = (tracks: Track[], resolveTrackFile: (t: Track) => 
     }
   }, []);
 
-  // 监听列表变化处理索引偏移
   useEffect(() => {
     if (tracks.length === 0) {
       if (audioRef.current) {
@@ -168,7 +167,6 @@ export const useAudioPlayer = (tracks: Track[], resolveTrackFile: (t: Track) => 
       setCurrentTrackIndex(null);
       setProgress(0);
       setDuration(0);
-      lastRecordedTrack.current = null;
       return;
     }
 
@@ -176,7 +174,7 @@ export const useAudioPlayer = (tracks: Track[], resolveTrackFile: (t: Track) => 
       const newIndex = tracks.findIndex(t => t.fingerprint === currentFingerprintRef.current);
       if (newIndex !== -1) {
         if (newIndex !== currentTrackIndex) {
-          setCurrentTrackIndex(newIndex); // 静默更新索引，不重置播放
+          setCurrentTrackIndex(newIndex); 
         }
       } else {
         if (currentTrackIndex !== null) {
@@ -217,14 +215,12 @@ export const useAudioPlayer = (tracks: Track[], resolveTrackFile: (t: Track) => 
     };
   }, [playbackMode, nextTrack]);
 
-  // 辅助 ref 用于更精确的进度锁定
   const isDraggingProgress = useRef(false);
   useEffect(() => {
     isDraggingProgress.current = isSeeking;
-    if (!isSeeking) setIsSeeking(false); // 仅仅是为了同步 state
+    if (!isSeeking) setIsSeeking(false); 
   }, [isSeeking]);
 
-  // 精准监听歌曲标识变更
   const currentTrackFingerprint = currentTrackIndex !== null ? tracks[currentTrackIndex]?.fingerprint : null;
 
   useEffect(() => {

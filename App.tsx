@@ -50,7 +50,9 @@ const App: React.FC = () => {
     }
   }, [library.tracks, hydratePlaylist]);
 
-  const player = useAudioPlayer(playlist, library.resolveTrackFile);
+  // 连接音频播放器与库管理器的历史记录逻辑
+  const player = useAudioPlayer(playlist, library.resolveTrackFile, library.recordTrackPlayback);
+  
   const { audioIntensity } = useAudioAnalyzer(player.audioRef, player.isPlaying);
   const currentTrack = player.currentTrackIndex !== null ? playlist[player.currentTrackIndex] : null;
   const { rhythmColor } = useThemeColor(currentTrack?.coverUrl);
@@ -83,10 +85,6 @@ const App: React.FC = () => {
       return () => clearTimeout(timer);
     }
   }, [currentTrack, settings.enableAI, processDisplayString]);
-
-  useEffect(() => {
-    library.fetchHistory(); 
-  }, []);
 
   const handleNavigate = useCallback((type: string, name: string) => {
     if (type === 'artistProfile') { setSelectedArtist(name); setView('artistProfile'); }
@@ -156,6 +154,7 @@ const App: React.FC = () => {
           const ok = await library.handleManualFilesSelect(files);
           if (ok) { setView('all'); setIsImportWindowOpen(false); }
         }}
+        onSyncFolder={library.syncFolder}
         onRemoveFolder={library.removeFolder} 
         importedFolders={library.importedFolders} 
         isImporting={library.isImporting}
@@ -284,7 +283,6 @@ const App: React.FC = () => {
             </div>
         </div>
         
-        {/* 重要：移除了 src 属性，完全由钩子控制 */}
         <audio ref={player.audioRef} preload="auto" />
         
         <PlayerControls

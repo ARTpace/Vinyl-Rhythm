@@ -117,13 +117,33 @@ export const clearPlaybackHistory = async () => {
   tx.objectStore(HISTORY_STORE).clear();
 };
 
-export const saveLibraryFolder = async (id: string, handle: FileSystemDirectoryHandle) => {
+/**
+ * 保存库文件夹记录，增加 lastSync 参数支持以跟踪最后同步时间
+ */
+export const saveLibraryFolder = async (id: string, handle: FileSystemDirectoryHandle, totalFilesCount?: number, lastSync?: number) => {
   const db = await initDB();
   const tx = db.transaction(STORE_NAME, 'readwrite');
-  await tx.objectStore(STORE_NAME).put({ id, handle, name: handle.name, addedAt: Date.now() });
+  const store = tx.objectStore(STORE_NAME);
+  
+  // 先获取已有的，保留 addedAt
+  const request = store.get(id);
+  request.onsuccess = () => {
+      const existing = request.result;
+      store.put({ 
+          id, 
+          handle, 
+          name: handle.name, 
+          addedAt: existing?.addedAt || Date.now(),
+          lastSync: lastSync !== undefined ? lastSync : (existing?.lastSync || 0),
+          totalFilesCount: totalFilesCount !== undefined ? totalFilesCount : existing?.totalFilesCount
+      });
+  };
 };
 
-export const getAllLibraryFolders = async (): Promise<{id: string, handle: FileSystemDirectoryHandle, name: string}[]> => {
+/**
+ * 获取所有库文件夹记录，明确返回类型包含 lastSync 等属性
+ */
+export const getAllLibraryFolders = async (): Promise<{id: string, handle: FileSystemDirectoryHandle, name: string, totalFilesCount?: number, lastSync?: number, addedAt?: number}[]> => {
   const db = await initDB();
   const tx = db.transaction(STORE_NAME, 'readonly');
   const request = tx.objectStore(STORE_NAME).getAll();
