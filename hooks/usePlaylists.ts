@@ -1,3 +1,4 @@
+
 import { useState, useCallback, useEffect } from 'react';
 import { Playlist, Track } from '../types';
 import { savePlaylist, getAllPlaylists, removePlaylist, getPlaylist, updatePlaylist } from '../utils/storage';
@@ -39,16 +40,22 @@ export const usePlaylists = (allTracks: Track[]) => {
     return newPlaylist;
   }, [fetchAllPlaylists]);
 
-  const addTrackToPlaylist = useCallback(async (playlistId: string, track: Track) => {
-    if (!track) return;
+  const addTracksToPlaylist = useCallback(async (playlistId: string, tracks: Track[]) => {
+    if (!tracks || tracks.length === 0) return;
     const playlist = await getPlaylist(playlistId);
     if (!playlist) {
         throw new Error("歌单未找到");
     }
 
-    if (!playlist.songFingerprints.includes(track.fingerprint)) {
+    let changed = false;
+    tracks.forEach(track => {
+      if (!playlist.songFingerprints.includes(track.fingerprint)) {
         playlist.songFingerprints.push(track.fingerprint);
+        changed = true;
+      }
+    });
 
+    if (changed) {
         const trackMap = new Map(allTracks.map(t => [t.fingerprint, t]));
         const tracksInPlaylist = playlist.songFingerprints.map(fp => trackMap.get(fp)).filter(Boolean) as Track[];
         playlist.coverBlob = await generateCompositeCover(tracksInPlaylist);
@@ -57,6 +64,10 @@ export const usePlaylists = (allTracks: Track[]) => {
         await fetchAllPlaylists();
     }
   }, [allTracks, fetchAllPlaylists]);
+
+  const addTrackToPlaylist = useCallback(async (playlistId: string, track: Track) => {
+    return addTracksToPlaylist(playlistId, [track]);
+  }, [addTracksToPlaylist]);
 
   const deletePlaylist = useCallback(async (id: string) => {
     await removePlaylist(id);
@@ -75,6 +86,7 @@ export const usePlaylists = (allTracks: Track[]) => {
     playlists,
     createPlaylist,
     addTrackToPlaylist,
+    addTracksToPlaylist,
     deletePlaylist,
     fetchAllPlaylists,
     getPlaylistTracks,

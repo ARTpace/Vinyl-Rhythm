@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import Sidebar from './components/Sidebar';
 import MobileNav from './components/MobileNav';
@@ -14,6 +15,8 @@ import PlaylistDetailView from './components/PlaylistDetailView';
 import CreatePlaylistModal from './components/CreatePlaylistModal';
 import AddToPlaylistModal from './components/AddToPlaylistModal';
 import ImportPlaylistModal from './components/ImportPlaylistModal';
+import AddTracksByTextModal from './components/AddTracksByTextModal';
+import ConfirmModal from './components/ConfirmModal'; // 引入确认弹窗
 import { Track, ViewType, Playlist } from './types';
 import { getTrackStory } from './services/geminiService';
 import { s2t } from './utils/chineseConverter';
@@ -27,11 +30,15 @@ import { usePlaylist } from './hooks/usePlaylist';
 import { usePlaylists } from './hooks/usePlaylists';
 
 const App: React.FC = () => {
+  // 定义搜索框占位符文字
+  const searchPlaceholder = "搜索曲目、艺人、专辑...";
   const { settings, updateSettings, resetSettings } = useAppSettings();
   const [view, setView] = useState<ViewType>('player');
   const [selectedArtist, setSelectedArtist] = useState<string | null>(null);
   const [selectedPlaylist, setSelectedPlaylist] = useState<Playlist | null>(null);
   const [isImportWindowOpen, setIsImportWindowOpen] = useState(false);
+  
+  // 弹窗状态管理
   const [playlistModalConfig, setPlaylistModalConfig] = useState<{
     isOpen: boolean;
     title: string;
@@ -39,10 +46,19 @@ const App: React.FC = () => {
     confirmText: string;
     onConfirm: (name: string) => Promise<void>;
   } | null>(null);
+  
+  const [confirmModalConfig, setConfirmModalConfig] = useState<{
+    isOpen: boolean;
+    title: string;
+    message: React.ReactNode;
+    onConfirm: () => void;
+  } | null>(null);
+
   const [isAddToPlaylistModalOpen, setIsAddToPlaylistModalOpen] = useState(false);
   const [isImportPlaylistModalOpen, setIsImportPlaylistModalOpen] = useState(false);
+  const [isAddByTextModalOpen, setIsAddByTextModalOpen] = useState(false);
   const [trackToAddToPlaylist, setTrackToAddToPlaylist] = useState<Track | null>(null);
-  const [navigationRequest, setNavigationRequest] = useState<{ type: any, name: string } | null>(null);
+  const [navigationRequest, setNavigationRequest] = useState<{ type: any, name: string, from?: string } | null>(null);
 
   const processDisplayString = useCallback((str: string) => {
     if (!str) return '';
@@ -50,7 +66,7 @@ const App: React.FC = () => {
   }, [settings.useTraditionalChinese]);
 
   const library = useLibraryManager();
-  const { playlists, createPlaylist, addTrackToPlaylist, deletePlaylist, getPlaylistTracks } = usePlaylists(library.tracks);
+  const { playlists, createPlaylist, addTrackToPlaylist, addTracksToPlaylist, deletePlaylist, getPlaylistTracks } = usePlaylists(library.tracks);
   
   const { 
     playlist, 
@@ -77,44 +93,30 @@ const App: React.FC = () => {
   const [trackStory, setTrackStory] = useState('');
   const [isStoryLoading, setIsStoryLoading] = useState(false);
 
-  const searchPlaceholder = useMemo(() => {
-    if (view === 'artists') return "搜索歌手...";
-    if (view === 'albums') return "搜索专辑...";
-    if (view === 'collection') return "搜索歌手或专辑...";
-    return "搜索音乐、歌手、专辑...";
-  }, [view]);
-
-  const qualityInfo = useMemo(() => {
-    if (!currentTrack) return null;
-    const br = currentTrack.bitrate ? currentTrack.bitrate / 1000 : 0;
-    let label = 'SD';
-    let color = 'text-zinc-500';
-    if (br >= 2000) { label = 'Hi-Res'; color = 'text-yellow-400'; }
-    else if (br >= 800) { label = 'Lossless'; color = 'text-sky-400'; }
-    else if (br >= 320) { label = 'HQ'; color = 'text-emerald-400'; }
-    return { label, bitrate: br ? `${Math.round(br)} kbps` : 'Variable', color };
-  }, [currentTrack]);
-
-  useEffect(() => {
-    if (currentTrack) {
-      if (!settings.enableAI) { setTrackStory(''); setIsStoryLoading(false); return; }
-      setIsStoryLoading(true);
-      setTrackStory(''); 
-      const timer = setTimeout(() => {
-        getTrackStory(currentTrack.name, currentTrack.artist).then(story => {
-          setTrackStory(processDisplayString(story));
-          setIsStoryLoading(false);
-        });
-      }, 1500);
-      return () => clearTimeout(timer);
-    }
-  }, [currentTrack, settings.enableAI, processDisplayString]);
-
+  // 处理导航逻辑，增加来源追踪
   const handleNavigate = useCallback((type: string, name: string) => {
-    if (type === 'artistProfile') { setSelectedArtist(name); setView('artistProfile'); }
-    else if (type === 'albums') { setNavigationRequest({ type: 'albums', name }); setView('all'); }
+    if (type === 'artistProfile') { 
+      setSelectedArtist(name); 
+      setView('artistProfile'); 
+    }
+    else if (type === 'albums') { 
+      // 如果当前在歌手页，记录来源以便回退
+      const from = (view === 'artistProfile') ? 'artistProfile' : undefined;
+      setNavigationRequest({ type: 'albums', name, from }); 
+      setView('all'); 
+    }
     library.setSearchQuery('');
-  }, [library]);
+  }, [library, view]);
+
+  // 处理专辑详情页的回退逻辑
+  const handleAlbumBack = useCallback(() => {
+    if (navigationRequest?.from === 'artistProfile' && selectedArtist) {
+      setView('artistProfile');
+      setNavigationRequest(null);
+    } else {
+      setNavigationRequest(null);
+    }
+  }, [navigationRequest, selectedArtist]);
 
   const handleSidebarViewChange = (v: ViewType) => {
     setView(v);
@@ -162,28 +164,52 @@ const App: React.FC = () => {
     player.setIsPlaying(true); 
   }, [player]);
 
+  // 修改：保存队列为歌单，使用自定义 Modal
   const handleSaveQueueAsPlaylist = useCallback(() => {
-    if (playlist.length === 0) {
-      alert("播放队列为空，无法创建歌单。");
-      return;
-    }
+    if (playlist.length === 0) return;
     setPlaylistModalConfig({
       isOpen: true,
       title: "保存当前队列为歌单",
-      defaultValue: "我的收藏",
-      confirmText: "保存",
+      defaultValue: `播放队列_${new Date().toLocaleDateString()}`,
+      confirmText: "确认保存",
       onConfirm: async (name: string) => {
-        if (!name) return;
         try {
           await createPlaylist(name, playlist);
-          alert(`歌单 "${name}" 已成功保存！`);
+          setPlaylistModalConfig(null);
         } catch (error: any) {
-          console.error("保存歌单失败:", error);
-          alert(`保存歌单失败: ${error.message || '未知错误'}`);
+          alert(`保存失败: ${error.message}`);
         }
       },
     });
   }, [playlist, createPlaylist]);
+
+  // 修改：清空队列确认
+  const handleRequestClearQueue = useCallback(() => {
+    if (playlist.length === 0) return;
+    setConfirmModalConfig({
+      isOpen: true,
+      title: "确认清空队列",
+      message: "此操作将移除当前播放列表中的所有歌曲，是否继续？",
+      onConfirm: () => {
+        if (player.isPlaying) player.togglePlay();
+        setTimeout(clearPlaylist, 200);
+        setConfirmModalConfig(null);
+      }
+    });
+  }, [playlist, clearPlaylist, player]);
+
+  // 修改：清空历史确认
+  const handleRequestClearHistory = useCallback(() => {
+    setConfirmModalConfig({
+      isOpen: true,
+      title: "确认清空历史",
+      message: "确定要彻底删除您的播放历史记录吗？",
+      onConfirm: () => {
+        library.clearHistory();
+        setConfirmModalConfig(null);
+      }
+    });
+  }, [library]);
 
   const handleCreateNewPlaylist = useCallback(() => {
     setPlaylistModalConfig({
@@ -192,35 +218,49 @@ const App: React.FC = () => {
       defaultValue: "我的新歌单",
       confirmText: "确认创建",
       onConfirm: async (name: string) => {
-        if (!name) return;
         try {
           await createPlaylist(name, []);
-          alert(`歌单 "${name}" 已成功创建！`);
+          setPlaylistModalConfig(null);
         } catch (error: any) {
-          console.error("创建歌单失败:", error);
-          alert(`创建歌单失败: ${error.message || '未知错误'}`);
+          alert(`创建失败: ${error.message}`);
         }
       },
     });
   }, [createPlaylist]);
 
   const handleImportPlaylistFromText = useCallback(async (name: string, tracks: Track[]) => {
-    if (!name || tracks.length === 0) {
-      alert("请输入歌单名称并确保至少有一首匹配的歌曲。");
-      return;
-    }
+    if (!name || tracks.length === 0) return;
     try {
       await createPlaylist(name, tracks);
-      alert(`歌单 "${name}" 已成功创建，包含 ${tracks.length} 首歌曲！`);
       setIsImportPlaylistModalOpen(false);
     } catch (error: any) {
-      alert(`创建歌单失败: ${error.message}`);
+      alert(`导入失败: ${error.message}`);
     }
   }, [createPlaylist]);
 
+  const handleAddTracksByText = useCallback(async (tracks: Track[]) => {
+    if (!selectedPlaylist || tracks.length === 0) return;
+    try {
+      await addTracksToPlaylist(selectedPlaylist.id, tracks);
+      const updated = playlists.find(p => p.id === selectedPlaylist.id);
+      if (updated) setSelectedPlaylist(updated);
+      setIsAddByTextModalOpen(false);
+    } catch (error: any) {
+      alert(`追加失败: ${error.message}`);
+    }
+  }, [selectedPlaylist, addTracksToPlaylist, playlists]);
+
   const handleDeletePlaylist = (id: string) => {
-    deletePlaylist(id);
-    setSelectedPlaylist(null);
+    setConfirmModalConfig({
+      isOpen: true,
+      title: "确认删除歌单",
+      message: "删除后将无法恢复，确定要删除此歌单吗？",
+      onConfirm: () => {
+        deletePlaylist(id);
+        setSelectedPlaylist(null);
+        setConfirmModalConfig(null);
+      }
+    });
   };
 
   const handlePlayPlaylist = (p: Playlist) => {
@@ -242,23 +282,16 @@ const App: React.FC = () => {
     if (!trackToAddToPlaylist) return;
     try {
       await addTrackToPlaylist(playlistId, trackToAddToPlaylist);
-      const targetPlaylist = playlists.find(p => p.id === playlistId);
-      alert(`已成功添加 "${trackToAddToPlaylist.name}" 到歌单 "${targetPlaylist?.name || ''}"！`);
-    } catch (e: any) {
-      alert(`添加失败: ${e.message}`);
     } finally {
       setIsAddToPlaylistModalOpen(false);
       setTrackToAddToPlaylist(null);
     }
-  }, [trackToAddToPlaylist, addTrackToPlaylist, playlists]);
+  }, [trackToAddToPlaylist, addTrackToPlaylist]);
 
   const handleCreateAndAddToPlaylist = useCallback(async (playlistName: string) => {
     if (!trackToAddToPlaylist) return;
     try {
-      const newPlaylist = await createPlaylist(playlistName, [trackToAddToPlaylist]);
-      alert(`已成功创建歌单 "${playlistName}" 并添加了 "${trackToAddToPlaylist.name}"！`);
-    } catch (e: any) {
-      alert(`创建失败: ${e.message}`);
+      await createPlaylist(playlistName, [trackToAddToPlaylist]);
     } finally {
       setIsAddToPlaylistModalOpen(false);
       setTrackToAddToPlaylist(null);
@@ -267,73 +300,37 @@ const App: React.FC = () => {
 
   return (
     <div className="flex h-screen overflow-hidden font-sans selection:bg-yellow-500/30">
-      <ImportWindow 
-        isOpen={isImportWindowOpen} 
-        onClose={() => setIsImportWindowOpen(false)} 
-        onFolderSelected={async (handle) => {
-           const newFolderId = await library.registerFolder(handle); 
-           library.syncFolder(newFolderId); 
-        }} 
-        onReconnectFolder={library.reconnectFolder}
-        onManualFilesSelect={async (files) => {
-          const ok = await library.handleManualFilesSelect(files);
-          if (ok) { setView('all'); setIsImportWindowOpen(false); }
-        }}
-        onSyncFolder={library.syncFolder}
-        onRemoveFolder={library.removeFolder} 
-        importedFolders={library.importedFolders} 
-        isImporting={library.isImporting}
-        syncingFolderId={library.syncingFolderId}
-      />
+      <ImportWindow isOpen={isImportWindowOpen} onClose={() => setIsImportWindowOpen(false)} onFolderSelected={async (handle) => { const newFolderId = await library.registerFolder(handle); library.syncFolder(newFolderId); }} onReconnectFolder={library.reconnectFolder} onManualFilesSelect={async (files) => { const ok = await library.handleManualFilesSelect(files); if (ok) { setView('all'); setIsImportWindowOpen(false); } }} onSyncFolder={library.syncFolder} onRemoveFolder={library.removeFolder} importedFolders={library.importedFolders} isImporting={library.isImporting} syncingFolderId={library.syncingFolderId} />
       
-      <CreatePlaylistModal
-        isOpen={playlistModalConfig?.isOpen || false}
-        onCancel={() => setPlaylistModalConfig(null)}
-        onConfirm={async (name) => {
-          if (playlistModalConfig) {
-            await playlistModalConfig.onConfirm(name);
-            setPlaylistModalConfig(null);
-          }
-        }}
-        title={playlistModalConfig?.title}
-        defaultValue={playlistModalConfig?.defaultValue}
-        confirmText={playlistModalConfig?.confirmText}
+      <CreatePlaylistModal 
+        isOpen={playlistModalConfig?.isOpen || false} 
+        onCancel={() => setPlaylistModalConfig(null)} 
+        onConfirm={async (name) => { if (playlistModalConfig) await playlistModalConfig.onConfirm(name); }} 
+        title={playlistModalConfig?.title} 
+        defaultValue={playlistModalConfig?.defaultValue} 
+        confirmText={playlistModalConfig?.confirmText} 
       />
 
-      <AddToPlaylistModal
-        isOpen={isAddToPlaylistModalOpen}
-        playlists={playlists}
-        onClose={() => setIsAddToPlaylistModalOpen(false)}
-        onSelectPlaylist={handleAddToExistingPlaylist}
-        onCreateAndAdd={handleCreateAndAddToPlaylist}
+      <ConfirmModal
+        isOpen={confirmModalConfig?.isOpen || false}
+        title={confirmModalConfig?.title || ""}
+        message={confirmModalConfig?.message || ""}
+        onConfirm={confirmModalConfig?.onConfirm || (() => {})}
+        onCancel={() => setConfirmModalConfig(null)}
       />
 
-      <ImportPlaylistModal
-        isOpen={isImportPlaylistModalOpen}
-        allTracks={library.tracks}
-        onClose={() => setIsImportPlaylistModalOpen(false)}
-        onImport={handleImportPlaylistFromText}
-      />
+      <AddToPlaylistModal isOpen={isAddToPlaylistModalOpen} playlists={playlists} onClose={() => setIsAddToPlaylistModalOpen(false)} onSelectPlaylist={handleAddToExistingPlaylist} onCreateAndAdd={handleCreateAndAddToPlaylist} />
+      <ImportPlaylistModal isOpen={isImportPlaylistModalOpen} allTracks={library.tracks} onClose={() => setIsImportPlaylistModalOpen(false)} onImport={handleImportPlaylistFromText} />
+      
+      {selectedPlaylist && (
+        <AddTracksByTextModal isOpen={isAddByTextModalOpen} playlist={selectedPlaylist} allTracks={library.tracks} onClose={() => setIsAddByTextModalOpen(false)} onAdd={handleAddTracksByText} />
+      )}
 
       <div className="hidden md:flex flex-col h-full z-50">
           <Sidebar activeView={view} onViewChange={handleSidebarViewChange} trackCount={library.tracks.length} />
       </div>
 
       <main className="flex-1 flex flex-col relative pb-32 md:pb-28 bg-gradient-to-br from-[#1c1c1c] via-[#121212] to-[#0a0a0a]">
-        {library.needsPermission && !library.isImporting && (
-          <div className="absolute top-0 left-0 right-0 z-[100] bg-yellow-500 text-black px-4 py-2 flex items-center justify-center gap-3 animate-in slide-in-from-top duration-500 shadow-xl">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><path d="m21 21-4.3-4.3M11 8l3 3-3 3M8 11h6"/></svg>
-            <span className="text-[10px] font-black uppercase tracking-widest">检测到还原记录或浏览器已重置权限，请在“管理库”中重新关联路径。</span>
-            <button onClick={() => setIsImportWindowOpen(true)} className="bg-black text-white px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-tighter hover:scale-105 transition-transform">前往管理</button>
-          </div>
-        )}
-
-        {settings.showBlurBackground && currentTrack && view === 'player' && (
-          <div className="absolute inset-0 pointer-events-none transition-all duration-1000 overflow-hidden">
-             {currentTrack.coverUrl ? <img src={currentTrack.coverUrl} className="w-full h-full object-cover scale-150 blur-[120px] opacity-[0.15]" /> : <div className="w-full h-full bg-gradient-to-br from-yellow-500/5 to-transparent blur-[120px]" />}
-          </div>
-        )}
-
         <header className="p-4 md:p-6 flex justify-between items-center z-50 relative gap-3">
           <div className="flex items-center gap-4 md:gap-6 flex-1 min-w-0">
              <div className="relative group max-w-md w-full">
@@ -342,18 +339,7 @@ const App: React.FC = () => {
              </div>
           </div>
           <div className="flex items-center gap-3">
-            {library.isImporting && (
-              <div className="hidden md:flex items-center gap-3 px-4 py-2 bg-black/40 border border-white/5 rounded-2xl backdrop-blur-md animate-in fade-in">
-                <div className="flex flex-col items-end min-w-0 max-w-[120px]">
-                  <span className="text-white text-[10px] font-black italic">{library.importProgress}%</span>
-                  <span className="text-zinc-500 text-[8px] font-bold uppercase tracking-tighter truncate w-full text-right">{library.currentProcessingFile}</span>
-                </div>
-                <div className="w-16 h-1.5 bg-white/5 rounded-full overflow-hidden">
-                  <div className="h-full bg-yellow-500 shadow-[0_0_8px_rgba(234,179,8,0.5)] transition-all duration-500 ease-out" style={{ width: `${library.importProgress}%` }} />
-                </div>
-              </div>
-            )}
-            <button onClick={() => library.syncAll()} disabled={library.isImporting} title="同步并修复音乐库" className="w-10 h-10 flex items-center justify-center bg-white/5 hover:bg-white/10 text-white border border-white/10 rounded-full transition-all group">
+            <button onClick={() => library.syncAll()} disabled={library.isImporting} className="w-10 h-10 flex items-center justify-center bg-white/5 hover:bg-white/10 text-white border border-white/10 rounded-full transition-all group">
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" className={`${library.isImporting ? 'animate-spin' : 'group-hover:rotate-180 transition-transform duration-500'}`}><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.85.83 6.72 2.24L21 8"/><path d="M21 3v5h-5"/></svg>
             </button>
             <button onClick={() => setIsImportWindowOpen(true)} className="bg-yellow-500 text-black px-6 py-2.5 rounded-full font-black text-xs uppercase tracking-widest active:scale-95 transition-all">{processDisplayString("管理库")}</button>
@@ -385,17 +371,8 @@ const App: React.FC = () => {
                             {processDisplayString("享受纯净音质")}
                           </span>
                         )}
-                        {currentTrack?.album && (
-                          <div className="flex items-center gap-2">
-                            <span className="text-zinc-800 font-black mx-1">•</span>
-                            <button onClick={() => handleNavigate('albums', currentTrack.album)} className="text-zinc-500 font-bold uppercase tracking-[0.15em] text-[11px] md:text-xs hover:text-white transition-colors truncate max-w-[200px]">
-                              {processDisplayString(currentTrack.album)}
-                            </button>
-                          </div>
-                        )}
                       </div>
                     </div>
-
                     <div className="relative mt-4">
                       <SwipeableTrack onNext={player.nextTrack} onPrev={player.prevTrack} currentId={currentTrack?.id || 'empty'}>
                         <VinylRecord isPlaying={player.isPlaying} coverUrl={currentTrack?.coverUrl} intensity={audioIntensity} themeColor={rhythmColor} spinSpeed={settings.spinSpeed} showParticles={settings.showParticles} />
@@ -406,22 +383,6 @@ const App: React.FC = () => {
                           </div>
                       </div>
                     </div>
-
-                    {settings.showQualityTag && qualityInfo && (
-                      <div className="mt-8 flex items-center gap-3 animate-in fade-in zoom-in duration-1000">
-                        <div className="flex items-center gap-2 px-4 py-1 rounded-full bg-white/5 border border-white/5 backdrop-blur-sm">
-                           <span className={`w-1.5 h-1.5 rounded-full ${qualityInfo.color} ${player.isPlaying ? 'animate-pulse' : 'opacity-50'}`} style={{ boxShadow: player.isPlaying ? `0 0 8px currentColor` : 'none' }}></span>
-                           <span className={`text-[10px] font-black uppercase tracking-[0.15em] ${qualityInfo.label === 'Hi-Res' ? 'text-yellow-400' : qualityInfo.color}`}>{qualityInfo.label}</span>
-                           <span className="text-[10px] text-zinc-600 font-mono tracking-tighter">{qualityInfo.bitrate}</span>
-                        </div>
-                      </div>
-                    )}
-
-                    {settings.enableAI && (
-                      <div className={`mt-6 max-w-2xl text-center px-4 italic text-zinc-500 text-sm md:text-base transition-opacity duration-1000 leading-relaxed ${isStoryLoading ? 'opacity-20' : 'opacity-100'}`}>
-                        {trackStory || (currentTrack ? processDisplayString("正在为您解读...") : processDisplayString("开启一段黑胶之旅。"))}
-                      </div>
-                    )}
                   </div>
                 ) : view === 'playlists' ? (
                   selectedPlaylist ? (
@@ -432,81 +393,29 @@ const App: React.FC = () => {
                         onPlayTrack={handlePlayFromLibrary}
                         onPlayPlaylist={handlePlayPlaylist}
                         onDeletePlaylist={handleDeletePlaylist}
+                        onOpenAddByText={() => setIsAddByTextModalOpen(true)}
                         favorites={library.favorites}
                         onToggleFavorite={library.handleToggleFavorite}
                         displayConverter={processDisplayString}
                     />
                   ) : (
-                    <PlaylistsView 
-                        playlists={playlists}
-                        onSelectPlaylist={setSelectedPlaylist}
-                        onPlayPlaylist={handlePlayPlaylist}
-                        onCreatePlaylist={handleCreateNewPlaylist}
-                        onImportPlaylist={() => setIsImportPlaylistModalOpen(true)}
-                        displayConverter={processDisplayString}
-                    />
+                    <PlaylistsView playlists={playlists} onSelectPlaylist={setSelectedPlaylist} onPlayPlaylist={handlePlayPlaylist} onCreatePlaylist={handleCreateNewPlaylist} onImportPlaylist={() => setIsImportPlaylistModalOpen(true)} displayConverter={processDisplayString} />
                   )
                 ) : view === 'artistProfile' && selectedArtist ? (
                   <ArtistProfile artistName={selectedArtist} allTracks={library.tracks} onBack={() => { setView('collection'); setSelectedArtist(null); }} onPlayTrack={handlePlayFromLibrary} onAddToQueue={addToPlaylist} onAddToPlaylist={openAddToPlaylistModal} onPlayAlbum={handlePlayAlbum} onPlayArtist={handlePlayArtist} onNavigateToAlbum={(album) => handleNavigate('albums', album)} favorites={library.favorites} onToggleFavorite={library.handleToggleFavorite} artistMetadata={library.artistMetadata} />
                 ) : view === 'settings' ? (
-                  <SettingsView settings={settings} onUpdate={updateSettings} onReset={resetSettings} onClearHistory={library.clearHistory} />
+                  <SettingsView settings={settings} onUpdate={updateSettings} onReset={resetSettings} onClearHistory={handleRequestClearHistory} />
                 ) : (view === 'collection' || view === 'albums' || view === 'artists') ? (
                   <CollectionView tracks={library.tracks} onNavigate={handleNavigate} onPlayAlbum={handlePlayAlbum} displayConverter={processDisplayString} searchQuery={library.searchQuery} initialTab={view === 'albums' ? 'albums' : 'artists'} onTabChange={(newTab) => setView(newTab)} artistMetadata={library.artistMetadata} />
                 ) : (
-                  <LibraryView 
-                    view={view} 
-                    tracks={library.filteredTracks} 
-                    folders={library.importedFolders}
-                    onPlay={handlePlayFromLibrary} 
-                    onAddToQueue={addToPlaylist}
-                    onAddToPlaylist={openAddToPlaylistModal}
-                    favorites={library.favorites} 
-                    navigationRequest={navigationRequest} 
-                    onNavigationProcessed={() => setNavigationRequest(null)} 
-                    onNavigate={handleNavigate} 
-                    isSearching={library.searchQuery.length > 0} 
-                    onToggleFavorite={library.handleToggleFavorite} 
-                    onUpdateTrack={library.handleUpdateTrack} 
-                    displayConverter={processDisplayString} 
-                  />
+                  <LibraryView view={view} tracks={library.filteredTracks} folders={library.importedFolders} onPlay={handlePlayFromLibrary} onAddToQueue={addToPlaylist} onAddToPlaylist={openAddToPlaylistModal} favorites={library.favorites} navigationRequest={navigationRequest} onNavigationProcessed={() => setNavigationRequest(null)} onNavigate={handleNavigate} onBack={handleAlbumBack} isSearching={library.searchQuery.length > 0} onToggleFavorite={library.handleToggleFavorite} onUpdateTrack={library.handleUpdateTrack} displayConverter={processDisplayString} />
                 )}
             </div>
         </div>
         
         <audio ref={player.audioRef} preload="auto" />
         
-        <PlayerControls
-          currentTrack={currentTrack} 
-          tracks={playlist} 
-          historyTracks={library.historyTracks} 
-          currentIndex={player.currentTrackIndex}
-          isPlaying={player.isPlaying} 
-          onTogglePlay={player.togglePlay} 
-          onNext={player.nextTrack} 
-          onPrev={player.prevTrack} 
-          onSelectTrack={handleSelectTrackFromQueue} 
-          onRemoveTrack={removeFromPlaylist}
-          progress={player.progress} 
-          duration={player.duration} 
-          volume={player.volume} 
-          onVolumeChange={player.setVolume} 
-          onSeek={player.seek} 
-          isFavorite={currentTrack ? library.favorites.has(currentTrack.id) : false} 
-          favorites={library.favorites} 
-          onNavigate={handleNavigate} 
-          onToggleFavorite={(id) => library.handleToggleFavorite(id || currentTrack?.id || '')}
-          onAddToPlaylist={openAddToPlaylistModal}
-          playbackMode={player.playbackMode} 
-          onTogglePlaybackMode={() => player.setPlaybackMode(p => p === 'normal' ? 'shuffle' : p === 'shuffle' ? 'loop' : 'normal')}
-          onReorder={reorderPlaylist} 
-          onClearHistory={library.clearHistory} 
-          onClearQueue={clearPlaylist} 
-          onPlayFromHistory={handlePlayFromLibrary}
-          onSaveQueueAsPlaylist={handleSaveQueueAsPlaylist}
-          themeColor="#eab308" 
-          settings={settings} 
-          displayConverter={processDisplayString}
-        />
+        <PlayerControls currentTrack={currentTrack} tracks={playlist} historyTracks={library.historyTracks} currentIndex={player.currentTrackIndex} isPlaying={player.isPlaying} onTogglePlay={player.togglePlay} onNext={player.nextTrack} onPrev={player.prevTrack} onSelectTrack={handleSelectTrackFromQueue} onRemoveTrack={removeFromPlaylist} progress={player.progress} duration={player.duration} volume={player.volume} onVolumeChange={player.setVolume} onSeek={player.seek} isFavorite={currentTrack ? library.favorites.has(currentTrack.id) : false} favorites={library.favorites} onNavigate={handleNavigate} onToggleFavorite={(id) => library.handleToggleFavorite(id || currentTrack?.id || '')} onAddToPlaylist={openAddToPlaylistModal} playbackMode={player.playbackMode} onTogglePlaybackMode={() => player.setPlaybackMode(p => p === 'normal' ? 'shuffle' : p === 'shuffle' ? 'loop' : 'normal')} onReorder={reorderPlaylist} onClearHistory={handleRequestClearHistory} onClearQueue={handleRequestClearQueue} onPlayFromHistory={handlePlayFromLibrary} onSaveQueueAsPlaylist={handleSaveQueueAsPlaylist} themeColor="#eab308" settings={settings} displayConverter={processDisplayString} />
         <MobileNav activeView={view} onViewChange={handleSidebarViewChange} trackCount={library.tracks.length} themeColor="#eab308" />
       </main>
     </div>

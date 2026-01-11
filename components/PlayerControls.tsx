@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef } from 'react';
 import { Track, AppSettings, Playlist } from '../types';
 import { formatTime } from '../utils/audioParser';
@@ -71,7 +72,6 @@ const PlayerControls: React.FC<PlayerControlsProps> = ({
   const [queueTab, setQueueTab] = useState<'queue' | 'history'>('queue');
   const [lastVolume, setLastVolume] = useState(0.8);
   const [isQueuePulsing, setIsQueuePulsing] = useState(false);
-  const queueEndRef = useRef<HTMLDivElement>(null);
   const prevQueueLength = useRef(tracks.length);
   
   const [draggedOverId, setDraggedOverId] = useState<string | null>(null);
@@ -85,7 +85,6 @@ const PlayerControls: React.FC<PlayerControlsProps> = ({
 
   const convert = (s: string) => displayConverter ? displayConverter(s) : s;
 
-  // 监听队列长度，触发脉冲动画
   useEffect(() => {
     if (tracks.length > prevQueueLength.current) {
         setIsQueuePulsing(true);
@@ -176,20 +175,9 @@ const PlayerControls: React.FC<PlayerControlsProps> = ({
 
   const handleClearAction = () => {
     if (queueTab === 'queue') {
-        if (tracks.length === 0) return;
-        if (confirm('确定要清空当前的播放队列吗？')) {
-            if (isPlaying) {
-                onTogglePlay(); 
-                setTimeout(() => onClearQueue?.(), 500); 
-            } else {
-                onClearQueue?.();
-            }
-        }
+        onClearQueue?.();
     } else {
-        if (historyTracks.length === 0) return;
-        if (confirm('确定要清空播放历史记录吗？')) {
-            onClearHistory?.();
-        }
+        onClearHistory?.();
     }
   };
 
@@ -197,10 +185,8 @@ const PlayerControls: React.FC<PlayerControlsProps> = ({
     <>
       {showQueue && <div className="fixed inset-0 z-[80] bg-black/40 backdrop-blur-sm transition-opacity" onClick={() => setShowQueue(false)} />}
       
-      {/* 优化：固定高度 height: 60vh 替代 max-height，确保切换时面板不跳动 */}
       <div className={`fixed right-0 md:right-6 bottom-16 md:bottom-28 w-full md:w-[480px] bg-[#161616] md:border border-[#333] rounded-t-3xl md:rounded-3xl shadow-[0_-10px_40px_rgba(0,0,0,0.9)] z-[90] transform transition-all duration-300 flex flex-col overflow-hidden ${showQueue ? 'translate-y-0 opacity-100' : 'translate-y-full opacity-0 pointer-events-none'}`} style={{ height: '60vh' }}>
         
-        {/* 顶部页签 + 清空图标 */}
         <div className="p-3 border-b border-[#2a2a2a] bg-gradient-to-b from-[#222] to-[#161616] shrink-0">
           <div className="flex items-center justify-between gap-3">
             <div className="flex bg-black/40 p-1 rounded-2xl flex-1 border border-white/5">
@@ -240,7 +226,6 @@ const PlayerControls: React.FC<PlayerControlsProps> = ({
           </div>
         </div>
 
-        {/* 统一列表区域 */}
         <div className="overflow-y-auto p-2 flex-1 custom-scrollbar bg-[#111]">
           {queueTab === 'queue' ? (
             tracks.length > 0 ? (
@@ -363,11 +348,9 @@ const PlayerControls: React.FC<PlayerControlsProps> = ({
           )}
         </div>
         
-        {/* 底部渐变遮罩，保持列表底部平滑感 */}
         <div className="h-4 bg-gradient-to-t from-[#111] to-transparent shrink-0 pointer-events-none" />
       </div>
 
-      {/* 底部主控制栏 */}
       <div className={`hidden md:flex fixed bottom-0 left-0 right-0 h-28 px-8 items-center justify-between z-[100] ${metallicPanelClass}`}>
         <div className="flex items-center gap-5 w-1/4 min-w-0">
            <div className="w-16 h-16 rounded-md bg-[#111] p-1 flex-shrink-0 relative overflow-hidden group">
