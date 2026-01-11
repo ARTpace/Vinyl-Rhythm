@@ -153,6 +153,12 @@ const TrackRow = React.memo<{
                    {bitrateKbps}K
                  </span>
                )}
+               {track.duplicateCount && track.duplicateCount > 1 && (
+                 <span className="text-[7px] bg-white/10 text-zinc-400 px-1 rounded flex items-center gap-0.5 group-hover:bg-yellow-500/20 group-hover:text-yellow-500 transition-colors">
+                    <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                    {track.duplicateCount} VERSIONS
+                 </span>
+               )}
             </div>
           </div>
           <button onClick={(e) => { e.stopPropagation(); onNavigate?.('artistProfile', track.artist); }} className="text-zinc-500 text-[9px] md:text-xs font-bold uppercase tracking-widest hover:text-yellow-500 transition-colors">
@@ -220,21 +226,32 @@ const LibraryView: React.FC<LibraryViewProps> = ({
     if (subTab === 'fav' && !isSearching) list = list.filter(t => favorites.has(t.id));
     if (activeGroup) list = list.filter(t => (t.folderId || '默认导入') === activeGroup);
     
-    // 如果处于“专辑详情”页面，增加音质去重逻辑
-    if (activeAlbum) {
-      list = list.filter(t => t.album === activeAlbum);
+    // 如果处于“专辑详情”页面或全局列表，增加音质去重逻辑
+    if (activeAlbum || view === 'all') {
+      if (activeAlbum) list = list.filter(t => t.album === activeAlbum);
       
       const bestVersionsMap = new Map<string, Track>();
+      const countMap = new Map<string, number>();
+
       list.forEach(t => {
         // 使用歌曲名+艺人作为唯一键
         const key = `${t.name.trim().toLowerCase()}-${t.artist.trim().toLowerCase()}`;
+        
+        // 计数重复版本
+        countMap.set(key, (countMap.get(key) || 0) + 1);
+
         const existing = bestVersionsMap.get(key);
         // 如果不存在或者当前轨道比特率更高，则保留当前的
         if (!existing || (t.bitrate || 0) > (existing.bitrate || 0)) {
           bestVersionsMap.set(key, t);
         }
       });
-      list = Array.from(bestVersionsMap.values());
+
+      // 重新构造列表并注入重复计数
+      list = Array.from(bestVersionsMap.values()).map(t => {
+          const key = `${t.name.trim().toLowerCase()}-${t.artist.trim().toLowerCase()}`;
+          return { ...t, duplicateCount: countMap.get(key) || 1 };
+      });
     }
 
     if (filterQuality !== 'all') {
@@ -282,7 +299,7 @@ const LibraryView: React.FC<LibraryViewProps> = ({
       return 0;
     });
     return list;
-  }, [tracks, favorites, subTab, activeGroup, activeAlbum, sortKey, sortOrder, isSearching, filterQuality, filterDecade, filterDuration]);
+  }, [tracks, favorites, subTab, activeGroup, activeAlbum, sortKey, sortOrder, isSearching, filterQuality, filterDecade, filterDuration, view]);
 
   const groups = useMemo(() => {
     if (view !== 'all' || subTab !== 'folders' || activeGroup || activeAlbum || isSearching) return null;
@@ -294,6 +311,12 @@ const LibraryView: React.FC<LibraryViewProps> = ({
     });
     return Array.from(map.entries()).sort((a, b) => a[0].localeCompare(b[0]));
   }, [tracks, view, subTab, activeGroup, activeAlbum, isSearching]);
+
+  const albumYear = useMemo(() => {
+    if (!activeAlbum) return null;
+    // 从当前过滤后的轨道中寻找发行年份
+    return filteredAndSortedTracks.find(t => t.year)?.year;
+  }, [activeAlbum, filteredAndSortedTracks]);
 
   const convert = (s: string) => displayConverter ? displayConverter(s) : s;
 
@@ -375,7 +398,10 @@ const LibraryView: React.FC<LibraryViewProps> = ({
       <header className="p-4 md:p-8 flex flex-col md:flex-row md:items-end justify-between gap-4 shrink-0">
         <div className="space-y-1">
           <h2 className="text-2xl md:text-4xl font-black text-white tracking-tighter uppercase italic">{convert(pageTitle)}</h2>
-          <div className="h-0.5 w-12 bg-yellow-500 rounded-full shadow-[0_0_10px_rgba(234,179,8,0.5)]"></div>
+          {activeAlbum && albumYear && (
+             <p className="text-[10px] text-zinc-500 font-black uppercase tracking-[0.2em] mt-1 italic animate-in fade-in slide-in-from-left-2">Release Year • {albumYear}</p>
+          )}
+          <div className="h-0.5 w-12 bg-yellow-500 rounded-full shadow-[0_0_10px_rgba(234,179,8,0.5)] mt-1"></div>
         </div>
         {(activeGroup || activeAlbum) && (
           <button onClick={() => { setActiveGroup(null); setActiveAlbum(null); }} className="flex items-center gap-2 text-zinc-500 hover:text-yellow-500 transition-colors uppercase font-black text-[10px] tracking-widest">

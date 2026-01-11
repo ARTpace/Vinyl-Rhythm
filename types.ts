@@ -16,6 +16,7 @@ export interface Track {
   genre?: string;    // 流派
   lastModified: number; // 文件最后修改时间，用于“最近添加”排序
   historyTime?: number; // 播放历史时间戳
+  duplicateCount?: number; // 新增：该歌曲在曲库中存在的重复版本总数
 }
 
 export interface HistoryEntry {

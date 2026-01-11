@@ -17,11 +17,12 @@ const CollectionCard = React.memo<{
     name: string;
     type: 'artist' | 'album';
     trackCount: number;
+    year?: number;
     coverUrl?: string;
     onClick: () => void;
     onPlay?: () => void;
     convert: (s: string) => string;
-}>(({ name, type, trackCount, coverUrl, onClick, onPlay, convert }) => {
+}>(({ name, type, trackCount, year, coverUrl, onClick, onPlay, convert }) => {
     return (
         <div 
             onClick={onClick}
@@ -49,7 +50,9 @@ const CollectionCard = React.memo<{
             <h3 className="text-white font-bold text-[11px] truncate px-1 group-hover:text-yellow-500 transition-colors uppercase tracking-tight">
                 {convert(name)}
             </h3>
-            <p className="text-[8px] text-zinc-700 font-black tracking-widest mt-1 uppercase">{trackCount} TRACKS</p>
+            <p className="text-[8px] text-zinc-700 font-black tracking-widest mt-1 uppercase">
+                {trackCount} TRACKS {year ? `• ${year}` : ''}
+            </p>
         </div>
     );
 });
@@ -65,14 +68,27 @@ const CollectionView: React.FC<CollectionViewProps> = ({ tracks, onNavigate, onP
   // 通用的去重辅助函数：在给定的轨道列表中，按歌曲名+歌手去重，保留音质最好的
   const deduplicateTracks = (list: Track[]) => {
     const bestMap = new Map<string, Track>();
+    const countMap = new Map<string, number>();
+
     list.forEach(t => {
       const key = `${t.name.trim().toLowerCase()}-${t.artist.trim().toLowerCase()}`;
+      
+      // 计数
+      countMap.set(key, (countMap.get(key) || 0) + 1);
+
       const existing = bestMap.get(key);
       if (!existing || (t.bitrate || 0) > (existing.bitrate || 0)) {
         bestMap.set(key, t);
       }
     });
-    return Array.from(bestMap.values());
+
+    // 将计数注入到保留的轨道对象中
+    const result = Array.from(bestMap.values()).map(t => {
+        const key = `${t.name.trim().toLowerCase()}-${t.artist.trim().toLowerCase()}`;
+        return { ...t, duplicateCount: countMap.get(key) || 1 };
+    });
+
+    return result;
   };
 
   const artistGroups = useMemo(() => {
@@ -84,7 +100,7 @@ const CollectionView: React.FC<CollectionViewProps> = ({ tracks, onNavigate, onP
     });
 
     // 针对每个歌手进行去重
-    const result: [string, { tracks: Track[], cover?: string }][] = [];
+    const result: [string, { tracks: Track[], cover?: string, year?: number }][] = [];
     map.forEach((data, name) => {
       const uniqueTracks = deduplicateTracks(data.tracks);
       result.push([name, { 
@@ -105,12 +121,16 @@ const CollectionView: React.FC<CollectionViewProps> = ({ tracks, onNavigate, onP
     });
 
     // 针对每个专辑进行去重
-    const result: [string, { tracks: Track[], cover?: string }][] = [];
+    const result: [string, { tracks: Track[], cover?: string, year?: number }][] = [];
     map.forEach((data, name) => {
       const uniqueTracks = deduplicateTracks(data.tracks);
+      // 找到第一个有效的年份作为专辑年份
+      const albumYear = uniqueTracks.find(t => t.year)?.year;
+      
       result.push([name, { 
         tracks: uniqueTracks, 
-        cover: uniqueTracks.find(t => t.coverUrl)?.coverUrl 
+        cover: uniqueTracks.find(t => t.coverUrl)?.coverUrl,
+        year: albumYear
       }]);
     });
 
@@ -179,6 +199,7 @@ const CollectionView: React.FC<CollectionViewProps> = ({ tracks, onNavigate, onP
                 name={name}
                 type={tab === 'artists' ? 'artist' : 'album'}
                 trackCount={data.tracks.length}
+                year={data.year}
                 coverUrl={data.cover}
                 convert={convert}
                 onClick={() => onNavigate(tab === 'artists' ? 'artistProfile' : 'albums', name)}
