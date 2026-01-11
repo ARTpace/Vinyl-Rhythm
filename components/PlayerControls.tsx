@@ -20,6 +20,7 @@ interface PlayerControlsProps {
   onSeek: (val: number) => void;
   isFavorite: boolean;
   onToggleFavorite: (trackId?: string) => void;
+  onAddToPlaylist: (track: Track) => void;
   onNavigate?: (type: 'artists' | 'albums' | 'folders' | 'artistProfile', name: string) => void;
   favorites?: Set<string>;
   playbackMode: 'normal' | 'shuffle' | 'loop';
@@ -52,6 +53,7 @@ const PlayerControls: React.FC<PlayerControlsProps> = ({
     onSeek,
     isFavorite,
     onToggleFavorite,
+    onAddToPlaylist,
     onNavigate,
     favorites = new Set(),
     playbackMode,
@@ -389,6 +391,7 @@ const PlayerControls: React.FC<PlayerControlsProps> = ({
               </div>
            </div>
            <button onClick={() => onToggleFavorite()} disabled={!currentTrack} className={`w-8 h-8 flex-shrink-0 ${insetButtonClass(isFavorite)} ${isFavorite ? 'text-yellow-500' : ''} disabled:opacity-30`}><svg width="14" height="14" viewBox="0 0 24 24" fill={isFavorite ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2.5"><path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"/></svg></button>
+           <button onClick={() => currentTrack && onAddToPlaylist(currentTrack)} disabled={!currentTrack} className={`w-8 h-8 flex-shrink-0 ${insetButtonClass(false)} disabled:opacity-30`}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="19" x2="19" y1="8" y2="14"/><line x1="22" x2="16" y1="11" y2="11"/></svg></button>
         </div>
 
         <div className="flex flex-col items-center justify-center gap-1 w-2/4 h-full pt-1">

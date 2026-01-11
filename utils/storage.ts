@@ -58,6 +58,28 @@ export const savePlaylist = async (playlist: any) => {
   });
 };
 
+export const updatePlaylist = async (updatedPlaylist: any) => {
+    const db = await initDB();
+    return new Promise<void>((resolve, reject) => {
+        const tx = db.transaction(PLAYLISTS_STORE, 'readwrite');
+        const store = tx.objectStore(PLAYLISTS_STORE);
+        const { coverUrl, ...serializablePlaylist } = updatedPlaylist;
+        const request = store.put(serializablePlaylist);
+        request.onsuccess = () => resolve();
+        request.onerror = () => reject(request.error);
+    });
+};
+
+export const getPlaylist = async (id: string): Promise<any | undefined> => {
+    const db = await initDB();
+    const tx = db.transaction(PLAYLISTS_STORE, 'readonly');
+    const request = tx.objectStore(PLAYLISTS_STORE).get(id);
+    return new Promise((resolve, reject) => {
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+    });
+};
+
 export const getAllPlaylists = async (): Promise<any[]> => {
   const db = await initDB();
   const tx = db.transaction(PLAYLISTS_STORE, 'readonly');

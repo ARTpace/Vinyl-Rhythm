@@ -6,10 +6,11 @@ interface PlaylistsViewProps {
   onSelectPlaylist: (playlist: Playlist) => void;
   onPlayPlaylist: (playlist: Playlist) => void;
   onCreatePlaylist: () => void;
+  onImportPlaylist: () => void;
   displayConverter: (s: string) => string;
 }
 
-const PlaylistsView: React.FC<PlaylistsViewProps> = ({ playlists, onSelectPlaylist, onPlayPlaylist, onCreatePlaylist, displayConverter }) => {
+const PlaylistsView: React.FC<PlaylistsViewProps> = ({ playlists, onSelectPlaylist, onPlayPlaylist, onCreatePlaylist, onImportPlaylist, displayConverter }) => {
   return (
     <div className="flex flex-col h-full bg-zinc-950/20 overflow-hidden animate-in fade-in duration-500">
       <header className="p-4 md:p-8 shrink-0">
@@ -23,20 +24,34 @@ const PlaylistsView: React.FC<PlaylistsViewProps> = ({ playlists, onSelectPlayli
 
       <div className="flex-1 overflow-y-auto px-4 md:px-8 pb-32 custom-scrollbar">
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-7 2xl:grid-cols-9 gap-x-6 gap-y-10">
-          <div 
-            key="create-new" 
-            className="group cursor-pointer text-center animate-in fade-in zoom-in-95 duration-500"
-            onClick={onCreatePlaylist}
-          >
-            <div className="relative aspect-square bg-zinc-900 border-2 border-dashed border-white/10 rounded-3xl transition-all group-hover:scale-105 group-hover:bg-yellow-500/10 group-hover:border-yellow-500/50 flex flex-col items-center justify-center overflow-hidden shadow-lg mb-3">
-              <svg className="w-12 h-12 text-zinc-700 group-hover:text-yellow-500 transition-colors" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-                <path d="M12 5v14M5 12h14"/>
-              </svg>
+          <div className="group text-center animate-in fade-in zoom-in-95 duration-500">
+            <div className="relative aspect-square bg-zinc-900 border-2 border-dashed border-white/10 rounded-3xl transition-all group-hover:scale-105 flex flex-col overflow-hidden shadow-lg mb-3">
+              <button
+                onClick={onCreatePlaylist}
+                title="创建新歌单"
+                className="flex-1 w-full flex items-center justify-center hover:bg-yellow-500/10 group/create transition-colors"
+              >
+                <svg className="w-12 h-12 text-zinc-700 group-hover/create:text-yellow-500 transition-colors" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+                  <path d="M12 5v14M5 12h14"/>
+                </svg>
+              </button>
+              <div className="h-px w-4/5 mx-auto bg-white/10 shrink-0" />
+              <button
+                onClick={onImportPlaylist}
+                title="从文本导入"
+                className="flex-1 w-full flex items-center justify-center hover:bg-blue-500/10 group/import transition-colors"
+              >
+                <svg className="w-11 h-11 text-zinc-700 group-hover/import:text-blue-500 transition-colors" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+                  <path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><polyline points="13 2 13 9 20 9"/><path d="M9 12h3"/><path d="M9 15h6"/>
+                </svg>
+              </button>
             </div>
             <h3 className="text-white font-bold text-[11px] truncate px-1 group-hover:text-yellow-500 transition-colors uppercase tracking-tight">
-              {displayConverter("创建新歌单")}
+                {displayConverter("新歌单")}
             </h3>
-            <p className="text-[8px] text-zinc-700 font-black tracking-widest mt-1 uppercase">&nbsp;</p>
+            <p className="text-[8px] text-zinc-700 font-black tracking-widest mt-1 uppercase">
+                创建 / 导入
+            </p>
           </div>
 
           {playlists.map(playlist => (

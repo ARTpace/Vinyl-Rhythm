@@ -6,7 +6,7 @@ import ConfirmModal from './ConfirmModal';
 interface ImportWindowProps {
   isOpen: boolean;
   onClose: () => void;
-  onImport: () => void;
+  onFolderSelected: (handle: FileSystemDirectoryHandle) => void;
   onReconnectFolder?: (id: string, handle: FileSystemDirectoryHandle) => void;
   onRemoveFolder: (id: string) => void;
   importedFolders: (LibraryFolder & { hasHandle: boolean })[];
@@ -19,7 +19,7 @@ interface ImportWindowProps {
 const ImportWindow: React.FC<ImportWindowProps> = ({ 
   isOpen, 
   onClose, 
-  onImport, 
+  onFolderSelected, 
   onReconnectFolder,
   onRemoveFolder, 
   importedFolders,
@@ -92,10 +92,15 @@ const ImportWindow: React.FC<ImportWindowProps> = ({
     setConfirmModalState({ isOpen: false, folderId: null, folderName: null });
   };
 
-  const handleAddFolderClick = () => {
-    if ('showDirectoryPicker' in window) {
-      onImport();
-    } else {
+  const handleAddFolderClick = async () => {
+    try {
+      if (!window.showDirectoryPicker) {
+        throw new Error("showDirectoryPicker API is not supported.");
+      }
+      const handle = await window.showDirectoryPicker();
+      onFolderSelected(handle);
+    } catch (err) {
+      console.warn("Modern directory picker failed, falling back to legacy input.", err);
       fileInputRef.current?.click();
     }
   };

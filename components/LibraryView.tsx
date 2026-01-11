@@ -9,6 +9,7 @@ interface LibraryViewProps {
   tracks: Track[];
   folders?: LibraryFolder[]; 
   onPlay: (track: Track) => void;
+  onAddToQueue?: (track: Track) => void;
   onAddToPlaylist?: (track: Track) => void;
   favorites: Set<string>;
   onToggleFavorite: (trackId: string) => void;
@@ -66,13 +67,14 @@ const TrackRow = React.memo<{
   index: number;
   isFavorite: boolean;
   onPlay: (track: Track) => void;
+  onAddToQueue?: (track: Track) => void;
   onAddToPlaylist?: (track: Track) => void;
   onToggleFavorite: (id: string) => void;
   onScrape: (track: Track) => void;
   isScraping: boolean;
   onNavigate?: (type: 'artists' | 'albums' | 'folders' | 'artistProfile', name: string) => void;
   displayConverter?: (str: string) => string;
-}>(({ track, index, isFavorite, onPlay, onAddToPlaylist, onToggleFavorite, onScrape, isScraping, onNavigate, displayConverter }) => {
+}>(({ track, index, isFavorite, onPlay, onAddToQueue, onAddToPlaylist, onToggleFavorite, onScrape, isScraping, onNavigate, displayConverter }) => {
   const [isAdded, setIsAdded] = useState(false);
   const [flyEffect, setFlyEffect] = useState<{ startX: number, startY: number, endX: number, endY: number } | null>(null);
   const btnRef = useRef<HTMLButtonElement>(null);
@@ -98,7 +100,7 @@ const TrackRow = React.memo<{
         setTimeout(() => setFlyEffect(null), 800);
     }
     setIsAdded(true);
-    onAddToPlaylist?.(track);
+    onAddToQueue?.(track);
     setTimeout(() => setIsAdded(false), 1500);
   };
 
@@ -132,9 +134,9 @@ const TrackRow = React.memo<{
             ))}
           </div>
         </div>
-        <div className="flex items-center gap-1 w-16 md:w-20 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity justify-end">
-          <button ref={btnRef} onClick={handleAdd} className={`p-2 rounded-full transition-all duration-300 active:scale-90 ${isAdded ? 'bg-green-500 text-black shadow-[0_0_10px_rgba(34,197,94,0.4)]' : 'hover:bg-yellow-500 hover:text-black text-yellow-500/80'}`}>{isAdded ? <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="4" className="animate-in zoom-in"><path d="M20 6L9 17l-5-5"/></svg> : <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><path d="M12 5v14M5 12h14"/></svg>}</button>
-          <button onClick={(e) => { e.stopPropagation(); onScrape(track); }} className="hidden md:flex p-2 rounded-full transition-all hover:bg-white/10 text-zinc-700 hover:text-red-500"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12a9 9 0 1 1-6.219-8.56"/><path d="M16 10l4 4 4-4"/><path d="M20 4v10"/></svg></button>
+        <div className="flex items-center gap-1 md:w-20 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity justify-end">
+          <button onClick={(e) => { e.stopPropagation(); onAddToPlaylist?.(track); }} className="p-2 rounded-full transition-all duration-300 active:scale-90 hover:bg-white/10 text-zinc-500 hover:text-white" title="添加到歌单"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="19" x2="19" y1="8" y2="14"/><line x1="22" x2="16" y1="11" y2="11"/></svg></button>
+          <button ref={btnRef} onClick={handleAdd} className={`p-2 rounded-full transition-all duration-300 active:scale-90 ${isAdded ? 'bg-green-500 text-black shadow-[0_0_10px_rgba(34,197,94,0.4)]' : 'hover:bg-yellow-500 hover:text-black text-yellow-500/80'}`} title="添加到队列">{isAdded ? <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="4" className="animate-in zoom-in"><path d="M20 6L9 17l-5-5"/></svg> : <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><path d="M12 5v14M5 12h14"/></svg>}</button>
         </div>
         <button onClick={(e) => { e.stopPropagation(); onNavigate?.('albums', track.album); }} className="hidden lg:block text-zinc-500 text-sm font-black uppercase tracking-widest w-32 md:w-40 shrink-0 truncate text-left hover:text-yellow-500 transition-colors">{convert(track.album)}</button>
         <div className="hidden md:block text-zinc-600 font-mono text-sm w-16 shrink-0 text-right group-hover:text-zinc-400 transition-colors">{formatTime(track.duration || 0)}</div>
@@ -145,7 +147,7 @@ const TrackRow = React.memo<{
 });
 
 const LibraryView: React.FC<LibraryViewProps> = ({ 
-  view, tracks, folders = [], onPlay, onAddToPlaylist, favorites, onToggleFavorite, onUpdateTrack, onNavigate, onBack,
+  view, tracks, folders = [], onPlay, onAddToQueue, onAddToPlaylist, favorites, onToggleFavorite, onUpdateTrack, onNavigate, onBack,
   navigationRequest, onNavigationProcessed, isSearching = false, displayConverter
 }) => {
   const [activeGroup, setActiveGroup] = useState<string | null>(null);
@@ -392,7 +394,7 @@ const LibraryView: React.FC<LibraryViewProps> = ({
           </div>
         ) : (
           <div className="space-y-1">
-            {filteredAndSortedTracks.length === 0 ? <div className="py-20 text-center flex flex-col items-center gap-4"><div className="text-zinc-800"><svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3M8 11h6"/></svg></div><p className="text-zinc-700 font-black uppercase tracking-[0.3em]">No matching tracks</p></div> : <>{filteredAndSortedTracks.slice(0, displayLimit).map((track, index) => <TrackRow key={track.id} track={track} index={index} isFavorite={favorites.has(track.id)} onPlay={onPlay} onAddToPlaylist={onAddToPlaylist} onToggleFavorite={onToggleFavorite} onScrape={handleScrape} isScraping={scrapingId === track.id} onNavigate={onNavigate} displayConverter={displayConverter} />)}</>}
+            {filteredAndSortedTracks.length === 0 ? <div className="py-20 text-center flex flex-col items-center gap-4"><div className="text-zinc-800"><svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3M8 11h6"/></svg></div><p className="text-zinc-700 font-black uppercase tracking-[0.3em]">No matching tracks</p></div> : <>{filteredAndSortedTracks.slice(0, displayLimit).map((track, index) => <TrackRow key={track.id} track={track} index={index} isFavorite={favorites.has(track.id)} onPlay={onPlay} onAddToQueue={onAddToQueue} onAddToPlaylist={onAddToPlaylist} onToggleFavorite={onToggleFavorite} onScrape={handleScrape} isScraping={scrapingId === track.id} onNavigate={onNavigate} displayConverter={displayConverter} />)}</>}
             {displayLimit < filteredAndSortedTracks.length && <div ref={loadMoreRef} className="h-20 flex items-center justify-center"><div className="w-1.5 h-1.5 rounded-full bg-yellow-500/30 animate-pulse" /></div>}
           </div>
         )}

@@ -8,6 +8,7 @@ interface ArtistProfileProps {
   allTracks: Track[];
   onBack: () => void;
   onPlayTrack: (track: Track) => void;
+  onAddToQueue?: (track: Track) => void;
   onAddToPlaylist?: (track: Track) => void;
   onPlayAlbum?: (albumName: string) => void;
   onPlayArtist?: (artistName: string) => void;
@@ -22,6 +23,7 @@ const ArtistProfile: React.FC<ArtistProfileProps> = ({
   allTracks,
   onBack,
   onPlayTrack,
+  onAddToQueue,
   onAddToPlaylist,
   onPlayAlbum,
   onPlayArtist,
@@ -114,7 +116,7 @@ const ArtistProfile: React.FC<ArtistProfileProps> = ({
         });
         setTimeout(() => setFlyEffect(null), 800);
     }
-    onAddToPlaylist?.(track);
+    onAddToQueue?.(track);
     setAddedIds(prev => new Set(prev).add(track.id));
     setTimeout(() => {
       setAddedIds(prev => {
@@ -299,8 +301,9 @@ const ArtistProfile: React.FC<ArtistProfileProps> = ({
                         {track.album === '未知专辑' ? 'Single' : track.album}
                     </button>
                   </div>
-                  <div className="flex items-center gap-1 w-12 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity justify-end">
-                    <button onClick={(e) => handleAdd(e, track, e.currentTarget)} className={`p-2 rounded-full transition-all active:scale-90 ${isAdded ? 'bg-green-500 text-black shadow-lg' : 'hover:bg-yellow-500 hover:text-black text-yellow-500/80'}`}>{isAdded ? <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="4"><path d="M20 6L9 17l-5-5"/></svg> : <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><path d="M12 5v14M5 12h14"/></svg>}</button>
+                  <div className="flex items-center gap-1 w-20 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity justify-end">
+                    <button onClick={(e) => { e.stopPropagation(); onAddToPlaylist?.(track); }} className="p-2 rounded-full transition-all duration-300 active:scale-90 hover:bg-white/10 text-zinc-500 hover:text-white" title="添加到歌单"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="19" x2="19" y1="8" y2="14"/><line x1="22" x2="16" y1="11" y2="11"/></svg></button>
+                    <button onClick={(e) => handleAdd(e, track, e.currentTarget)} className={`p-2 rounded-full transition-all active:scale-90 ${isAdded ? 'bg-green-500 text-black shadow-lg' : 'hover:bg-yellow-500 hover:text-black text-yellow-500/80'}`} title="添加到队列">{isAdded ? <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="4"><path d="M20 6L9 17l-5-5"/></svg> : <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><path d="M12 5v14M5 12h14"/></svg>}</button>
                   </div>
                   <div className="hidden md:block text-zinc-700 font-mono text-xs w-16 shrink-0 text-right">{formatTime(track.duration || 0)}</div>
                   <div className="w-10 flex justify-end shrink-0"><button onClick={(e) => { e.stopPropagation(); onToggleFavorite(track.id); }} className={`p-2 transition-all active:scale-75 ${isFav ? 'text-red-500 drop-shadow-[0_0_8px_rgba(234,179,8,0.3)]' : 'text-zinc-800 hover:text-white group-hover:opacity-100'}`}><svg width="16" height="16" viewBox="0 0 24 24" fill={isFav ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2.5"><path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"/></svg></button></div>

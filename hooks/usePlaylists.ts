@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect } from 'react';
 import { Playlist, Track } from '../types';
-import { savePlaylist, getAllPlaylists, removePlaylist } from '../utils/storage';
+import { savePlaylist, getAllPlaylists, removePlaylist, getPlaylist, updatePlaylist } from '../utils/storage';
 import { generateCompositeCover } from '../utils/uiHelpers';
 
 export const usePlaylists = (allTracks: Track[]) => {
@@ -19,12 +19,11 @@ export const usePlaylists = (allTracks: Track[]) => {
     fetchAllPlaylists();
   }, [fetchAllPlaylists]);
 
-  const createPlaylist = useCallback(async (name: string, tracksInQueue: Track[] = []) => {
+  const createPlaylist = useCallback(async (name: string, tracksInQueue: Track[] = []): Promise<Playlist> => {
     if (!name) {
       throw new Error("歌单名称不能为空。");
     }
 
-    // 优先使用当前队列中的完整信息（包含已激活的 blob url）
     const coverBlob = await generateCompositeCover(tracksInQueue);
     
     const newPlaylist: Playlist = {
@@ -37,7 +36,27 @@ export const usePlaylists = (allTracks: Track[]) => {
 
     await savePlaylist(newPlaylist);
     await fetchAllPlaylists();
+    return newPlaylist;
   }, [fetchAllPlaylists]);
+
+  const addTrackToPlaylist = useCallback(async (playlistId: string, track: Track) => {
+    if (!track) return;
+    const playlist = await getPlaylist(playlistId);
+    if (!playlist) {
+        throw new Error("歌单未找到");
+    }
+
+    if (!playlist.songFingerprints.includes(track.fingerprint)) {
+        playlist.songFingerprints.push(track.fingerprint);
+
+        const trackMap = new Map(allTracks.map(t => [t.fingerprint, t]));
+        const tracksInPlaylist = playlist.songFingerprints.map(fp => trackMap.get(fp)).filter(Boolean) as Track[];
+        playlist.coverBlob = await generateCompositeCover(tracksInPlaylist);
+
+        await updatePlaylist(playlist);
+        await fetchAllPlaylists();
+    }
+  }, [allTracks, fetchAllPlaylists]);
 
   const deletePlaylist = useCallback(async (id: string) => {
     await removePlaylist(id);
@@ -46,7 +65,6 @@ export const usePlaylists = (allTracks: Track[]) => {
 
   const getPlaylistTracks = useCallback((playlist: Playlist | null): Track[] => {
     if (!playlist) return [];
-    // 建立指纹映射以快速查找
     const trackMap = new Map(allTracks.map(t => [t.fingerprint, t]));
     return playlist.songFingerprints
       .map(fingerprint => trackMap.get(fingerprint))
@@ -56,6 +74,7 @@ export const usePlaylists = (allTracks: Track[]) => {
   return {
     playlists,
     createPlaylist,
+    addTrackToPlaylist,
     deletePlaylist,
     fetchAllPlaylists,
     getPlaylistTracks,
