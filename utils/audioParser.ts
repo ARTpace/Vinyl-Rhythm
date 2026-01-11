@@ -1,4 +1,3 @@
-
 import { Track } from '../types';
 import * as mm from 'music-metadata-browser';
 
@@ -24,6 +23,37 @@ const cleanFileNameData = (fileName: string) => {
   return { artist, title };
 };
 
+/**
+ * 清理并标准化歌手名称，处理多人合作的情况
+ */
+const cleanArtistName = (artist: string): string => {
+  if (!artist) return "未知歌手";
+
+  // 1. 标准化常见分隔符
+  const standardDelimiters = /\s*[\/&、,;]\s*|\s+feat\.?\s+|\s+ft\.?\s+/i;
+  let artists = artist.split(standardDelimiters)
+                      .map(a => a.trim())
+                      .filter(a => a.length > 0);
+
+  // 2. 针对纯 CJK (中日韩) 姓名中的空格进行拆分
+  const cjkRegex = /^[\u4e00-\u9fa5\u3040-\u30ff\uac00-\ud7af\s]+$/;
+  const containsLatin = /[a-zA-Z]/;
+  const finalArtists: string[] = [];
+
+  artists.forEach(art => {
+    // 检查是否是纯 CJK + 空格，并且不包含任何英文字母，且确实有空格
+    if (cjkRegex.test(art) && !containsLatin.test(art) && art.includes(' ')) {
+      finalArtists.push(...art.split(/\s+/).filter(Boolean));
+    } else {
+      finalArtists.push(art);
+    }
+  });
+
+  // 3. 去重并用标准分隔符连接
+  return [...new Set(finalArtists)].join(' / ');
+};
+
+
 export const parseFileToTrack = async (file: File): Promise<Track> => {
   const fileInfo = cleanFileNameData(file.name);
   try {
@@ -38,7 +68,8 @@ export const parseFileToTrack = async (file: File): Promise<Track> => {
         coverUrl = URL.createObjectURL(coverBlob);
       } catch (e) { console.warn("无法生成封面预览", e); }
     }
-    const artist = common.artist || common.albumartist || (common.artists && common.artists.join(' / ')) || fileInfo.artist;
+    const artistRaw = common.artist || common.albumartist || (common.artists && common.artists.join(' / ')) || fileInfo.artist;
+    const artist = cleanArtistName(artistRaw);
     const album = common.album || "未知专辑";
     const title = common.title || fileInfo.title;
 
@@ -63,7 +94,7 @@ export const parseFileToTrack = async (file: File): Promise<Track> => {
     return {
       id: Math.random().toString(36).substring(2, 9),
       name: fileInfo.title,
-      artist: fileInfo.artist,
+      artist: cleanArtistName(fileInfo.artist),
       album: "未知专辑",
       url: URL.createObjectURL(file),
       file,

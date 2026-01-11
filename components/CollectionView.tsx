@@ -115,9 +115,11 @@ const CollectionView: React.FC<CollectionViewProps> = ({
 
     const map = new Map<string, { tracks: Track[], cover?: string }>();
     sourceTracks.forEach(t => {
-      const key = t.artist || '未知歌手';
-      if (!map.has(key)) map.set(key, { tracks: [] });
-      map.get(key)!.tracks.push(t);
+      const artists = (t.artist || '未知歌手').split(' / ').map(name => name.trim()).filter(Boolean);
+      artists.forEach(artistName => {
+        if (!map.has(artistName)) map.set(artistName, { tracks: [] });
+        map.get(artistName)!.tracks.push(t);
+      });
     });
 
     // 针对每个歌手进行去重

@@ -1,4 +1,3 @@
-
 import React, { useMemo, useState, useRef, useEffect } from 'react';
 import ReactDOM from 'react-dom';
 import { Track } from '../types';
@@ -35,7 +34,7 @@ const ArtistProfile: React.FC<ArtistProfileProps> = ({
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 
   const artistTracks = useMemo(() => 
-    allTracks.filter(t => t.artist === artistName),
+    allTracks.filter(t => (t.artist || '').split(' / ').map(name => name.trim()).includes(artistName)),
     [allTracks, artistName]
   );
 

@@ -70,6 +70,14 @@ const ImportWindow: React.FC<ImportWindowProps> = ({
     reader.readAsText(file);
   };
 
+  const handleAddFolderClick = () => {
+    if ('showDirectoryPicker' in window) {
+      onImport();
+    } else {
+      fileInputRef.current?.click();
+    }
+  };
+
   return (
     <div className="fixed inset-0 bg-black/80 backdrop-blur-md flex items-center justify-center z-[100] animate-in fade-in duration-300 px-4">
       <div className="bg-[#181818] border border-white/10 rounded-[2.5rem] p-6 md:p-8 w-full max-w-[34rem] max-h-[85vh] shadow-2xl relative overflow-hidden flex flex-col">
@@ -173,7 +181,7 @@ const ImportWindow: React.FC<ImportWindowProps> = ({
 
           <div className="space-y-3">
             <button 
-              onClick={onImport} 
+              onClick={handleAddFolderClick} 
               disabled={isImporting}
               className="w-full bg-yellow-500 hover:bg-yellow-400 text-black py-4 rounded-full font-black text-sm active:scale-95 transition-all shadow-xl flex items-center justify-center gap-3 group disabled:opacity-50"
             >

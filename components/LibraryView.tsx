@@ -1,4 +1,3 @@
-
 import { Track, ViewType, LibraryFolder } from '../types';
 import { formatTime } from '../utils/audioParser';
 import { scrapeNeteaseMusic } from '../services/metadataService';
@@ -356,7 +355,9 @@ const LibraryView: React.FC<LibraryViewProps> = ({
           </div>
           {subTab !== 'folders' && (
             <div className="flex flex-wrap items-center gap-3">
-              <FilterDropdown value={filterQuality} options={[{ id: 'all', label: '全部音质' }, { id: 'hires', label: 'Hi-Res (≥2k)' }, { id: 'lossless', label: '无损 (FLAC/WAV)' }, { id: 'hq', label: '高品质 (HQ)' }, { id: 'sd', label: '标准 (SD)' }]} onChange={setFilterQuality} icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><circle cx="12" cy="12" r="10"/><path d="M12 6v12M6 12h12"/></svg>} />
+              <FilterDropdown value={filterQuality} options={[{ id: 'all', label: '全部音质' }, { id: 'hires', label: 'Hi-Res (≥2k)' }, { id: 'lossless', label: '无损 (FLAC/WAV)' }, { id: 'hq', label: '高品质 (HQ)' }, { id: 'sd', label: '标准 (SD)' }]} onChange={setFilterQuality} icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M14 12a2 2 0 1 1-4 0 2 2 0 0 1 4 0Z"/><path d="M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z"/></svg>} />
+              <FilterDropdown value={filterDecade} options={[{ id: 'all', label: '所有年代' }, { id: '2020s', label: '2020s' }, { id: '2010s', label: '2010s' }, { id: '2000s', label: '2000s' }, { id: '90s', label: '90年代' }, { id: '80s', label: '80年代' }, { id: '70s', label: '70年代' }, { id: 'pre70s', label: '70前' }]} onChange={setFilterDecade} icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>} />
+              <FilterDropdown value={filterDuration} options={[{ id: 'all', label: '所有时长' }, { id: 'short', label: '短曲 (<3m)' }, { id: 'medium', label: '中等 (3-5m)' }, { id: 'long', label: '长曲 (>5m)' }]} onChange={setFilterDuration} icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>} />
               {hasActiveFilters && <button onClick={resetFilters} className="px-4 py-2.5 rounded-2xl text-[9px] font-black uppercase tracking-widest text-red-500 bg-red-500/10 hover:bg-red-500/20 transition-all border border-red-500/20 flex items-center gap-2"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><path d="M18 6 6 18M6 6l12 12"/></svg>Reset</button>}
             </div>
           )}

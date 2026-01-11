@@ -128,7 +128,7 @@ const App: React.FC = () => {
   }, [library.tracks, setPlaylist, player]);
 
   const handlePlayArtist = useCallback((artistName: string) => {
-    const artistTracks = library.tracks.filter(t => t.artist === artistName);
+    const artistTracks = library.tracks.filter(t => (t.artist || '').split(' / ').includes(artistName));
     if (artistTracks.length > 0) {
       setPlaylist(artistTracks);
       player.setCurrentTrackIndex(0);
