@@ -1,5 +1,5 @@
 
-import React, { useMemo, useState, useRef } from 'react';
+import React, { useMemo, useState, useRef, useEffect } from 'react';
 import ReactDOM from 'react-dom';
 import { Track } from '../types';
 import { formatTime } from '../utils/audioParser';
@@ -31,42 +31,68 @@ const ArtistProfile: React.FC<ArtistProfileProps> = ({
 }) => {
   const [addedIds, setAddedIds] = useState<Set<string>>(new Set());
   const [flyEffect, setFlyEffect] = useState<{ startX: number, startY: number, endX: number, endY: number, track: Track } | null>(null);
+  const [scrollProgress, setScrollProgress] = useState(0);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
 
   const artistTracks = useMemo(() => 
     allTracks.filter(t => t.artist === artistName),
     [allTracks, artistName]
   );
 
-  const albums = useMemo(() => {
-    const map = new Map<string, Track[]>();
+  // 1. 核心改进：专辑按年份排序
+  const sortedAlbums = useMemo(() => {
+    const map = new Map<string, { tracks: Track[], year: number }>();
     artistTracks.forEach(t => {
       const albumKey = t.album || '未知专辑';
-      if (!map.has(albumKey)) map.set(albumKey, []);
-      map.get(albumKey)!.push(t);
+      if (!map.has(albumKey)) {
+        map.set(albumKey, { tracks: [], year: t.year || 0 });
+      }
+      map.get(albumKey)!.tracks.push(t);
+      // 取专辑内最早的一首歌的年份作为专辑年份
+      if (t.year && (map.get(albumKey)!.year === 0 || t.year < map.get(albumKey)!.year)) {
+        map.get(albumKey)!.year = t.year;
+      }
     });
-    return Array.from(map.entries());
+    
+    // 按照年份从新到旧排列
+    return Array.from(map.entries()).sort((a, b) => {
+        if (a[1].year === 0) return 1;
+        if (b[1].year === 0) return -1;
+        return b[1].year - a[1].year;
+    });
   }, [artistTracks]);
 
   const stats = useMemo(() => {
     const totalSeconds = artistTracks.reduce((acc, t) => acc + (t.duration || 0), 0);
     return {
       count: artistTracks.length,
-      albumCount: albums.length,
+      albumCount: sortedAlbums.length,
       duration: Math.round(totalSeconds / 60)
     };
-  }, [artistTracks, albums]);
+  }, [artistTracks, sortedAlbums]);
 
   const heroCover = artistTracks.find(t => t.coverUrl)?.coverUrl;
+
+  const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
+    const target = e.currentTarget;
+    const progress = target.scrollLeft / (target.scrollWidth - target.clientWidth);
+    setScrollProgress(isNaN(progress) ? 0 : progress);
+  };
+
+  const scrollToAlbum = (index: number) => {
+    if (!scrollContainerRef.current) return;
+    const container = scrollContainerRef.current;
+    const itemWidth = 224; // 48 (w-48) + 32 (gap-8)
+    container.scrollTo({ left: index * itemWidth, behavior: 'smooth' });
+  };
 
   const handleAdd = (e: React.MouseEvent, track: Track, btnElement: HTMLElement) => {
     e.stopPropagation();
     if (addedIds.has(track.id)) return;
-
     const target = document.getElementById('queue-target');
     if (btnElement && target) {
         const startRect = btnElement.getBoundingClientRect();
         const endRect = target.getBoundingClientRect();
-
         setFlyEffect({
             startX: startRect.left,
             startY: startRect.top,
@@ -74,10 +100,8 @@ const ArtistProfile: React.FC<ArtistProfileProps> = ({
             endY: endRect.top - startRect.top + (endRect.height / 2) - 20,
             track
         });
-
         setTimeout(() => setFlyEffect(null), 800);
     }
-
     onAddToPlaylist?.(track);
     setAddedIds(prev => new Set(prev).add(track.id));
     setTimeout(() => {
@@ -91,6 +115,7 @@ const ArtistProfile: React.FC<ArtistProfileProps> = ({
 
   return (
     <div className="flex flex-col h-full bg-[#0a0a0a] overflow-y-auto custom-scrollbar animate-in fade-in slide-in-from-bottom-4 duration-700">
+      {/* 头部 Hero 区域保持不变 */}
       <div className="relative min-h-[50vh] md:min-h-[60vh] flex-shrink-0 flex items-end p-6 md:p-12 pb-10 md:pb-16 overflow-hidden">
         <div className="absolute inset-0 z-0">
           {heroCover ? (
@@ -112,7 +137,7 @@ const ArtistProfile: React.FC<ArtistProfileProps> = ({
 
         <div className="relative z-10 flex flex-col md:flex-row items-center md:items-start gap-8 md:gap-12 w-full max-w-7xl mx-auto">
           <div className="relative w-48 h-48 md:w-64 md:h-64 shrink-0 mt-8 md:mt-0">
-             {albums.slice(0, 3).map(([name, tracks], i) => (
+             {sortedAlbums.slice(0, 3).map(([name, data], i) => (
                <div 
                 key={name}
                 className="absolute inset-0 rounded-[2.5rem] shadow-2xl border border-white/10 overflow-hidden transition-all duration-700"
@@ -122,8 +147,8 @@ const ArtistProfile: React.FC<ArtistProfileProps> = ({
                   opacity: 1 - (i * 0.25)
                 }}
                >
-                 {tracks[0].coverUrl ? (
-                   <img src={tracks[0].coverUrl} className="w-full h-full object-cover" alt="" />
+                 {data.tracks[0].coverUrl ? (
+                   <img src={data.tracks[0].coverUrl} className="w-full h-full object-cover" alt="" />
                  ) : (
                    <div className="w-full h-full bg-zinc-800 flex items-center justify-center text-zinc-600 font-black text-5xl">{artistName[0]}</div>
                  )}
@@ -136,168 +161,151 @@ const ArtistProfile: React.FC<ArtistProfileProps> = ({
                <span className="px-2 py-0.5 rounded bg-yellow-500 text-black text-[9px] font-black uppercase tracking-tighter shadow-lg shadow-yellow-500/20">Verified Collector</span>
                <span className="text-zinc-500 text-[9px] font-black uppercase tracking-[0.3em]">HIFI Library</span>
             </div>
-            
-            <h1 className="text-5xl md:text-7xl lg:text-8xl font-black text-white tracking-tighter leading-none mb-6 drop-shadow-2xl">
-              {artistName}
-            </h1>
-
+            <h1 className="text-5xl md:text-7xl lg:text-8xl font-black text-white tracking-tighter leading-none mb-6 drop-shadow-2xl">{artistName}</h1>
             <div className="max-w-2xl">
               <div className="flex flex-col md:flex-row items-center gap-6 mb-8">
-                <button 
-                  onClick={() => onPlayArtist?.(artistName)}
-                  className="bg-yellow-500 hover:bg-yellow-400 text-black px-10 py-4 rounded-full font-black text-sm uppercase tracking-widest flex items-center gap-3 transition-all active:scale-95 shadow-[0_10px_30px_rgba(234,179,8,0.3)]"
-                >
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M5 3l14 9-14 9V3z"/></svg>
-                  播放全部
+                <button onClick={() => onPlayArtist?.(artistName)} className="bg-yellow-500 hover:bg-yellow-400 text-black px-10 py-4 rounded-full font-black text-sm uppercase tracking-widest flex items-center gap-3 transition-all active:scale-95 shadow-[0_10px_30px_rgba(234,179,8,0.3)]">
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M5 3l14 9-14 9V3z"/></svg>播放全部
                 </button>
-                
                 <div className="flex items-center gap-6">
-                   <div className="flex flex-col">
-                      <span className="text-white font-black text-xl leading-none">{stats.albumCount}</span>
-                      <span className="text-zinc-600 text-[9px] font-black uppercase tracking-widest mt-1">Albums</span>
-                   </div>
+                   <div className="flex flex-col"><span className="text-white font-black text-xl leading-none">{stats.albumCount}</span><span className="text-zinc-600 text-[9px] font-black uppercase tracking-widest mt-1">Albums</span></div>
                    <div className="w-px h-6 bg-zinc-800" />
-                   <div className="flex flex-col">
-                      <span className="text-white font-black text-xl leading-none">{stats.count}</span>
-                      <span className="text-zinc-600 text-[9px] font-black uppercase tracking-widest mt-1">Tracks</span>
-                   </div>
+                   <div className="flex flex-col"><span className="text-white font-black text-xl leading-none">{stats.count}</span><span className="text-zinc-600 text-[9px] font-black uppercase tracking-widest mt-1">Tracks</span></div>
                    <div className="w-px h-6 bg-zinc-800" />
-                   <div className="flex flex-col">
-                      <span className="text-white font-black text-xl leading-none">{stats.duration}</span>
-                      <span className="text-zinc-600 text-[9px] font-black uppercase tracking-widest mt-1">Mins</span>
-                   </div>
+                   <div className="flex flex-col"><span className="text-white font-black text-xl leading-none">{stats.duration}</span><span className="text-zinc-600 text-[9px] font-black uppercase tracking-widest mt-1">Mins</span></div>
                 </div>
               </div>
-
-              <p className="text-zinc-400 text-sm md:text-base leading-relaxed font-medium mb-4 opacity-80 italic">
-                在您的本地音乐库中，这位艺术家贡献了 <span className="text-white font-bold">{stats.count}</span> 首曲目，
-                分布在 <span className="text-white font-bold">{stats.albumCount}</span> 张不同的专辑中。
-              </p>
             </div>
           </div>
         </div>
       </div>
 
       <div className="px-6 md:px-12 py-12 space-y-20 max-w-7xl mx-auto w-full">
-        
-        <section>
+        {/* 2. 改进版专辑区域：包含时光轴 */}
+        <section className="relative">
           <div className="flex items-baseline gap-4 mb-8">
-            <h2 className="text-2xl font-black text-white uppercase tracking-tighter text-nowrap">全部专辑</h2>
-            <div className="h-px flex-1 bg-zinc-900" />
-            <span className="text-[10px] text-zinc-600 font-black uppercase tracking-widest text-nowrap">{albums.length} Albums</span>
+            <h2 className="text-2xl font-black text-white uppercase tracking-tighter text-nowrap italic">时光曲目集</h2>
+            <div className="h-px flex-1 bg-gradient-to-r from-zinc-800 to-transparent" />
+            <span className="text-[10px] text-zinc-600 font-black uppercase tracking-widest text-nowrap">Chronological Order</span>
           </div>
-          <div className="flex overflow-x-auto gap-6 md:gap-8 pb-8 custom-scrollbar scroll-smooth">
-            {albums.map(([name, tracks]) => (
+
+          {/* 3. 时光轴滑条 */}
+          <div className="relative mb-10 px-2">
+            <div className="h-[2px] w-full bg-zinc-900 rounded-full relative">
+                {/* 年份刻度点 */}
+                {sortedAlbums.map(([name, data], idx) => (
+                    <div 
+                        key={'tick-'+name}
+                        className="absolute top-1/2 -translate-y-1/2 w-[2px] h-3 bg-zinc-800 transition-colors"
+                        style={{ left: `${(idx / (sortedAlbums.length - 1 || 1)) * 100}%` }}
+                    />
+                ))}
+                {/* 随滚动移动的发光滑块 */}
+                <div 
+                    className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 transition-all duration-300 pointer-events-none"
+                    style={{ left: `${scrollProgress * 100}%` }}
+                >
+                    <div className="w-4 h-4 bg-yellow-500 rounded-full shadow-[0_0_15px_rgba(234,179,8,0.8)] flex items-center justify-center">
+                        <div className="w-1.5 h-1.5 bg-black rounded-full" />
+                    </div>
+                    {/* 当前滑块位置显示的年份 */}
+                    <div className="absolute -top-8 left-1/2 -translate-x-1/2 text-yellow-500 font-black text-[14px] italic animate-in fade-in zoom-in">
+                        {sortedAlbums[Math.round(scrollProgress * (sortedAlbums.length - 1))]?.[1].year || 'RECENT'}
+                    </div>
+                </div>
+            </div>
+            
+            {/* 年份标签轨道（可选点击） */}
+            <div className="flex justify-between mt-4">
+                {sortedAlbums.filter((_, i) => i === 0 || i === sortedAlbums.length - 1 || i === Math.floor(sortedAlbums.length / 2)).map(([name, data], i) => (
+                    <button 
+                        key={'label-'+name}
+                        onClick={() => scrollToAlbum(sortedAlbums.findIndex(a => a[0] === name))}
+                        className="text-[9px] font-black text-zinc-700 hover:text-zinc-500 uppercase tracking-[0.2em] transition-colors"
+                    >
+                        {data.year || 'UNKNOWN'}
+                    </button>
+                ))}
+            </div>
+          </div>
+
+          <div 
+            ref={scrollContainerRef}
+            onScroll={handleScroll}
+            className="flex overflow-x-auto gap-8 pb-8 custom-scrollbar no-scrollbar scroll-smooth"
+          >
+            {sortedAlbums.map(([name, data], idx) => (
               <div 
                 key={name}
                 onClick={() => onNavigateToAlbum(name)}
-                className="group cursor-pointer flex-shrink-0 w-40 sm:w-48"
+                className="group cursor-pointer flex-shrink-0 w-48 relative"
               >
-                <div className="aspect-square rounded-[2rem] bg-zinc-900 border border-white/5 overflow-hidden shadow-lg group-hover:scale-105 group-hover:shadow-2xl transition-all duration-500 relative">
-                  {tracks[0].coverUrl ? (
-                    <img src={tracks[0].coverUrl} className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-opacity" alt={name} />
+                {/* 背景年份水印 - 随滚动变化的视差感 */}
+                {data.year > 0 && (
+                    <div className="absolute -top-10 -left-4 text-7xl font-black text-white/[0.03] select-none pointer-events-none group-hover:text-white/[0.05] transition-colors italic">
+                        {data.year}
+                    </div>
+                )}
+                
+                <div className="aspect-square rounded-[2.5rem] bg-zinc-900 border border-white/5 overflow-hidden shadow-lg group-hover:scale-105 group-hover:shadow-2xl transition-all duration-500 relative z-10">
+                  {data.tracks[0].coverUrl ? (
+                    <img src={data.tracks[0].coverUrl} className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-opacity" alt={name} />
                   ) : (
                     <div className="w-full h-full flex items-center justify-center text-zinc-700 text-3xl font-black">{name[0]}</div>
                   )}
                   <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                     <button 
-                        onClick={(e) => { e.stopPropagation(); onPlayAlbum?.(name); }}
-                        className="w-12 h-12 rounded-full bg-yellow-500 flex items-center justify-center text-black shadow-xl translate-y-4 group-hover:translate-y-0 transition-all hover:scale-110"
-                      >
+                     <button onClick={(e) => { e.stopPropagation(); onPlayAlbum?.(name); }} className="w-12 h-12 rounded-full bg-yellow-500 flex items-center justify-center text-black shadow-xl translate-y-4 group-hover:translate-y-0 transition-all hover:scale-110">
                         <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor" className="ml-1"><path d="M5 3l14 9-14 9V3z"/></svg>
                      </button>
                   </div>
                 </div>
-                <h3 className="mt-4 text-white font-bold text-sm truncate group-hover:text-yellow-500 transition-colors uppercase tracking-tight">{name === 'undefined' ? '未知专辑' : name}</h3>
-                <p className="text-zinc-600 text-[10px] font-bold uppercase tracking-widest mt-0.5">{tracks.length} Tracks</p>
+                <div className="mt-4 px-1">
+                    <div className="flex items-center justify-between gap-2">
+                        <h3 className="text-white font-black text-sm truncate group-hover:text-yellow-500 transition-colors uppercase tracking-tight">{name === 'undefined' ? '未知专辑' : name}</h3>
+                        {data.year > 0 && <span className="text-yellow-500/40 text-[10px] font-black italic">{data.year}</span>}
+                    </div>
+                    <p className="text-zinc-600 text-[10px] font-bold uppercase tracking-widest mt-0.5">{data.tracks.length} Tracks</p>
+                </div>
               </div>
             ))}
           </div>
         </section>
 
+        {/* 精选曲目区域保持不变 */}
         <section className="pb-32">
            <div className="flex items-baseline gap-4 mb-8">
-            <h2 className="text-2xl font-black text-white uppercase tracking-tighter">精选曲目</h2>
-            <div className="h-px flex-1 bg-zinc-900" />
+            <h2 className="text-2xl font-black text-white uppercase tracking-tighter italic">经典旋律</h2>
+            <div className="h-px flex-1 bg-gradient-to-r from-zinc-800 to-transparent" />
             <span className="text-[10px] text-zinc-600 font-black uppercase tracking-widest">{artistTracks.length} Items</span>
           </div>
-          <div className="bg-white/[0.01] border border-white/5 rounded-[2.5rem] overflow-hidden backdrop-blur-sm">
+          <div className="bg-white/[0.01] border border-white/5 rounded-[2.5rem] overflow-hidden backdrop-blur-sm shadow-2xl">
             {artistTracks.map((track, i) => {
               const isFav = favorites.has(track.id);
               const isAdded = addedIds.has(track.id);
               return (
-                <div 
-                  key={track.id}
-                  onClick={() => onPlayTrack(track)}
-                  className="group flex items-center gap-4 p-4 md:px-6 hover:bg-white/5 border-b border-white/[0.03] last:border-0 cursor-pointer transition-all"
-                >
+                <div key={track.id} onClick={() => onPlayTrack(track)} className="group flex items-center gap-4 p-4 md:px-6 hover:bg-white/5 border-b border-white/[0.03] last:border-0 cursor-pointer transition-all">
                   <div className="w-6 text-center text-zinc-700 font-mono text-xs group-hover:text-yellow-500 shrink-0">{String(i+1).padStart(2, '0')}</div>
                   <div className="w-10 h-10 rounded-xl bg-zinc-800 overflow-hidden shrink-0">
-                    {track.coverUrl ? (
-                      <img src={track.coverUrl} className="w-full h-full object-cover opacity-80" alt="" />
-                    ) : (
-                      <div className="w-full h-full flex items-center justify-center text-zinc-600"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg></div>
-                    )}
+                    {track.coverUrl ? <img src={track.coverUrl} className="w-full h-full object-cover opacity-80" alt="" /> : <div className="w-full h-full flex items-center justify-center text-zinc-600"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg></div>}
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="text-white font-bold truncate text-sm uppercase tracking-tight group-hover:text-yellow-500 transition-colors">{track.name}</div>
                     <div className="text-zinc-600 text-[10px] font-bold uppercase tracking-widest mt-0.5 truncate">{track.album === '未知专辑' ? 'Single' : track.album}</div>
                   </div>
-
-                  {/* 对齐的操作列 */}
                   <div className="flex items-center gap-1 w-12 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity justify-end">
-                    <button 
-                      onClick={(e) => handleAdd(e, track, e.currentTarget)}
-                      className={`p-2 rounded-full transition-all active:scale-90 ${isAdded ? 'bg-green-500 text-black shadow-lg' : 'hover:bg-yellow-500 hover:text-black text-yellow-500/80'}`}
-                    >
-                      {isAdded ? (
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="4"><path d="M20 6L9 17l-5-5"/></svg>
-                      ) : (
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><path d="M12 5v14M5 12h14"/></svg>
-                      )}
-                    </button>
+                    <button onClick={(e) => handleAdd(e, track, e.currentTarget)} className={`p-2 rounded-full transition-all active:scale-90 ${isAdded ? 'bg-green-500 text-black shadow-lg' : 'hover:bg-yellow-500 hover:text-black text-yellow-500/80'}`}>{isAdded ? <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="4"><path d="M20 6L9 17l-5-5"/></svg> : <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><path d="M12 5v14M5 12h14"/></svg>}</button>
                   </div>
-
                   <div className="hidden md:block text-zinc-700 font-mono text-xs w-16 shrink-0 text-right">{formatTime(track.duration || 0)}</div>
-                  
-                  <div className="w-10 flex justify-end shrink-0">
-                    <button 
-                      onClick={(e) => { e.stopPropagation(); onToggleFavorite(track.id); }}
-                      className={`p-2 transition-all active:scale-75 ${isFav ? 'text-red-500 drop-shadow-[0_0_8px_rgba(234,179,8,0.3)]' : 'text-zinc-800 hover:text-white group-hover:opacity-100'}`}
-                    >
-                      <svg width="16" height="16" viewBox="0 0 24 24" fill={isFav ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2.5"><path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"/></svg>
-                    </button>
-                  </div>
+                  <div className="w-10 flex justify-end shrink-0"><button onClick={(e) => { e.stopPropagation(); onToggleFavorite(track.id); }} className={`p-2 transition-all active:scale-75 ${isFav ? 'text-red-500 drop-shadow-[0_0_8px_rgba(234,179,8,0.3)]' : 'text-zinc-800 hover:text-white group-hover:opacity-100'}`}><svg width="16" height="16" viewBox="0 0 24 24" fill={isFav ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2.5"><path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"/></svg></button></div>
                 </div>
               );
             })}
           </div>
         </section>
-
       </div>
 
       {flyEffect && ReactDOM.createPortal(
-          <div 
-              className="fixed pointer-events-none z-[999] animate-fly"
-              style={{ 
-                  left: flyEffect.startX, 
-                  top: flyEffect.startY,
-                  '--fly-x-end': `${flyEffect.endX}px`,
-                  '--fly-y-end': `${flyEffect.endY}px`,
-                  '--fly-x-mid': `${flyEffect.endX * 0.4}px`,
-                  '--fly-y-mid': `${-200}px` 
-              } as any}
-          >
-              <div className="w-10 h-10 rounded-full bg-zinc-900 border-2 border-yellow-500 overflow-hidden shadow-2xl">
-                  {flyEffect.track.coverUrl ? (
-                      <img src={flyEffect.track.coverUrl} className="w-full h-full object-cover" />
-                  ) : (
-                      <div className="w-full h-full flex items-center justify-center bg-zinc-800 text-yellow-500">
-                           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/></svg>
-                      </div>
-                  )}
-              </div>
-          </div>,
+          <div className="fixed pointer-events-none z-[999] animate-fly" style={{ left: flyEffect.startX, top: flyEffect.startY, '--fly-x-end': `${flyEffect.endX}px`, '--fly-y-end': `${flyEffect.endY}px`, '--fly-x-mid': `${flyEffect.endX * 0.4}px`, '--fly-y-mid': `${-200}px` } as any}><div className="w-10 h-10 rounded-full bg-zinc-900 border-2 border-yellow-500 overflow-hidden shadow-2xl">{flyEffect.track.coverUrl ? <img src={flyEffect.track.coverUrl} className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center bg-zinc-800 text-yellow-500"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/></svg></div>}</div></div>,
           document.body
       )}
     </div>
