@@ -44,11 +44,16 @@ const initDB = async (): Promise<IDBDatabase> => {
   });
 };
 
+/**
+ * 增量保存曲目到缓存
+ * 修复性能瓶颈：只处理传入的这部分 tracks
+ */
 export const saveTracksToCache = async (tracks: any[]) => {
   const db = await initDB();
   const tx = db.transaction(TRACKS_CACHE_STORE, 'readwrite');
   const store = tx.objectStore(TRACKS_CACHE_STORE);
   for (const track of tracks) {
+    // 排除不可序列化的对象，保留核心元数据
     const { file, url, coverUrl, ...serializableTrack } = track;
     store.put(serializableTrack);
   }
@@ -117,15 +122,11 @@ export const clearPlaybackHistory = async () => {
   tx.objectStore(HISTORY_STORE).clear();
 };
 
-/**
- * 保存库文件夹记录，增加 lastSync 参数支持以跟踪最后同步时间
- */
 export const saveLibraryFolder = async (id: string, handle: FileSystemDirectoryHandle, totalFilesCount?: number, lastSync?: number) => {
   const db = await initDB();
   const tx = db.transaction(STORE_NAME, 'readwrite');
   const store = tx.objectStore(STORE_NAME);
   
-  // 先获取已有的，保留 addedAt
   const request = store.get(id);
   request.onsuccess = () => {
       const existing = request.result;
@@ -140,9 +141,6 @@ export const saveLibraryFolder = async (id: string, handle: FileSystemDirectoryH
   };
 };
 
-/**
- * 获取所有库文件夹记录，明确返回类型包含 lastSync 等属性
- */
 export const getAllLibraryFolders = async (): Promise<{id: string, handle: FileSystemDirectoryHandle, name: string, totalFilesCount?: number, lastSync?: number, addedAt?: number}[]> => {
   const db = await initDB();
   const tx = db.transaction(STORE_NAME, 'readonly');

@@ -1,3 +1,4 @@
+
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { Track, LibraryFolder, HistoryEntry } from '../types';
 import { parseFileToTrack } from '../utils/audioParser';
@@ -106,6 +107,7 @@ export const useLibraryManager = () => {
           const fresh = await parseFileToTrack(file);
           updatedTrack.coverBlob = fresh.coverBlob;
           updatedTrack.coverUrl = fresh.coverUrl;
+          // 注意：此处解析是单支，直接 upsert 即可
           saveTracksToCache([updatedTrack]);
         }
         
@@ -121,7 +123,7 @@ export const useLibraryManager = () => {
     setImportProgress(0);
     const total = files.length;
     
-    const BATCH_SIZE = 10;
+    const BATCH_SIZE = 15;
     for (let i = 0; i < total; i += BATCH_SIZE) {
       const batchFiles = Array.from(files).slice(i, i + BATCH_SIZE);
       const batchTracks: Track[] = [];
@@ -137,17 +139,19 @@ export const useLibraryManager = () => {
       }
 
       if (batchTracks.length > 0) {
+        // 增量写入缓存
+        await saveTracksToCache(batchTracks);
+        // 更新内存状态
         setTracks(prev => {
           const existingFingerprints = new Set(prev.map(t => t.fingerprint));
           const newUnique = batchTracks.filter(t => !existingFingerprints.has(t.fingerprint));
-          const combined = [...prev, ...newUnique];
-          saveTracksToCache(combined);
-          return combined;
+          return [...prev, ...newUnique];
         });
       }
 
       setImportProgress(Math.floor((Math.min(i + BATCH_SIZE, total) / total) * 100));
-      await new Promise(r => setTimeout(r, 10));
+      // 让出主线程
+      await new Promise(r => requestAnimationFrame(r));
     }
 
     setIsImporting(false);
@@ -157,7 +161,7 @@ export const useLibraryManager = () => {
   const syncFolders = useCallback(async (specificFolderId?: string) => {
     setIsImporting(true);
     setImportProgress(0);
-    setCurrentProcessingFile('盘点曲目总数...');
+    setCurrentProcessingFile('正在盘点本地路径...');
 
     const savedFolders = await getAllLibraryFolders();
     if (savedFolders.length === 0) { setIsImporting(false); return false; }
@@ -168,7 +172,7 @@ export const useLibraryManager = () => {
 
     const filesToProcess: { handle: FileSystemFileHandle, folderId: string, folderHandle: FileSystemDirectoryHandle }[] = [];
 
-    // 1. 快速盘点
+    // 1. 极速扫描文件名和属性
     for (const folder of foldersToScan) {
       if (!folder.handle) continue;
       try {
@@ -188,21 +192,22 @@ export const useLibraryManager = () => {
       } catch (e) { console.error(e); }
     }
 
+    // 立即更新 totalFilesCount
     for (const folder of foldersToScan) {
         const count = filesToProcess.filter(f => f.folderId === folder.id).length;
         if (folder.handle) {
             await saveLibraryFolder(folder.id, folder.handle, count, Date.now());
         }
     }
+    // 强制 UI 重新计算已导入比例
     await loadData(); 
 
     const total = filesToProcess.length;
     if (total === 0) { setIsImporting(false); return true; }
 
-    // 2. 增量解析
+    // 2. 分批增量解析元数据
     const currentFingerprints = new Set(tracks.map(t => t.fingerprint));
-    
-    const BATCH_SIZE = 5; 
+    const BATCH_SIZE = 15; 
     let processedCount = 0;
 
     for (let i = 0; i < filesToProcess.length; i += BATCH_SIZE) {
@@ -232,22 +237,22 @@ export const useLibraryManager = () => {
       }));
 
       if (batchResults.length > 0) {
-        setTracks(prev => {
-          const updated = [...prev, ...batchResults];
-          saveTracksToCache(updated);
-          return updated;
-        });
+        // 关键性能修复：只保存这一小批到 IndexedDB，不要传全量 tracks 给 saveTracksToCache
+        await saveTracksToCache(batchResults);
+        
+        // 更新内存状态以便 UI 显示
+        setTracks(prev => [...prev, ...batchResults]);
       }
 
       setImportProgress(Math.floor((processedCount / total) * 100));
-      await new Promise(r => setTimeout(r, 0));
+      // 每批处理完让 UI 有机会呼吸
+      await new Promise(r => requestAnimationFrame(r));
     }
 
     setImportProgress(100);
-    setTimeout(async () => {
-      await loadData();
-      setIsImporting(false);
-    }, 500);
+    // 最后加载一次，确保 importedFolders 里的 trackCount 是准确的
+    await loadData();
+    setTimeout(() => setIsImporting(false), 800);
     return true;
   }, [tracks, loadData]);
 
@@ -275,7 +280,9 @@ export const useLibraryManager = () => {
   const handleUpdateTrack = useCallback((trackId: string, updates: Partial<Track>) => {
     setTracks(prev => {
       const next = prev.map(t => t.id === trackId ? { ...t, ...updates } : t);
-      saveTracksToCache(next);
+      // 注意：单个更新也只是 upsert 该条目
+      const updatedTrack = next.find(t => t.id === trackId);
+      if (updatedTrack) saveTracksToCache([updatedTrack]);
       return next;
     });
   }, []);
@@ -301,7 +308,8 @@ export const useLibraryManager = () => {
         if (targetIndex !== -1) newTracks.splice(targetIndex, 0, draggedItem);
         else newTracks.push(draggedItem);
       }
-      saveTracksToCache(newTracks);
+      // 注意：排序由于是基于位置的，IndexedDB 暂不支持持久化 index 顺序，所以这里只需内存调整
+      // 如果需要持久化顺序，建议在 Track 结构中加入 sortOrder 字段并增量更新
       return newTracks;
     });
   }, []);
