@@ -10,9 +10,8 @@ interface CollectionViewProps {
   initialTab?: 'artists' | 'albums';
 }
 
-const PAGE_SIZE = 40; // 初始加载数量
+const PAGE_SIZE = 40; 
 
-// 提取独立的卡片组件，使用 memo 避免不必要的重绘
 const CollectionCard = React.memo<{
     id: string;
     name: string;
@@ -35,7 +34,6 @@ const CollectionCard = React.memo<{
                     <div className="text-zinc-700 text-4xl font-black">{name[0]}</div>
                 )}
                 
-                {/* 悬停操作 */}
                 <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-all flex items-center justify-center">
                     {onPlay && (
                         <button 
@@ -64,17 +62,38 @@ const CollectionView: React.FC<CollectionViewProps> = ({ tracks, onNavigate, onP
   
   const convert = useCallback((s: string) => displayConverter ? displayConverter(s) : s, [displayConverter]);
 
-  // 计算分组数据
+  // 通用的去重辅助函数：在给定的轨道列表中，按歌曲名+歌手去重，保留音质最好的
+  const deduplicateTracks = (list: Track[]) => {
+    const bestMap = new Map<string, Track>();
+    list.forEach(t => {
+      const key = `${t.name.trim().toLowerCase()}-${t.artist.trim().toLowerCase()}`;
+      const existing = bestMap.get(key);
+      if (!existing || (t.bitrate || 0) > (existing.bitrate || 0)) {
+        bestMap.set(key, t);
+      }
+    });
+    return Array.from(bestMap.values());
+  };
+
   const artistGroups = useMemo(() => {
     const map = new Map<string, { tracks: Track[], cover?: string }>();
     tracks.forEach(t => {
       const key = t.artist || '未知歌手';
       if (!map.has(key)) map.set(key, { tracks: [] });
-      const entry = map.get(key)!;
-      entry.tracks.push(t);
-      if (!entry.cover && t.coverUrl) entry.cover = t.coverUrl;
+      map.get(key)!.tracks.push(t);
     });
-    return Array.from(map.entries()).sort((a, b) => a[0].localeCompare(b[0]));
+
+    // 针对每个歌手进行去重
+    const result: [string, { tracks: Track[], cover?: string }][] = [];
+    map.forEach((data, name) => {
+      const uniqueTracks = deduplicateTracks(data.tracks);
+      result.push([name, { 
+        tracks: uniqueTracks, 
+        cover: uniqueTracks.find(t => t.coverUrl)?.coverUrl 
+      }]);
+    });
+
+    return result.sort((a, b) => a[0].localeCompare(b[0]));
   }, [tracks]);
 
   const albumGroups = useMemo(() => {
@@ -82,32 +101,34 @@ const CollectionView: React.FC<CollectionViewProps> = ({ tracks, onNavigate, onP
     tracks.forEach(t => {
       const key = t.album || '未知专辑';
       if (!map.has(key)) map.set(key, { tracks: [] });
-      const entry = map.get(key)!;
-      entry.tracks.push(t);
-      if (!entry.cover && t.coverUrl) entry.cover = t.coverUrl;
+      map.get(key)!.tracks.push(t);
     });
-    return Array.from(map.entries()).sort((a, b) => a[0].localeCompare(b[0]));
+
+    // 针对每个专辑进行去重
+    const result: [string, { tracks: Track[], cover?: string }][] = [];
+    map.forEach((data, name) => {
+      const uniqueTracks = deduplicateTracks(data.tracks);
+      result.push([name, { 
+        tracks: uniqueTracks, 
+        cover: uniqueTracks.find(t => t.coverUrl)?.coverUrl 
+      }]);
+    });
+
+    return result.sort((a, b) => a[0].localeCompare(b[0]));
   }, [tracks]);
 
-  // 当页签切换时，重置加载限制
   useEffect(() => {
     setDisplayLimit(PAGE_SIZE);
   }, [tab]);
 
-  // 实现无限滚动检测
   useEffect(() => {
     if (observerRef.current) observerRef.current.disconnect();
-
     observerRef.current = new IntersectionObserver((entries) => {
       if (entries[0].isIntersecting) {
         setDisplayLimit(prev => prev + PAGE_SIZE);
       }
     }, { threshold: 0.1 });
-
-    if (loadMoreRef.current) {
-      observerRef.current.observe(loadMoreRef.current);
-    }
-
+    if (loadMoreRef.current) observerRef.current.observe(loadMoreRef.current);
     return () => observerRef.current?.disconnect();
   }, [tab]);
 
@@ -167,7 +188,6 @@ const CollectionView: React.FC<CollectionViewProps> = ({ tracks, onNavigate, onP
           </div>
         )}
 
-        {/* 无限滚动哨兵 */}
         {displayLimit < currentGroups.length && (
           <div ref={loadMoreRef} className="h-20 flex items-center justify-center">
              <div className="w-1.5 h-1.5 rounded-full bg-yellow-500/40 animate-pulse" />

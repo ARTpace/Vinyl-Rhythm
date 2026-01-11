@@ -22,7 +22,7 @@ interface LibraryViewProps {
   displayConverter?: (str: string) => string; 
 }
 
-const PAGE_SIZE = 50; // 每批次加载的数量
+const PAGE_SIZE = 50; 
 
 const FilterDropdown: React.FC<{
   value: string;
@@ -215,12 +215,27 @@ const LibraryView: React.FC<LibraryViewProps> = ({
     return map;
   }, [folders]);
 
-  // FIX: Move filteredAndSortedTracks and groups useMemo before useEffect to avoid used-before-declaration errors
   const filteredAndSortedTracks = useMemo(() => {
     let list = [...tracks];
     if (subTab === 'fav' && !isSearching) list = list.filter(t => favorites.has(t.id));
     if (activeGroup) list = list.filter(t => (t.folderId || '默认导入') === activeGroup);
-    if (activeAlbum) list = list.filter(t => t.album === activeAlbum);
+    
+    // 如果处于“专辑详情”页面，增加音质去重逻辑
+    if (activeAlbum) {
+      list = list.filter(t => t.album === activeAlbum);
+      
+      const bestVersionsMap = new Map<string, Track>();
+      list.forEach(t => {
+        // 使用歌曲名+艺人作为唯一键
+        const key = `${t.name.trim().toLowerCase()}-${t.artist.trim().toLowerCase()}`;
+        const existing = bestVersionsMap.get(key);
+        // 如果不存在或者当前轨道比特率更高，则保留当前的
+        if (!existing || (t.bitrate || 0) > (existing.bitrate || 0)) {
+          bestVersionsMap.set(key, t);
+        }
+      });
+      list = Array.from(bestVersionsMap.values());
+    }
 
     if (filterQuality !== 'all') {
       list = list.filter(t => {
@@ -323,26 +338,19 @@ const LibraryView: React.FC<LibraryViewProps> = ({
     } catch (err) { console.error(err); } finally { setScrapingId(null); }
   };
 
-  // 重置加载限制的触发器
   useEffect(() => {
     setDisplayLimit(PAGE_SIZE);
     if (scrollRef.current) scrollRef.current.scrollTop = 0;
   }, [view, activeGroup, activeAlbum, isSearching, sortKey, sortOrder, subTab, filterQuality, filterDecade, filterDuration]);
 
-  // 无限滚动观察者
   useEffect(() => {
     if (observerRef.current) observerRef.current.disconnect();
-
     observerRef.current = new IntersectionObserver((entries) => {
       if (entries[0].isIntersecting) {
         setDisplayLimit(prev => prev + PAGE_SIZE);
       }
     }, { threshold: 0.1 });
-
-    if (loadMoreRef.current) {
-      observerRef.current.observe(loadMoreRef.current);
-    }
-
+    if (loadMoreRef.current) observerRef.current.observe(loadMoreRef.current);
     return () => observerRef.current?.disconnect();
   }, [filteredAndSortedTracks, activeGroup, activeAlbum]);
 
@@ -454,7 +462,6 @@ const LibraryView: React.FC<LibraryViewProps> = ({
               </>
             )}
             
-            {/* 无限滚动哨兵 */}
             {displayLimit < filteredAndSortedTracks.length && (
               <div ref={loadMoreRef} className="h-20 flex items-center justify-center">
                  <div className="w-1.5 h-1.5 rounded-full bg-yellow-500/30 animate-pulse" />
