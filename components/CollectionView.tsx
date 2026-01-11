@@ -10,6 +10,7 @@ interface CollectionViewProps {
   searchQuery?: string;
   initialTab?: 'artists' | 'albums';
   onTabChange?: (tab: 'artists' | 'albums') => void;
+  artistMetadata: Map<string, string>;
 }
 
 const PAGE_SIZE = 40; 
@@ -66,7 +67,8 @@ const CollectionView: React.FC<CollectionViewProps> = ({
   displayConverter, 
   searchQuery = '', 
   initialTab = 'artists',
-  onTabChange
+  onTabChange,
+  artistMetadata
 }) => {
   const [tab, setTab] = useState<'artists' | 'albums'>(initialTab);
   const [displayLimit, setDisplayLimit] = useState(PAGE_SIZE);
@@ -80,30 +82,16 @@ const CollectionView: React.FC<CollectionViewProps> = ({
     onTabChange?.(newTab);
   };
 
-  // 通用的去重辅助函数：在给定的轨道列表中，按歌曲名+歌手去重，保留音质最好的
   const deduplicateTracks = (list: Track[]) => {
     const bestMap = new Map<string, Track>();
-    const countMap = new Map<string, number>();
-
     list.forEach(t => {
       const key = `${t.name.trim().toLowerCase()}-${t.artist.trim().toLowerCase()}`;
-      
-      // 计数
-      countMap.set(key, (countMap.get(key) || 0) + 1);
-
       const existing = bestMap.get(key);
       if (!existing || (t.bitrate || 0) > (existing.bitrate || 0)) {
         bestMap.set(key, t);
       }
     });
-
-    // 将计数注入到保留的轨道对象中
-    const result = Array.from(bestMap.values()).map(t => {
-        const key = `${t.name.trim().toLowerCase()}-${t.artist.trim().toLowerCase()}`;
-        return { ...t, duplicateCount: countMap.get(key) || 1 };
-    });
-
-    return result;
+    return Array.from(bestMap.values());
   };
 
   const artistGroups = useMemo(() => {
@@ -113,7 +101,7 @@ const CollectionView: React.FC<CollectionViewProps> = ({
       sourceTracks = tracks.filter(t => normalizeChinese(t.artist).includes(q));
     }
 
-    const map = new Map<string, { tracks: Track[], cover?: string }>();
+    const map = new Map<string, { tracks: Track[] }>();
     sourceTracks.forEach(t => {
       const artists = (t.artist || '未知歌手').split(' / ').map(name => name.trim()).filter(Boolean);
       artists.forEach(artistName => {
@@ -122,18 +110,18 @@ const CollectionView: React.FC<CollectionViewProps> = ({
       });
     });
 
-    // 针对每个歌手进行去重
     const result: [string, { tracks: Track[], cover?: string, year?: number }][] = [];
     map.forEach((data, name) => {
       const uniqueTracks = deduplicateTracks(data.tracks);
+      const artistCover = artistMetadata.get(name) || uniqueTracks.find(t => t.coverUrl)?.coverUrl;
       result.push([name, { 
         tracks: uniqueTracks, 
-        cover: uniqueTracks.find(t => t.coverUrl)?.coverUrl 
+        cover: artistCover
       }]);
     });
 
     return result.sort((a, b) => a[0].localeCompare(b[0]));
-  }, [tracks, searchQuery]);
+  }, [tracks, searchQuery, artistMetadata]);
 
   const albumGroups = useMemo(() => {
     let sourceTracks = tracks;
@@ -149,11 +137,9 @@ const CollectionView: React.FC<CollectionViewProps> = ({
       map.get(key)!.tracks.push(t);
     });
 
-    // 针对每个专辑进行去重
     const result: [string, { tracks: Track[], cover?: string, year?: number }][] = [];
     map.forEach((data, name) => {
       const uniqueTracks = deduplicateTracks(data.tracks);
-      // 找到第一个有效的年份作为专辑年份
       const albumYear = uniqueTracks.find(t => t.year)?.year;
       
       result.push([name, { 

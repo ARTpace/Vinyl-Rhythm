@@ -14,6 +14,7 @@ interface ArtistProfileProps {
   onNavigateToAlbum: (albumName: string) => void;
   favorites: Set<string>;
   onToggleFavorite: (id: string) => void;
+  artistMetadata: Map<string, string>;
 }
 
 const ArtistProfile: React.FC<ArtistProfileProps> = ({
@@ -26,7 +27,8 @@ const ArtistProfile: React.FC<ArtistProfileProps> = ({
   onPlayArtist,
   onNavigateToAlbum,
   favorites,
-  onToggleFavorite
+  onToggleFavorite,
+  artistMetadata
 }) => {
   const [addedIds, setAddedIds] = useState<Set<string>>(new Set());
   const [flyEffect, setFlyEffect] = useState<{ startX: number, startY: number, endX: number, endY: number, track: Track } | null>(null);
@@ -38,7 +40,6 @@ const ArtistProfile: React.FC<ArtistProfileProps> = ({
     [allTracks, artistName]
   );
 
-  // 1. 核心改进：专辑按年份排序
   const sortedAlbums = useMemo(() => {
     const map = new Map<string, { tracks: Track[], year: number }>();
     artistTracks.forEach(t => {
@@ -47,13 +48,11 @@ const ArtistProfile: React.FC<ArtistProfileProps> = ({
         map.set(albumKey, { tracks: [], year: t.year || 0 });
       }
       map.get(albumKey)!.tracks.push(t);
-      // 取专辑内最早的一首歌的年份作为专辑年份
       if (t.year && (map.get(albumKey)!.year === 0 || t.year < map.get(albumKey)!.year)) {
         map.get(albumKey)!.year = t.year;
       }
     });
     
-    // 按照年份从新到旧排列
     return Array.from(map.entries()).sort((a, b) => {
         if (a[1].year === 0) return 1;
         if (b[1].year === 0) return -1;
@@ -70,7 +69,21 @@ const ArtistProfile: React.FC<ArtistProfileProps> = ({
     };
   }, [artistTracks, sortedAlbums]);
 
-  const heroCover = artistTracks.find(t => t.coverUrl)?.coverUrl;
+  const heroCover = useMemo(() => {
+    return artistMetadata.get(artistName) || artistTracks.find(t => t.coverUrl)?.coverUrl;
+  }, [artistTracks, artistName, artistMetadata]);
+
+  const heroCovers = useMemo(() => {
+      const covers = new Set<string>();
+      if (heroCover) covers.add(heroCover);
+      sortedAlbums.forEach(([_, data]) => {
+          if (data.tracks[0]?.coverUrl) {
+              covers.add(data.tracks[0].coverUrl);
+          }
+      });
+      return Array.from(covers).slice(0, 3);
+  }, [heroCover, sortedAlbums]);
+
 
   const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
     const target = e.currentTarget;
@@ -114,7 +127,6 @@ const ArtistProfile: React.FC<ArtistProfileProps> = ({
 
   return (
     <div className="flex flex-col h-full bg-[#0a0a0a] overflow-y-auto custom-scrollbar animate-in fade-in slide-in-from-bottom-4 duration-700">
-      {/* 头部 Hero 区域保持不变 */}
       <div className="relative min-h-[50vh] md:min-h-[60vh] flex-shrink-0 flex items-end p-6 md:p-12 pb-10 md:pb-16 overflow-hidden">
         <div className="absolute inset-0 z-0">
           {heroCover ? (
@@ -136,9 +148,9 @@ const ArtistProfile: React.FC<ArtistProfileProps> = ({
 
         <div className="relative z-10 flex flex-col md:flex-row items-center md:items-start gap-8 md:gap-12 w-full max-w-7xl mx-auto">
           <div className="relative w-48 h-48 md:w-64 md:h-64 shrink-0 mt-8 md:mt-0">
-             {sortedAlbums.slice(0, 3).map(([name, data], i) => (
+             {heroCovers.map((cover, i) => (
                <div 
-                key={name}
+                key={cover + i}
                 className="absolute inset-0 rounded-[2.5rem] shadow-2xl border border-white/10 overflow-hidden transition-all duration-700"
                 style={{ 
                   transform: `translate(${i * 16}px, -${i * 16}px) rotate(${i * 3}deg)`,
@@ -146,13 +158,12 @@ const ArtistProfile: React.FC<ArtistProfileProps> = ({
                   opacity: 1 - (i * 0.25)
                 }}
                >
-                 {data.tracks[0].coverUrl ? (
-                   <img src={data.tracks[0].coverUrl} className="w-full h-full object-cover" alt="" />
-                 ) : (
-                   <div className="w-full h-full bg-zinc-800 flex items-center justify-center text-zinc-600 font-black text-5xl">{artistName[0]}</div>
-                 )}
+                 <img src={cover} className="w-full h-full object-cover" alt="" />
                </div>
              ))}
+             {heroCovers.length === 0 && (
+                <div className="absolute inset-0 rounded-[2.5rem] shadow-2xl border border-white/10 overflow-hidden bg-zinc-800 flex items-center justify-center text-zinc-600 font-black text-5xl">{artistName[0]}</div>
+             )}
           </div>
 
           <div className="flex-1 text-center md:text-left pt-2 md:pt-4">
@@ -180,7 +191,6 @@ const ArtistProfile: React.FC<ArtistProfileProps> = ({
       </div>
 
       <div className="px-6 md:px-12 py-12 space-y-20 max-w-7xl mx-auto w-full">
-        {/* 2. 改进版专辑区域：包含时光轴 */}
         <section className="relative">
           <div className="flex items-baseline gap-4 mb-8">
             <h2 className="text-2xl font-black text-white uppercase tracking-tighter text-nowrap italic">时光曲目集</h2>
@@ -188,10 +198,8 @@ const ArtistProfile: React.FC<ArtistProfileProps> = ({
             <span className="text-[10px] text-zinc-600 font-black uppercase tracking-widest text-nowrap">Chronological Order</span>
           </div>
 
-          {/* 3. 时光轴滑条 */}
           <div className="relative mb-10 px-2">
             <div className="h-[2px] w-full bg-zinc-900 rounded-full relative">
-                {/* 年份刻度点 */}
                 {sortedAlbums.map(([name, data], idx) => (
                     <div 
                         key={'tick-'+name}
@@ -199,7 +207,6 @@ const ArtistProfile: React.FC<ArtistProfileProps> = ({
                         style={{ left: `${(idx / (sortedAlbums.length - 1 || 1)) * 100}%` }}
                     />
                 ))}
-                {/* 随滚动移动的发光滑块 */}
                 <div 
                     className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 transition-all duration-300 pointer-events-none"
                     style={{ left: `${scrollProgress * 100}%` }}
@@ -207,14 +214,12 @@ const ArtistProfile: React.FC<ArtistProfileProps> = ({
                     <div className="w-4 h-4 bg-yellow-500 rounded-full shadow-[0_0_15px_rgba(234,179,8,0.8)] flex items-center justify-center">
                         <div className="w-1.5 h-1.5 bg-black rounded-full" />
                     </div>
-                    {/* 当前滑块位置显示的年份 */}
                     <div className="absolute -top-8 left-1/2 -translate-x-1/2 text-yellow-500 font-black text-[14px] italic animate-in fade-in zoom-in">
                         {sortedAlbums[Math.round(scrollProgress * (sortedAlbums.length - 1))]?.[1].year || 'RECENT'}
                     </div>
                 </div>
             </div>
             
-            {/* 年份标签轨道（可选点击） */}
             <div className="flex justify-between mt-4">
                 {sortedAlbums.filter((_, i) => i === 0 || i === sortedAlbums.length - 1 || i === Math.floor(sortedAlbums.length / 2)).map(([name, data], i) => (
                     <button 
@@ -239,7 +244,6 @@ const ArtistProfile: React.FC<ArtistProfileProps> = ({
                 onClick={() => onNavigateToAlbum(name)}
                 className="group cursor-pointer flex-shrink-0 w-48 relative"
               >
-                {/* 背景年份水印 - 随滚动变化的视差感 */}
                 {data.year > 0 && (
                     <div className="absolute -top-10 -left-4 text-7xl font-black text-white/[0.03] select-none pointer-events-none group-hover:text-white/[0.05] transition-colors italic">
                         {data.year}
@@ -270,7 +274,6 @@ const ArtistProfile: React.FC<ArtistProfileProps> = ({
           </div>
         </section>
 
-        {/* 精选曲目区域保持不变 */}
         <section className="pb-32">
            <div className="flex items-baseline gap-4 mb-8">
             <h2 className="text-2xl font-black text-white uppercase tracking-tighter italic">经典旋律</h2>
@@ -289,7 +292,12 @@ const ArtistProfile: React.FC<ArtistProfileProps> = ({
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="text-white font-bold truncate text-sm uppercase tracking-tight group-hover:text-yellow-500 transition-colors">{track.name}</div>
-                    <div className="text-zinc-600 text-[10px] font-bold uppercase tracking-widest mt-0.5 truncate">{track.album === '未知专辑' ? 'Single' : track.album}</div>
+                    <button
+                        onClick={(e) => { e.stopPropagation(); onNavigateToAlbum(track.album); }}
+                        className="text-zinc-600 text-[10px] font-bold uppercase tracking-widest mt-0.5 truncate text-left hover:text-yellow-500 transition-colors"
+                    >
+                        {track.album === '未知专辑' ? 'Single' : track.album}
+                    </button>
                   </div>
                   <div className="flex items-center gap-1 w-12 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity justify-end">
                     <button onClick={(e) => handleAdd(e, track, e.currentTarget)} className={`p-2 rounded-full transition-all active:scale-90 ${isAdded ? 'bg-green-500 text-black shadow-lg' : 'hover:bg-yellow-500 hover:text-black text-yellow-500/80'}`}>{isAdded ? <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="4"><path d="M20 6L9 17l-5-5"/></svg> : <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><path d="M12 5v14M5 12h14"/></svg>}</button>

@@ -20,6 +20,15 @@ export interface Track {
   duplicateCount?: number; 
 }
 
+export interface Playlist {
+  id: string;
+  name: string;
+  songFingerprints: string[];
+  coverUrl?: string;
+  coverBlob?: Blob;
+  createdAt: number;
+}
+
 export interface HistoryEntry {
   fingerprint: string;
   name: string;
@@ -43,7 +52,7 @@ export interface LibraryGroup {
   coverUrl?: string;
 }
 
-export type ViewType = 'all' | 'collection' | 'player' | 'favorites' | 'folders' | 'artistProfile' | 'settings' | 'history' | 'albums' | 'artists';
+export type ViewType = 'all' | 'collection' | 'player' | 'favorites' | 'folders' | 'artistProfile' | 'settings' | 'history' | 'albums' | 'artists' | 'playlists';
 
 export type PlaybackMode = 'normal' | 'shuffle' | 'loop';
 

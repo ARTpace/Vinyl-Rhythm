@@ -54,7 +54,7 @@ const cleanArtistName = (artist: string): string => {
 };
 
 
-export const parseFileToTrack = async (file: File): Promise<Track> => {
+export const parseFileToTrack = async (file: File, directoryCoverBlob: Blob | null = null): Promise<Track> => {
   const fileInfo = cleanFileNameData(file.name);
   try {
     const metadata = await mm.parseBlob(file);
@@ -67,6 +67,13 @@ export const parseFileToTrack = async (file: File): Promise<Track> => {
         coverBlob = new Blob([picture.data], { type: picture.format });
         coverUrl = URL.createObjectURL(coverBlob);
       } catch (e) { console.warn("无法生成封面预览", e); }
+    } else if (directoryCoverBlob) {
+      try {
+        coverBlob = directoryCoverBlob;
+        coverUrl = URL.createObjectURL(directoryCoverBlob);
+      } catch(e) {
+        console.warn("无法使用文件夹封面", e);
+      }
     }
     const artistRaw = common.artist || common.albumartist || (common.artists && common.artists.join(' / ')) || fileInfo.artist;
     const artist = cleanArtistName(artistRaw);
@@ -91,12 +98,22 @@ export const parseFileToTrack = async (file: File): Promise<Track> => {
       dateAdded: Date.now() // 记录入库时间
     };
   } catch (error) {
+    let coverUrl: string | undefined = undefined;
+    let coverBlob: Blob | undefined = undefined;
+    if (directoryCoverBlob) {
+        try {
+            coverBlob = directoryCoverBlob;
+            coverUrl = URL.createObjectURL(directoryCoverBlob);
+        } catch(e) { /* ignore */ }
+    }
     return {
       id: Math.random().toString(36).substring(2, 9),
       name: fileInfo.title,
       artist: cleanArtistName(fileInfo.artist),
       album: "未知专辑",
       url: URL.createObjectURL(file),
+      coverUrl,
+      coverBlob,
       file,
       fingerprint: `${file.name}-${file.size}`,
       lastModified: file.lastModified,

@@ -118,7 +118,19 @@ const TrackRow = React.memo<{
                {track.duplicateCount && track.duplicateCount > 1 && <span className="text-[7px] bg-white/10 text-zinc-400 px-1 rounded flex items-center gap-0.5 group-hover:bg-yellow-500/20 group-hover:text-yellow-500 transition-colors"><svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>{track.duplicateCount} VERSIONS</span>}
             </div>
           </div>
-          <button onClick={(e) => { e.stopPropagation(); onNavigate?.('artistProfile', track.artist); }} className="text-zinc-500 text-[9px] md:text-xs font-bold uppercase tracking-widest hover:text-yellow-500 transition-colors">{convert(track.artist)}</button>
+          <div className="flex items-center gap-1.5 flex-wrap">
+            {track.artist.split(' / ').map((artist, index, arr) => (
+              <React.Fragment key={index}>
+                <button
+                  onClick={(e) => { e.stopPropagation(); onNavigate?.('artistProfile', artist.trim()); }}
+                  className="text-zinc-500 text-[9px] md:text-xs font-bold uppercase tracking-widest hover:text-yellow-500 transition-colors"
+                >
+                  {convert(artist.trim())}
+                </button>
+                {index < arr.length - 1 && <span className="text-zinc-600 text-[9px] md:text-xs">/</span>}
+              </React.Fragment>
+            ))}
+          </div>
         </div>
         <div className="flex items-center gap-1 w-16 md:w-20 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity justify-end">
           <button ref={btnRef} onClick={handleAdd} className={`p-2 rounded-full transition-all duration-300 active:scale-90 ${isAdded ? 'bg-green-500 text-black shadow-[0_0_10px_rgba(34,197,94,0.4)]' : 'hover:bg-yellow-500 hover:text-black text-yellow-500/80'}`}>{isAdded ? <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="4" className="animate-in zoom-in"><path d="M20 6L9 17l-5-5"/></svg> : <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><path d="M12 5v14M5 12h14"/></svg>}</button>

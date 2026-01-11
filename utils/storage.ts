@@ -1,10 +1,12 @@
-
 const DB_NAME = 'VinylRhythmDB';
-const DB_VERSION = 7; // 升级版本
+const DB_VERSION = 9; // 升级版本
 const STORE_NAME = 'libraryHandles';
 const STORIES_STORE = 'trackStories';
 const HISTORY_STORE = 'playbackHistory';
 const TRACKS_CACHE_STORE = 'tracksCache';
+const ARTIST_METADATA_STORE = 'artistMetadata';
+const PLAYLISTS_STORE = 'playlists';
+
 
 let dbInstance: IDBDatabase | null = null;
 
@@ -29,6 +31,12 @@ const initDB = async (): Promise<IDBDatabase> => {
         store.createIndex('folderId', 'folderId', { unique: false });
         store.createIndex('dateAdded', 'dateAdded', { unique: false }); // 为入库时间建立索引
       }
+      if (!db.objectStoreNames.contains(ARTIST_METADATA_STORE)) {
+        db.createObjectStore(ARTIST_METADATA_STORE, { keyPath: 'name' });
+      }
+      if (!db.objectStoreNames.contains(PLAYLISTS_STORE)) {
+        db.createObjectStore(PLAYLISTS_STORE, { keyPath: 'id' });
+      }
     };
     request.onsuccess = () => {
       dbInstance = request.result;
@@ -37,6 +45,75 @@ const initDB = async (): Promise<IDBDatabase> => {
     request.onerror = () => reject(request.error);
   });
 };
+
+export const savePlaylist = async (playlist: any) => {
+  const db = await initDB();
+  const tx = db.transaction(PLAYLISTS_STORE, 'readwrite');
+  const store = tx.objectStore(PLAYLISTS_STORE);
+  const { coverUrl, ...serializablePlaylist } = playlist;
+  store.put(serializablePlaylist);
+  return new Promise<void>((resolve, reject) => {
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+};
+
+export const getAllPlaylists = async (): Promise<any[]> => {
+  const db = await initDB();
+  const tx = db.transaction(PLAYLISTS_STORE, 'readonly');
+  const request = tx.objectStore(PLAYLISTS_STORE).getAll();
+  return new Promise((resolve, reject) => {
+    request.onsuccess = () => {
+      const results = request.result || [];
+      const hydrated = results.map(p => {
+        if (p.coverBlob) {
+          try { return { ...p, coverUrl: URL.createObjectURL(p.coverBlob) }; } catch (e) { return p; }
+        }
+        return p;
+      }).sort((a,b) => b.createdAt - a.createdAt);
+      resolve(hydrated);
+    };
+    request.onerror = () => reject(request.error);
+  });
+};
+
+export const removePlaylist = async (id: string) => {
+  const db = await initDB();
+  const tx = db.transaction(PLAYLISTS_STORE, 'readwrite');
+  tx.objectStore(PLAYLISTS_STORE).delete(id);
+  return new Promise<void>((resolve, reject) => {
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+};
+
+export const saveArtistMetadata = async (name: string, coverBlob: Blob) => {
+    const db = await initDB();
+    const tx = db.transaction(ARTIST_METADATA_STORE, 'readwrite');
+    const store = tx.objectStore(ARTIST_METADATA_STORE);
+    store.put({ name, coverBlob });
+    return new Promise<void>((resolve, reject) => {
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error);
+    });
+};
+
+export const getAllArtistMetadata = async (): Promise<{name: string, coverUrl: string}[]> => {
+    const db = await initDB();
+    const tx = db.transaction(ARTIST_METADATA_STORE, 'readonly');
+    const request = tx.objectStore(ARTIST_METADATA_STORE).getAll();
+    return new Promise((resolve, reject) => {
+        request.onsuccess = () => {
+            const results = (request.result || []).map(item => ({
+                ...item,
+                coverUrl: URL.createObjectURL(item.coverBlob)
+            }));
+            resolve(results);
+        };
+        request.onerror = () => reject(request.error);
+    });
+};
+
 
 export const saveTracksToCache = async (tracks: any[]) => {
   const db = await initDB();
