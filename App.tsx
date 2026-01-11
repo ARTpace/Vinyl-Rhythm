@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import Sidebar from './components/Sidebar';
 import MobileNav from './components/MobileNav';
@@ -50,7 +49,6 @@ const App: React.FC = () => {
     }
   }, [library.tracks, hydratePlaylist]);
 
-  // 连接音频播放器与库管理器的历史记录逻辑
   const player = useAudioPlayer(playlist, library.resolveTrackFile, library.recordTrackPlayback);
   
   const { audioIntensity } = useAudioAnalyzer(player.audioRef, player.isPlaying);
@@ -158,6 +156,7 @@ const App: React.FC = () => {
         onRemoveFolder={library.removeFolder} 
         importedFolders={library.importedFolders} 
         isImporting={library.isImporting}
+        syncingFolderId={library.syncingFolderId}
       />
       
       <div className="hidden md:flex flex-col h-full z-50">

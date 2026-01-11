@@ -12,6 +12,7 @@ interface ImportWindowProps {
   onManualFilesSelect?: (files: FileList) => void;
   onSyncFolder?: (id: string) => void;
   isImporting?: boolean;
+  syncingFolderId?: string | null;
 }
 
 const ImportWindow: React.FC<ImportWindowProps> = ({ 
@@ -24,6 +25,7 @@ const ImportWindow: React.FC<ImportWindowProps> = ({
   onManualFilesSelect,
   onSyncFolder,
   isImporting = false,
+  syncingFolderId = null,
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const importInputRef = useRef<HTMLInputElement>(null);
@@ -96,12 +98,12 @@ const ImportWindow: React.FC<ImportWindowProps> = ({
           </button>
         </div>
 
-        {/* 独立滚动的路径列表 */}
         <div className="flex-1 overflow-y-auto custom-scrollbar pr-2 mb-6 min-h-0 relative z-10">
           {importedFolders.length > 0 ? (
             <div className="space-y-2">
               {importedFolders.map(folder => {
                 const isDisconnected = !folder.hasHandle;
+                const isCurrentlySyncing = syncingFolderId === folder.id || syncingFolderId === 'ALL';
                 const total = folder.totalFilesCount || 0;
                 const current = folder.trackCount;
                 const isPending = total > current;
@@ -110,12 +112,12 @@ const ImportWindow: React.FC<ImportWindowProps> = ({
                   <div key={folder.id} className={`group rounded-2xl px-4 py-2.5 flex items-center justify-between border transition-all ${isDisconnected ? 'bg-red-500/5 border-red-500/20 shadow-[inset_0_0_10px_rgba(239,68,68,0.05)]' : 'bg-white/5 border-white/5 hover:border-white/10'}`}>
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2">
-                        <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${isDisconnected ? 'bg-red-500 animate-pulse' : isPending ? 'bg-yellow-500 animate-pulse' : 'bg-emerald-500'}`} />
+                        <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${isDisconnected ? 'bg-red-500 animate-pulse' : (isPending || isCurrentlySyncing) ? 'bg-yellow-500 animate-pulse' : 'bg-emerald-500'}`} />
                         <span className="text-white text-xs font-bold block truncate">{folder.name}</span>
                       </div>
                       <div className="mt-0.5">
                           <span className={`text-[8px] font-black uppercase tracking-tighter ${isDisconnected ? 'text-red-400/80' : 'text-zinc-600'}`}>
-                          {isDisconnected ? '⚠️ 访问断开，请重新关联' : total > 0 ? `${current} / ${total} 首歌 • ${isPending ? '未同步' : '已就绪'}` : `${current} 首歌 • 扫描中`}
+                          {isDisconnected ? '⚠️ 访问断开，请重新关联' : total > 0 ? `${current} / ${total} 首歌 • ${isCurrentlySyncing ? '正在解析元数据...' : isPending ? '待同步' : '已就绪'}` : `${current} 首歌 • 扫描中`}
                           </span>
                       </div>
                     </div>
@@ -127,18 +129,21 @@ const ImportWindow: React.FC<ImportWindowProps> = ({
                           >
                               修复
                           </button>
-                      ) : isPending && (
+                      ) : (isPending || isCurrentlySyncing) ? (
                           <button 
                               onClick={() => onSyncFolder?.(folder.id)}
                               disabled={isImporting}
-                              className="px-2.5 py-1 rounded-lg bg-yellow-500/10 hover:bg-yellow-500 text-yellow-500 hover:text-black border border-yellow-500/20 text-[9px] font-black uppercase tracking-tighter transition-all active:scale-95 disabled:opacity-50"
+                              className={`px-2.5 py-1 rounded-lg flex items-center gap-1.5 transition-all text-[9px] font-black uppercase tracking-tighter ${isCurrentlySyncing ? 'bg-yellow-500 text-black' : 'bg-yellow-500/10 hover:bg-yellow-500 text-yellow-500 hover:text-black border border-yellow-500/20 active:scale-95'}`}
                           >
-                              继续同步
+                              {isCurrentlySyncing && <div className="w-2 h-2 border-2 border-black border-t-transparent rounded-full animate-spin" />}
+                              {isCurrentlySyncing ? '正在同步' : '继续同步'}
                           </button>
+                      ) : null}
+                      {!isCurrentlySyncing && (
+                        <button onClick={() => onRemoveFolder(folder.id)} className="w-7 h-7 flex items-center justify-center rounded-full text-zinc-700 hover:text-red-500 hover:bg-red-500/10 transition-all">
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M10 11v6M14 11v6"/></svg>
+                        </button>
                       )}
-                      <button onClick={() => onRemoveFolder(folder.id)} className="w-7 h-7 flex items-center justify-center rounded-full text-zinc-700 hover:text-red-500 hover:bg-red-500/10 transition-all">
-                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M10 11v6M14 11v6"/></svg>
-                      </button>
                     </div>
                   </div>
                 );
@@ -154,7 +159,6 @@ const ImportWindow: React.FC<ImportWindowProps> = ({
           )}
         </div>
 
-        {/* 底部固定操作区域 */}
         <div className="shrink-0 space-y-4 pt-6 border-t border-white/5 bg-gradient-to-t from-[#181818] via-[#181818] to-transparent relative z-10">
           <div className="grid grid-cols-2 gap-3">
               <button onClick={exportDatabase} className="flex items-center justify-center gap-2 p-3 bg-zinc-900/50 rounded-2xl border border-white/5 hover:border-yellow-500/30 transition-all group">
