@@ -149,12 +149,36 @@ const App: React.FC = () => {
     player.setIsPlaying(true); 
   }, [player]);
 
-  const handleSaveQueueAsPlaylist = () => {
-    const name = prompt("请输入新歌单的名称：", "我的收藏");
-    if (name && playlist.length > 0) {
-      createPlaylist(name, playlist);
+  const handleSaveQueueAsPlaylist = useCallback(async () => {
+    if (playlist.length === 0) {
+      alert("播放队列为空，无法创建歌单。");
+      return;
     }
-  };
+    
+    const name = prompt("请输入新歌单的名称：", "我的收藏");
+    if (name) {
+      try {
+        await createPlaylist(name, playlist);
+        alert(`歌单 "${name}" 已成功保存！`);
+      } catch (error: any) {
+        console.error("保存歌单失败:", error);
+        alert(`保存歌单失败: ${error.message || '未知错误'}`);
+      }
+    }
+  }, [playlist, createPlaylist]);
+
+  const handleCreateNewPlaylist = useCallback(async () => {
+    const name = prompt("请输入新歌单的名称：", "我的新歌单");
+    if (name) {
+      try {
+        await createPlaylist(name, []);
+        alert(`歌单 "${name}" 已成功创建！`);
+      } catch (error: any) {
+        console.error("创建歌单失败:", error);
+        alert(`创建歌单失败: ${error.message || '未知错误'}`);
+      }
+    }
+  }, [createPlaylist]);
 
   const handleDeletePlaylist = (id: string) => {
     deletePlaylist(id);
@@ -321,6 +345,7 @@ const App: React.FC = () => {
                         playlists={playlists}
                         onSelectPlaylist={setSelectedPlaylist}
                         onPlayPlaylist={handlePlayPlaylist}
+                        onCreatePlaylist={handleCreateNewPlaylist}
                         displayConverter={processDisplayString}
                     />
                   )

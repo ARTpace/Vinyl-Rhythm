@@ -1,12 +1,11 @@
 const DB_NAME = 'VinylRhythmDB';
-const DB_VERSION = 9; // 升级版本
+const DB_VERSION = 10; // 升级版本至10
 const STORE_NAME = 'libraryHandles';
 const STORIES_STORE = 'trackStories';
 const HISTORY_STORE = 'playbackHistory';
 const TRACKS_CACHE_STORE = 'tracksCache';
 const ARTIST_METADATA_STORE = 'artistMetadata';
 const PLAYLISTS_STORE = 'playlists';
-
 
 let dbInstance: IDBDatabase | null = null;
 
@@ -29,11 +28,12 @@ const initDB = async (): Promise<IDBDatabase> => {
         store.createIndex('artist', 'artist', { unique: false });
         store.createIndex('album', 'album', { unique: false });
         store.createIndex('folderId', 'folderId', { unique: false });
-        store.createIndex('dateAdded', 'dateAdded', { unique: false }); // 为入库时间建立索引
+        store.createIndex('dateAdded', 'dateAdded', { unique: false });
       }
       if (!db.objectStoreNames.contains(ARTIST_METADATA_STORE)) {
         db.createObjectStore(ARTIST_METADATA_STORE, { keyPath: 'name' });
       }
+      // 核心修复：确保歌单存储空间存在
       if (!db.objectStoreNames.contains(PLAYLISTS_STORE)) {
         db.createObjectStore(PLAYLISTS_STORE, { keyPath: 'id' });
       }
@@ -48,13 +48,13 @@ const initDB = async (): Promise<IDBDatabase> => {
 
 export const savePlaylist = async (playlist: any) => {
   const db = await initDB();
-  const tx = db.transaction(PLAYLISTS_STORE, 'readwrite');
-  const store = tx.objectStore(PLAYLISTS_STORE);
-  const { coverUrl, ...serializablePlaylist } = playlist;
-  store.put(serializablePlaylist);
   return new Promise<void>((resolve, reject) => {
-    tx.oncomplete = () => resolve();
-    tx.onerror = () => reject(tx.error);
+    const tx = db.transaction(PLAYLISTS_STORE, 'readwrite');
+    const store = tx.objectStore(PLAYLISTS_STORE);
+    const { coverUrl, ...serializablePlaylist } = playlist;
+    const request = store.put(serializablePlaylist);
+    request.onsuccess = () => resolve();
+    request.onerror = () => reject(request.error);
   });
 };
 
@@ -113,7 +113,6 @@ export const getAllArtistMetadata = async (): Promise<{name: string, coverUrl: s
         request.onerror = () => reject(request.error);
     });
 };
-
 
 export const saveTracksToCache = async (tracks: any[]) => {
   const db = await initDB();

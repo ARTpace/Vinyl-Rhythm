@@ -7,22 +7,26 @@ export const usePlaylists = (allTracks: Track[]) => {
   const [playlists, setPlaylists] = useState<Playlist[]>([]);
 
   const fetchAllPlaylists = useCallback(async () => {
-    const data = await getAllPlaylists();
-    setPlaylists(data);
+    try {
+      const data = await getAllPlaylists();
+      setPlaylists(data);
+    } catch (e) {
+      console.error("加载歌单列表失败:", e);
+    }
   }, []);
 
   useEffect(() => {
     fetchAllPlaylists();
   }, [fetchAllPlaylists]);
 
-  const createPlaylist = useCallback(async (name: string, tracksInQueue: Track[]) => {
-    if (!name || tracksInQueue.length === 0) return;
+  const createPlaylist = useCallback(async (name: string, tracksInQueue: Track[] = []) => {
+    if (!name) {
+      throw new Error("歌单名称不能为空。");
+    }
 
-    const relevantTracks = tracksInQueue
-      .map(t => allTracks.find(libTrack => libTrack.fingerprint === t.fingerprint))
-      .filter(Boolean) as Track[];
+    // 优先使用当前队列中的完整信息（包含已激活的 blob url）
+    const coverBlob = await generateCompositeCover(tracksInQueue);
     
-    const coverBlob = await generateCompositeCover(relevantTracks);
     const newPlaylist: Playlist = {
       id: `playlist_${Date.now()}`,
       name,
@@ -33,7 +37,7 @@ export const usePlaylists = (allTracks: Track[]) => {
 
     await savePlaylist(newPlaylist);
     await fetchAllPlaylists();
-  }, [allTracks, fetchAllPlaylists]);
+  }, [fetchAllPlaylists]);
 
   const deletePlaylist = useCallback(async (id: string) => {
     await removePlaylist(id);
@@ -42,6 +46,7 @@ export const usePlaylists = (allTracks: Track[]) => {
 
   const getPlaylistTracks = useCallback((playlist: Playlist | null): Track[] => {
     if (!playlist) return [];
+    // 建立指纹映射以快速查找
     const trackMap = new Map(allTracks.map(t => [t.fingerprint, t]));
     return playlist.songFingerprints
       .map(fingerprint => trackMap.get(fingerprint))
