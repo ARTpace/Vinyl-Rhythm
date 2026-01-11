@@ -58,6 +58,13 @@ const App: React.FC = () => {
   const [trackStory, setTrackStory] = useState('');
   const [isStoryLoading, setIsStoryLoading] = useState(false);
 
+  const searchPlaceholder = useMemo(() => {
+    if (view === 'artists') return "搜索歌手...";
+    if (view === 'albums') return "搜索专辑...";
+    if (view === 'collection') return "搜索歌手或专辑...";
+    return "搜索音乐、歌手、专辑...";
+  }, [view]);
+
   const qualityInfo = useMemo(() => {
     if (!currentTrack) return null;
     const br = currentTrack.bitrate ? currentTrack.bitrate / 1000 : 0;
@@ -182,7 +189,7 @@ const App: React.FC = () => {
           <div className="flex items-center gap-4 md:gap-6 flex-1 min-w-0">
              <div className="relative group max-w-md w-full">
                 <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-zinc-500"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg></div>
-                <input type="text" placeholder={processDisplayString("搜索...")} value={library.searchQuery} onChange={(e) => { library.setSearchQuery(e.target.value); if(view === 'player' && e.target.value) setView('all'); }} className="w-full bg-white/5 border border-white/10 rounded-full py-2.5 px-11 text-sm text-white focus:border-yellow-500/50 outline-none backdrop-blur-md transition-all" />
+                <input type="text" placeholder={processDisplayString(searchPlaceholder)} value={library.searchQuery} onChange={(e) => { library.setSearchQuery(e.target.value); if(view === 'player' && e.target.value) setView('all'); }} className="w-full bg-white/5 border border-white/10 rounded-full py-2.5 px-11 text-sm text-white focus:border-yellow-500/50 outline-none backdrop-blur-md transition-all" />
              </div>
           </div>
           <div className="flex items-center gap-3">
@@ -261,7 +268,7 @@ const App: React.FC = () => {
                 ) : view === 'settings' ? (
                   <SettingsView settings={settings} onUpdate={updateSettings} onReset={resetSettings} onClearHistory={library.clearHistory} />
                 ) : (view === 'collection' || view === 'albums' || view === 'artists') ? (
-                  <CollectionView tracks={library.tracks} onNavigate={handleNavigate} onPlayAlbum={handlePlayAlbum} displayConverter={processDisplayString} initialTab={view === 'albums' ? 'albums' : 'artists'} />
+                  <CollectionView tracks={library.tracks} onNavigate={handleNavigate} onPlayAlbum={handlePlayAlbum} displayConverter={processDisplayString} searchQuery={library.searchQuery} initialTab={view === 'albums' ? 'albums' : 'artists'} onTabChange={(newTab) => setView(newTab)} />
                 ) : (
                   <LibraryView 
                     view={view} 

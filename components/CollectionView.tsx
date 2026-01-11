@@ -1,13 +1,15 @@
-
 import React, { useMemo, useState, useEffect, useRef, useCallback } from 'react';
 import { Track } from '../types';
+import { normalizeChinese } from '../utils/chineseConverter';
 
 interface CollectionViewProps {
   tracks: Track[];
   onNavigate: (type: 'artistProfile' | 'albums', name: string) => void;
   onPlayAlbum?: (albumName: string) => void;
   displayConverter?: (str: string) => string;
+  searchQuery?: string;
   initialTab?: 'artists' | 'albums';
+  onTabChange?: (tab: 'artists' | 'albums') => void;
 }
 
 const PAGE_SIZE = 40; 
@@ -57,13 +59,26 @@ const CollectionCard = React.memo<{
     );
 });
 
-const CollectionView: React.FC<CollectionViewProps> = ({ tracks, onNavigate, onPlayAlbum, displayConverter, initialTab = 'artists' }) => {
+const CollectionView: React.FC<CollectionViewProps> = ({ 
+  tracks, 
+  onNavigate, 
+  onPlayAlbum, 
+  displayConverter, 
+  searchQuery = '', 
+  initialTab = 'artists',
+  onTabChange
+}) => {
   const [tab, setTab] = useState<'artists' | 'albums'>(initialTab);
   const [displayLimit, setDisplayLimit] = useState(PAGE_SIZE);
   const observerRef = useRef<IntersectionObserver | null>(null);
   const loadMoreRef = useRef<HTMLDivElement>(null);
   
   const convert = useCallback((s: string) => displayConverter ? displayConverter(s) : s, [displayConverter]);
+
+  const handleTabSwitch = (newTab: 'artists' | 'albums') => {
+    setTab(newTab);
+    onTabChange?.(newTab);
+  };
 
   // 通用的去重辅助函数：在给定的轨道列表中，按歌曲名+歌手去重，保留音质最好的
   const deduplicateTracks = (list: Track[]) => {
@@ -92,8 +107,14 @@ const CollectionView: React.FC<CollectionViewProps> = ({ tracks, onNavigate, onP
   };
 
   const artistGroups = useMemo(() => {
+    let sourceTracks = tracks;
+    if (searchQuery.trim()) {
+      const q = normalizeChinese(searchQuery);
+      sourceTracks = tracks.filter(t => normalizeChinese(t.artist).includes(q));
+    }
+
     const map = new Map<string, { tracks: Track[], cover?: string }>();
-    tracks.forEach(t => {
+    sourceTracks.forEach(t => {
       const key = t.artist || '未知歌手';
       if (!map.has(key)) map.set(key, { tracks: [] });
       map.get(key)!.tracks.push(t);
@@ -110,11 +131,17 @@ const CollectionView: React.FC<CollectionViewProps> = ({ tracks, onNavigate, onP
     });
 
     return result.sort((a, b) => a[0].localeCompare(b[0]));
-  }, [tracks]);
+  }, [tracks, searchQuery]);
 
   const albumGroups = useMemo(() => {
+    let sourceTracks = tracks;
+    if (searchQuery.trim()) {
+      const q = normalizeChinese(searchQuery);
+      sourceTracks = tracks.filter(t => normalizeChinese(t.album).includes(q));
+    }
+
     const map = new Map<string, { tracks: Track[], cover?: string }>();
-    tracks.forEach(t => {
+    sourceTracks.forEach(t => {
       const key = t.album || '未知专辑';
       if (!map.has(key)) map.set(key, { tracks: [] });
       map.get(key)!.tracks.push(t);
@@ -135,11 +162,11 @@ const CollectionView: React.FC<CollectionViewProps> = ({ tracks, onNavigate, onP
     });
 
     return result.sort((a, b) => a[0].localeCompare(b[0]));
-  }, [tracks]);
+  }, [tracks, searchQuery]);
 
   useEffect(() => {
     setDisplayLimit(PAGE_SIZE);
-  }, [tab]);
+  }, [tab, searchQuery]);
 
   useEffect(() => {
     if (observerRef.current) observerRef.current.disconnect();
@@ -150,7 +177,7 @@ const CollectionView: React.FC<CollectionViewProps> = ({ tracks, onNavigate, onP
     }, { threshold: 0.1 });
     if (loadMoreRef.current) observerRef.current.observe(loadMoreRef.current);
     return () => observerRef.current?.disconnect();
-  }, [tab]);
+  }, [tab, searchQuery]);
 
   const currentGroups = tab === 'artists' ? artistGroups : albumGroups;
   const displayedGroups = useMemo(() => currentGroups.slice(0, displayLimit), [currentGroups, displayLimit]);
@@ -167,13 +194,13 @@ const CollectionView: React.FC<CollectionViewProps> = ({ tracks, onNavigate, onP
 
         <div className="flex bg-black/40 p-1.5 rounded-2xl border border-white/5 backdrop-blur-md">
           <button 
-            onClick={() => setTab('artists')}
+            onClick={() => handleTabSwitch('artists')}
             className={`px-8 py-2.5 text-[10px] font-black uppercase tracking-[0.2em] rounded-xl transition-all ${tab === 'artists' ? 'bg-zinc-800 text-yellow-500 shadow-xl border border-white/5' : 'text-zinc-600 hover:text-zinc-400'}`}
           >
             {convert('歌手')}
           </button>
           <button 
-            onClick={() => setTab('albums')}
+            onClick={() => handleTabSwitch('albums')}
             className={`px-8 py-2.5 text-[10px] font-black uppercase tracking-[0.2em] rounded-xl transition-all ${tab === 'albums' ? 'bg-zinc-800 text-yellow-500 shadow-xl border border-white/5' : 'text-zinc-600 hover:text-zinc-400'}`}
           >
             {convert('专辑')}
