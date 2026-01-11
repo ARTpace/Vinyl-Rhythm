@@ -6,17 +6,18 @@ export interface Track {
   album: string;
   url: string;
   coverUrl?: string;
-  coverBlob?: Blob; // 新增：用于持久化存储封面二进制数据
+  coverBlob?: Blob; 
   file: File;
   duration?: number;
   bitrate?: number;
   fingerprint: string; 
-  folderId?: string; // 关联到具体的导入文件夹
-  year?: number;      // 发行年份
-  genre?: string;    // 流派
-  lastModified: number; // 文件最后修改时间，用于“最近添加”排序
-  historyTime?: number; // 播放历史时间戳
-  duplicateCount?: number; // 新增：该歌曲在曲库中存在的重复版本总数
+  folderId?: string; 
+  year?: number;      
+  genre?: string;    
+  lastModified: number; 
+  dateAdded: number; // 新增：记录加入曲库的实际时间
+  historyTime?: number; 
+  duplicateCount?: number; 
 }
 
 export interface HistoryEntry {
@@ -33,7 +34,7 @@ export interface LibraryFolder {
   name: string;
   lastSync: number;
   trackCount: number;
-  totalFilesCount?: number; // 新增：物理文件夹中的总音频文件数
+  totalFilesCount?: number; 
 }
 
 export interface LibraryGroup {
@@ -48,7 +49,7 @@ export type PlaybackMode = 'normal' | 'shuffle' | 'loop';
 
 export interface AppSettings {
   enableAI: boolean;
-  spinSpeed: number; // 1-20
+  spinSpeed: number; 
   showParticles: boolean;
   showBlurBackground: boolean;
   useTraditionalChinese: boolean;
