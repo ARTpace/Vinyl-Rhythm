@@ -34,17 +34,31 @@ const parseAndMatch = (text: string, library: Track[]) => {
     let foundTrack: Track | undefined;
 
     if (lastSeparatorIndex === -1) {
-      // Case 1: 仅提供歌曲名称
+      // Case 1: 仅提供歌曲名称 (模糊匹配)
       const normalizedTrackName = normalizeChinese(line);
-      const potentialMatches = library.filter(t => normalizeChinese(t.name) === normalizedTrackName);
+      const potentialMatches = library
+        .map(t => {
+          const libraryName = normalizeChinese(t.name);
+          let score = 0;
+          if (libraryName.includes(normalizedTrackName)) {
+            score = 1; // 包含
+            if (libraryName.startsWith(normalizedTrackName)) score = 2; // 开头匹配
+            if (libraryName === normalizedTrackName) score = 3; // 完全匹配
+          }
+          return { track: t, score };
+        })
+        .filter(m => m.score > 0);
 
       if (potentialMatches.length > 0) {
-        // 如果有多首同名歌曲，按比特率排序，选择音质最好的版本
-        potentialMatches.sort((a, b) => (b.bitrate || 0) - (a.bitrate || 0));
-        foundTrack = potentialMatches[0];
+        // 按分数和比特率排序，选择最佳匹配
+        potentialMatches.sort((a, b) => {
+          if (b.score !== a.score) return b.score - a.score;
+          return (b.track.bitrate || 0) - (a.track.bitrate || 0);
+        });
+        foundTrack = potentialMatches[0].track;
       }
     } else {
-      // Case 2: 提供歌曲名和歌手
+      // Case 2: 提供歌曲名和歌手 (模糊匹配歌名)
       const trackName = line.substring(0, lastSeparatorIndex).trim();
       const artistName = line.substring(lastSeparatorIndex + separator.length).trim();
       
@@ -56,18 +70,27 @@ const parseAndMatch = (text: string, library: Track[]) => {
         libraryMap.get(artist)?.forEach(t => candidateTrackSet.add(t));
       });
       
-      let bestMatch: Track | undefined;
+      let bestMatch: { track: Track; score: number } | undefined;
       for (const candidate of candidateTrackSet) {
-        if (normalizeChinese(candidate.name) === normalizedTrackName) {
+        const libraryName = normalizeChinese(candidate.name);
+        let score = 0;
+        if (libraryName.includes(normalizedTrackName)) {
+          score = 1;
+          if (libraryName.startsWith(normalizedTrackName)) score = 2;
+          if (libraryName === normalizedTrackName) score = 3;
+        }
+
+        if (score > 0) {
           const candidateArtists = candidate.artist.split(' / ').map(a => normalizeChinese(a.trim()));
           if (inputArtists.every(inputArtist => candidateArtists.includes(inputArtist))) {
-            if (!bestMatch || (candidate.bitrate || 0) > (bestMatch.bitrate || 0)) {
-              bestMatch = candidate; // 找到匹配项，检查是否是更高音质的版本
+            const currentMatch = { track: candidate, score };
+            if (!bestMatch || currentMatch.score > bestMatch.score || (currentMatch.score === bestMatch.score && (currentMatch.track.bitrate || 0) > (bestMatch.track.bitrate || 0))) {
+              bestMatch = currentMatch;
             }
           }
         }
       }
-      foundTrack = bestMatch;
+      foundTrack = bestMatch?.track;
     }
 
     if (foundTrack && !matched.some(m => m.fingerprint === foundTrack!.fingerprint)) {
