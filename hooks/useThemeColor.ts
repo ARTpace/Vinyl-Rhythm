@@ -1,8 +1,20 @@
 
 import { useState, useEffect } from 'react';
 
-export const useThemeColor = (coverUrl?: string) => {
-  const [rhythmColor, setRhythmColor] = useState('rgba(234, 179, 8, 1)');
+export interface ThemeColors {
+  rhythmColor: string;
+  gradientFrom: string;
+  gradientTo: string;
+  isDark: boolean;
+}
+
+export const useThemeColor = (coverUrl?: string): ThemeColors => {
+  const [colors, setColors] = useState<ThemeColors>({
+    rhythmColor: 'rgba(234, 179, 8, 1)',
+    gradientFrom: 'rgba(28, 28, 28, 1)',
+    gradientTo: 'rgba(10, 10, 10, 1)',
+    isDark: true
+  });
 
   useEffect(() => {
     if (coverUrl) {
@@ -16,15 +28,32 @@ export const useThemeColor = (coverUrl?: string) => {
           canvas.width = 1; canvas.height = 1;
           ctx.drawImage(img, 0, 0, 1, 1);
           const [r, g, b] = ctx.getImageData(0, 0, 1, 1).data;
+          
+          // 计算亮度
           const brightness = (r * 299 + g * 587 + b * 114) / 1000;
-          setRhythmColor(brightness < 40 ? `rgba(${Math.min(255, r + 50)}, ${Math.min(255, g + 50)}, ${Math.min(255, b + 50)}, 1)` : `rgba(${r}, ${g}, ${b}, 1)`);
+          const isDark = brightness < 128;
+
+          // 基础节奏色（确保可见度）
+          const rhythmColor = brightness < 40 
+            ? `rgba(${Math.min(255, r + 60)}, ${Math.min(255, g + 60)}, ${Math.min(255, b + 60)}, 1)` 
+            : `rgba(${r}, ${g}, ${b}, 1)`;
+
+          setColors({
+            rhythmColor,
+            gradientFrom: `rgba(${Math.max(0, r - 30)}, ${Math.max(0, g - 30)}, ${Math.max(0, b - 30)}, 0.4)`,
+            gradientTo: `rgba(${Math.max(0, r - 60)}, ${Math.max(0, g - 60)}, ${Math.max(0, b - 60)}, 0.8)`,
+            isDark
+          });
         }
       };
-      img.onerror = () => setRhythmColor('rgba(234, 179, 8, 1)');
-    } else {
-      setRhythmColor('rgba(234, 179, 8, 1)');
+      img.onerror = () => setColors({
+        rhythmColor: 'rgba(234, 179, 8, 1)',
+        gradientFrom: 'rgba(28, 28, 28, 1)',
+        gradientTo: 'rgba(10, 10, 10, 1)',
+        isDark: true
+      });
     }
   }, [coverUrl]);
 
-  return { rhythmColor };
+  return colors;
 };

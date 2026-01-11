@@ -243,7 +243,7 @@ const PlayerControls: React.FC<PlayerControlsProps> = ({
                             const draggedId = e.dataTransfer.getData('trackId');
                             if (draggedId !== track.id) onReorder(draggedId, track.id);
                         }}
-                        className={`group flex items-center gap-4 p-3 rounded-2xl cursor-pointer transition-all border mb-1 relative ${idx === currentIndex ? 'bg-[#1a1a1a] border-[#333]' : 'border-transparent hover:bg-white/[0.03]'} ${draggedOverId === track.id ? 'border-t-2 border-t-yellow-500 pt-6' : ''}`}
+                        className={`group flex items-center gap-4 p-3 rounded-2xl cursor-pointer transition-all border mb-1 relative active:bg-white/5 ${idx === currentIndex ? 'bg-[#1a1a1a] border-[#333]' : 'border-transparent hover:bg-white/[0.03]'} ${draggedOverId === track.id ? 'border-t-2 border-t-yellow-500 pt-6' : ''}`}
                         onClick={() => onSelectTrack(idx)}
                         >
                         <div className="w-8 flex items-center justify-center shrink-0">
@@ -300,7 +300,7 @@ const PlayerControls: React.FC<PlayerControlsProps> = ({
                 return (
                     <div 
                     key={track.id + (track.historyTime || idx)} 
-                    className="group flex items-center gap-4 p-3 rounded-2xl cursor-pointer hover:bg-white/[0.03] transition-all mb-1 border border-transparent"
+                    className="group flex items-center gap-4 p-3 rounded-2xl cursor-pointer hover:bg-white/[0.03] active:bg-white/5 transition-all mb-1 border border-transparent"
                     onClick={() => onPlayFromHistory?.(track)}
                     >
                     <div className="w-8 flex items-center justify-center shrink-0 text-zinc-700">
@@ -351,6 +351,35 @@ const PlayerControls: React.FC<PlayerControlsProps> = ({
         <div className="h-4 bg-gradient-to-t from-[#111] to-transparent shrink-0 pointer-events-none" />
       </div>
 
+      {/* 移动端控制条 - 增大点击区域和触控感 */}
+      <div className={`md:hidden fixed bottom-16 left-0 right-0 z-[100] px-4 py-2 bg-black/40 backdrop-blur-xl border-t border-white/5`}>
+          <div ref={mobileProgressBarRef} onPointerDown={handleSeekStart} onPointerMove={handleSeekMove} onPointerUp={handleSeekEnd} onPointerCancel={handleSeekEnd} className="absolute -top-1.5 left-0 right-0 h-4 flex items-center cursor-pointer group touch-none">
+              <div className="h-0.5 w-full bg-white/10 relative overflow-hidden">
+                  <div className="absolute top-0 left-0 h-full bg-yellow-500 transition-all duration-100" style={{ width: `${progressPercent}%` }} />
+              </div>
+          </div>
+          <div className="flex items-center justify-between gap-4">
+              <div className="flex items-center gap-3 min-w-0 flex-1" onClick={() => setShowQueue(!showQueue)}>
+                  <div className="w-10 h-10 rounded-lg bg-zinc-800 shrink-0 overflow-hidden shadow-lg">
+                      {currentTrack?.coverUrl ? <img src={currentTrack.coverUrl} className="w-full h-full object-cover" /> : <div className="w-full h-full bg-yellow-500/10" />}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                      <div className="text-xs font-bold text-white truncate">{convert(currentTrack?.name || "黑胶时光")}</div>
+                      <div className="text-[10px] text-zinc-500 truncate">{convert(currentTrack?.artist || "享受纯净音质")}</div>
+                  </div>
+              </div>
+              <div className="flex items-center gap-1">
+                  <button onClick={(e) => { e.stopPropagation(); onTogglePlay(); }} className="w-12 h-12 flex items-center justify-center text-white active:scale-90 transition-transform">
+                      {isPlaying ? <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg> : <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M5 3l14 9-14 9V3z"/></svg>}
+                  </button>
+                  <button onClick={(e) => { e.stopPropagation(); onNext(); }} className="w-12 h-12 flex items-center justify-center text-white active:scale-90 transition-transform">
+                      <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M5 4l10 8-10 8V4zM19 5v14h-2V5h2z"/></svg>
+                  </button>
+              </div>
+          </div>
+      </div>
+
+      {/* 桌面端面板保持一致 */}
       <div className={`hidden md:flex fixed bottom-0 left-0 right-0 h-28 px-8 items-center justify-between z-[100] ${metallicPanelClass}`}>
         <div className="flex items-center gap-5 w-1/4 min-w-0">
            <div className="w-16 h-16 rounded-md bg-[#111] p-1 flex-shrink-0 relative overflow-hidden group">
