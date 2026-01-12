@@ -1,3 +1,4 @@
+
 import { Track, ViewType, LibraryFolder } from '../types';
 import { formatTime } from '../utils/audioParser';
 import { scrapeNeteaseMusic } from '../services/metadataService';
@@ -9,7 +10,6 @@ interface LibraryViewProps {
   tracks: Track[];
   folders?: LibraryFolder[]; 
   onPlay: (track: Track) => void;
-  onAddToQueue?: (track: Track) => void;
   onAddToPlaylist?: (track: Track) => void;
   favorites: Set<string>;
   onToggleFavorite: (trackId: string) => void;
@@ -67,14 +67,13 @@ const TrackRow = React.memo<{
   index: number;
   isFavorite: boolean;
   onPlay: (track: Track) => void;
-  onAddToQueue?: (track: Track) => void;
   onAddToPlaylist?: (track: Track) => void;
   onToggleFavorite: (id: string) => void;
   onScrape: (track: Track) => void;
   isScraping: boolean;
   onNavigate?: (type: 'artists' | 'albums' | 'folders' | 'artistProfile', name: string) => void;
   displayConverter?: (str: string) => string;
-}>(({ track, index, isFavorite, onPlay, onAddToQueue, onAddToPlaylist, onToggleFavorite, onScrape, isScraping, onNavigate, displayConverter }) => {
+}>(({ track, index, isFavorite, onPlay, onAddToPlaylist, onToggleFavorite, onScrape, isScraping, onNavigate, displayConverter }) => {
   const [isAdded, setIsAdded] = useState(false);
   const [flyEffect, setFlyEffect] = useState<{ startX: number, startY: number, endX: number, endY: number } | null>(null);
   const btnRef = useRef<HTMLButtonElement>(null);
@@ -100,7 +99,7 @@ const TrackRow = React.memo<{
         setTimeout(() => setFlyEffect(null), 800);
     }
     setIsAdded(true);
-    onAddToQueue?.(track);
+    onAddToPlaylist?.(track);
     setTimeout(() => setIsAdded(false), 1500);
   };
 
@@ -120,23 +119,11 @@ const TrackRow = React.memo<{
                {track.duplicateCount && track.duplicateCount > 1 && <span className="text-[7px] bg-white/10 text-zinc-400 px-1 rounded flex items-center gap-0.5 group-hover:bg-yellow-500/20 group-hover:text-yellow-500 transition-colors"><svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>{track.duplicateCount} VERSIONS</span>}
             </div>
           </div>
-          <div className="flex items-center gap-1.5 flex-wrap">
-            {track.artist.split(' / ').map((artist, index, arr) => (
-              <React.Fragment key={index}>
-                <button
-                  onClick={(e) => { e.stopPropagation(); onNavigate?.('artistProfile', artist.trim()); }}
-                  className="text-zinc-500 text-[9px] md:text-xs font-bold uppercase tracking-widest hover:text-yellow-500 transition-colors"
-                >
-                  {convert(artist.trim())}
-                </button>
-                {index < arr.length - 1 && <span className="text-zinc-600 text-[9px] md:text-xs">/</span>}
-              </React.Fragment>
-            ))}
-          </div>
+          <button onClick={(e) => { e.stopPropagation(); onNavigate?.('artistProfile', track.artist); }} className="text-zinc-500 text-[9px] md:text-xs font-bold uppercase tracking-widest hover:text-yellow-500 transition-colors">{convert(track.artist)}</button>
         </div>
-        <div className="flex items-center gap-1 md:w-20 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity justify-end">
-          <button onClick={(e) => { e.stopPropagation(); onAddToPlaylist?.(track); }} className="p-2 rounded-full transition-all duration-300 active:scale-90 hover:bg-white/10 text-zinc-500 hover:text-white" title="添加到歌单"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="19" x2="19" y1="8" y2="14"/><line x1="22" x2="16" y1="11" y2="11"/></svg></button>
-          <button ref={btnRef} onClick={handleAdd} className={`p-2 rounded-full transition-all duration-300 active:scale-90 ${isAdded ? 'bg-green-500 text-black shadow-[0_0_10px_rgba(34,197,94,0.4)]' : 'hover:bg-yellow-500 hover:text-black text-yellow-500/80'}`} title="添加到队列">{isAdded ? <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="4" className="animate-in zoom-in"><path d="M20 6L9 17l-5-5"/></svg> : <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><path d="M12 5v14M5 12h14"/></svg>}</button>
+        <div className="flex items-center gap-1 w-16 md:w-20 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity justify-end">
+          <button ref={btnRef} onClick={handleAdd} className={`p-2 rounded-full transition-all duration-300 active:scale-90 ${isAdded ? 'bg-green-500 text-black shadow-[0_0_10px_rgba(34,197,94,0.4)]' : 'hover:bg-yellow-500 hover:text-black text-yellow-500/80'}`}>{isAdded ? <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="4" className="animate-in zoom-in"><path d="M20 6L9 17l-5-5"/></svg> : <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><path d="M12 5v14M5 12h14"/></svg>}</button>
+          <button onClick={(e) => { e.stopPropagation(); onScrape(track); }} className="hidden md:flex p-2 rounded-full transition-all hover:bg-white/10 text-zinc-700 hover:text-red-500"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12a9 9 0 1 1-6.219-8.56"/><path d="M16 10l4 4 4-4"/><path d="M20 4v10"/></svg></button>
         </div>
         <button onClick={(e) => { e.stopPropagation(); onNavigate?.('albums', track.album); }} className="hidden lg:block text-zinc-500 text-sm font-black uppercase tracking-widest w-32 md:w-40 shrink-0 truncate text-left hover:text-yellow-500 transition-colors">{convert(track.album)}</button>
         <div className="hidden md:block text-zinc-600 font-mono text-sm w-16 shrink-0 text-right group-hover:text-zinc-400 transition-colors">{formatTime(track.duration || 0)}</div>
@@ -147,7 +134,7 @@ const TrackRow = React.memo<{
 });
 
 const LibraryView: React.FC<LibraryViewProps> = ({ 
-  view, tracks, folders = [], onPlay, onAddToQueue, onAddToPlaylist, favorites, onToggleFavorite, onUpdateTrack, onNavigate, onBack,
+  view, tracks, folders = [], onPlay, onAddToPlaylist, favorites, onToggleFavorite, onUpdateTrack, onNavigate, onBack,
   navigationRequest, onNavigationProcessed, isSearching = false, displayConverter
 }) => {
   const [activeGroup, setActiveGroup] = useState<string | null>(null);
@@ -369,9 +356,7 @@ const LibraryView: React.FC<LibraryViewProps> = ({
           </div>
           {subTab !== 'folders' && (
             <div className="flex flex-wrap items-center gap-3">
-              <FilterDropdown value={filterQuality} options={[{ id: 'all', label: '全部音质' }, { id: 'hires', label: 'Hi-Res (≥2k)' }, { id: 'lossless', label: '无损 (FLAC/WAV)' }, { id: 'hq', label: '高品质 (HQ)' }, { id: 'sd', label: '标准 (SD)' }]} onChange={setFilterQuality} icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M14 12a2 2 0 1 1-4 0 2 2 0 0 1 4 0Z"/><path d="M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z"/></svg>} />
-              <FilterDropdown value={filterDecade} options={[{ id: 'all', label: '所有年代' }, { id: '2020s', label: '2020s' }, { id: '2010s', label: '2010s' }, { id: '2000s', label: '2000s' }, { id: '90s', label: '90年代' }, { id: '80s', label: '80年代' }, { id: '70s', label: '70年代' }, { id: 'pre70s', label: '70前' }]} onChange={setFilterDecade} icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>} />
-              <FilterDropdown value={filterDuration} options={[{ id: 'all', label: '所有时长' }, { id: 'short', label: '短曲 (<3m)' }, { id: 'medium', label: '中等 (3-5m)' }, { id: 'long', label: '长曲 (>5m)' }]} onChange={setFilterDuration} icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>} />
+              <FilterDropdown value={filterQuality} options={[{ id: 'all', label: '全部音质' }, { id: 'hires', label: 'Hi-Res (≥2k)' }, { id: 'lossless', label: '无损 (FLAC/WAV)' }, { id: 'hq', label: '高品质 (HQ)' }, { id: 'sd', label: '标准 (SD)' }]} onChange={setFilterQuality} icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><circle cx="12" cy="12" r="10"/><path d="M12 6v12M6 12h12"/></svg>} />
               {hasActiveFilters && <button onClick={resetFilters} className="px-4 py-2.5 rounded-2xl text-[9px] font-black uppercase tracking-widest text-red-500 bg-red-500/10 hover:bg-red-500/20 transition-all border border-red-500/20 flex items-center gap-2"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><path d="M18 6 6 18M6 6l12 12"/></svg>Reset</button>}
             </div>
           )}
@@ -394,7 +379,7 @@ const LibraryView: React.FC<LibraryViewProps> = ({
           </div>
         ) : (
           <div className="space-y-1">
-            {filteredAndSortedTracks.length === 0 ? <div className="py-20 text-center flex flex-col items-center gap-4"><div className="text-zinc-800"><svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3M8 11h6"/></svg></div><p className="text-zinc-700 font-black uppercase tracking-[0.3em]">No matching tracks</p></div> : <>{filteredAndSortedTracks.slice(0, displayLimit).map((track, index) => <TrackRow key={track.id} track={track} index={index} isFavorite={favorites.has(track.id)} onPlay={onPlay} onAddToQueue={onAddToQueue} onAddToPlaylist={onAddToPlaylist} onToggleFavorite={onToggleFavorite} onScrape={handleScrape} isScraping={scrapingId === track.id} onNavigate={onNavigate} displayConverter={displayConverter} />)}</>}
+            {filteredAndSortedTracks.length === 0 ? <div className="py-20 text-center flex flex-col items-center gap-4"><div className="text-zinc-800"><svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3M8 11h6"/></svg></div><p className="text-zinc-700 font-black uppercase tracking-[0.3em]">No matching tracks</p></div> : <>{filteredAndSortedTracks.slice(0, displayLimit).map((track, index) => <TrackRow key={track.id} track={track} index={index} isFavorite={favorites.has(track.id)} onPlay={onPlay} onAddToPlaylist={onAddToPlaylist} onToggleFavorite={onToggleFavorite} onScrape={handleScrape} isScraping={scrapingId === track.id} onNavigate={onNavigate} displayConverter={displayConverter} />)}</>}
             {displayLimit < filteredAndSortedTracks.length && <div ref={loadMoreRef} className="h-20 flex items-center justify-center"><div className="w-1.5 h-1.5 rounded-full bg-yellow-500/30 animate-pulse" /></div>}
           </div>
         )}

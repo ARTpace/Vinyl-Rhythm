@@ -1,3 +1,4 @@
+
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { Track, LibraryFolder, HistoryEntry } from '../types';
 import { parseFileToTrack } from '../utils/audioParser';
@@ -10,9 +11,7 @@ import {
   clearPlaybackHistory,
   saveTracksToCache,
   getCachedTracks,
-  addToHistory,
-  getAllArtistMetadata,
-  saveArtistMetadata
+  addToHistory
 } from '../utils/storage';
 import { normalizeChinese } from '../utils/chineseConverter';
 
@@ -20,53 +19,126 @@ export const useLibraryManager = () => {
   const [tracks, setTracks] = useState<Track[]>([]);
   const [historyEntries, setHistoryEntries] = useState<HistoryEntry[]>([]);
   const [importedFolders, setImportedFolders] = useState<(LibraryFolder & { hasHandle: boolean })[]>([]);
-  const [artistMetadata, setArtistMetadata] = useState<Map<string, string>>(new Map());
   const [isImporting, setIsImporting] = useState(false);
   const [importProgress, setImportProgress] = useState(0);
   const [currentProcessingFile, setCurrentProcessingFile] = useState('');
-  const [syncingFolderId, setSyncingFolderId] = useState<string | null>(null); // 新增：当前正在同步的文件夹ID
+  const [syncingFolderId, setSyncingFolderId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [needsPermission, setNeedsPermission] = useState(false);
+  const [nasMode, setNasMode] = useState(false);
   
   const [favorites, setFavorites] = useState<Set<string>>(() => {
     const saved = localStorage.getItem('vinyl_favorites');
     return saved ? new Set(JSON.parse(saved)) : new Set();
   });
 
-  const loadData = useCallback(async () => {
-    // FIX: Add a filter to ensure cached tracks are valid objects before casting, and check for a key property like fingerprint.
-    const cached = ((await getCachedTracks())?.filter(t => t && typeof t === 'object' && t.fingerprint) ?? []) as Track[];
-    const foldersFromDB = await getAllLibraryFolders();
-    const artistsMeta = await getAllArtistMetadata();
+  const checkNasMode = useCallback(async () => {
+    try {
+      const res = await fetch('/api/status');
+      if (res.ok) {
+        const status = await res.json();
+        setNasMode(status.nasMode);
+        return status.nasMode;
+      }
+    } catch (e) {
+      return false;
+    }
+    return false;
+  }, []);
 
-    setArtistMetadata(new Map(artistsMeta.map(m => [m.name, m.coverUrl])));
+  const syncNasLibrary = useCallback(async () => {
+    if (isImporting) return;
+    setIsImporting(true);
+    setImportProgress(0);
+    setCurrentProcessingFile('正在扫描 NAS 存储卷...');
     
-    setImportedFolders(foldersFromDB.map(f => ({
-      ...f,
-      lastSync: f.lastSync || 0,
-      trackCount: cached.filter(t => t.folderId === f.id).length,
-      hasHandle: !!f.handle 
-    })));
-
-    if (cached && cached.length > 0) {
-      setTracks(cached.map(t => ({ ...t, file: t.file || null as any, url: t.url || '' })));
+    try {
+      const res = await fetch('/api/scan');
+      if (!res.ok) throw new Error('NAS API inaccessible');
+      const nasFiles = await res.json();
+      
+      const cachedTracks = await getCachedTracks();
+      const newTracks: Track[] = [];
+      const total = nasFiles.length;
+      
+      for (let i = 0; i < total; i++) {
+        const fileData = nasFiles[i];
+        // 指纹保持一致性，确保即使从本地切换到 NAS 也能识别同一首歌
+        const fingerprint = `${fileData.name}-${fileData.size}`;
+        
+        const existing = cachedTracks.find((t: any) => t.fingerprint === fingerprint);
+        if (existing) {
+           newTracks.push({
+             ...existing,
+             url: `/api/stream?path=${encodeURIComponent(fileData.path)}`
+           });
+        } else {
+           newTracks.push({
+             id: Math.random().toString(36).substring(2, 9),
+             name: fileData.name.replace(/\.[^/.]+$/, ""),
+             artist: '未知歌手',
+             album: 'NAS 卷',
+             url: `/api/stream?path=${encodeURIComponent(fileData.path)}`,
+             fingerprint: fingerprint,
+             folderId: 'NAS_ROOT',
+             lastModified: fileData.lastModified,
+             dateAdded: Date.now(),
+             file: null as any
+           });
+        }
+        
+        if (i % 20 === 0) {
+          setImportProgress(Math.floor((i / total) * 100));
+        }
+      }
+      
+      setTracks(newTracks);
+      await saveTracksToCache(newTracks);
+      setImportProgress(100);
+    } catch (e) {
+      console.error('NAS Sync Error:', e);
+    } finally {
+      setIsImporting(false);
     }
+  }, [isImporting]);
 
-    if (foldersFromDB.length > 0 && foldersFromDB.some(f => !f.handle)) {
-      setNeedsPermission(true);
+  const loadData = useCallback(async () => {
+    const isNas = await checkNasMode();
+    const cached = await getCachedTracks();
+    
+    if (isNas) {
+      // NAS 模式下忽略文件夹记录，直接同步
+      setImportedFolders([{ id: 'NAS_ROOT', name: 'NAS 存储卷', lastSync: Date.now(), trackCount: cached.length, hasHandle: true }]);
+      if (cached.length === 0) {
+        syncNasLibrary();
+      } else {
+        setTracks(cached);
+      }
+    } else {
+      const foldersFromDB = await getAllLibraryFolders();
+      setImportedFolders(foldersFromDB.map(f => ({
+        ...f,
+        lastSync: f.lastSync || 0,
+        trackCount: cached.filter(t => t.folderId === f.id).length,
+        hasHandle: !!f.handle 
+      })));
+      if (cached && cached.length > 0) setTracks(cached);
+      if (foldersFromDB.length > 0 && foldersFromDB.some(f => !f.handle)) setNeedsPermission(true);
     }
+  }, [checkNasMode, syncNasLibrary]);
+
+  useEffect(() => {
+    loadData();
   }, []);
 
   const fetchHistory = useCallback(async () => {
-    // FIX: Add a filter to ensure history entries are valid objects before casting, and check for a key property like fingerprint.
-    const data = ((await getPlaybackHistory())?.filter(e => e && typeof e === 'object' && e.fingerprint) ?? []) as HistoryEntry[];
+    const data = await getPlaybackHistory();
     setHistoryEntries(data);
   }, []);
 
   useEffect(() => {
-    loadData();
     fetchHistory();
-  }, [loadData, fetchHistory]);
+  }, [fetchHistory]);
 
   const clearHistory = useCallback(async () => {
     await clearPlaybackHistory();
@@ -79,12 +151,15 @@ export const useLibraryManager = () => {
   }, [fetchHistory]);
 
   const resolveTrackFile = useCallback(async (track: Track): Promise<Track | null> => {
+    // NAS 模式下的曲目自带 /api/stream 的 URL，直接播放即可
+    if (track.url && (track.url.startsWith('http') || track.url.startsWith('/api'))) return track;
     if (track.file && track.url) return track;
+    
     const folders = await getAllLibraryFolders();
     const folder = folders.find(f => f.id === track.folderId);
     
     if (!folder || !folder.handle) {
-      setNeedsPermission(true);
+      if (!nasMode) setNeedsPermission(true);
       return null;
     }
 
@@ -115,7 +190,7 @@ export const useLibraryManager = () => {
           const fresh = await parseFileToTrack(file);
           updatedTrack.coverBlob = fresh.coverBlob;
           updatedTrack.coverUrl = fresh.coverUrl;
-          saveTracksToCache([updatedTrack]);
+          await saveTracksToCache([updatedTrack]);
         }
         
         setTracks(prev => prev.map(t => t.fingerprint === track.fingerprint ? updatedTrack : t));
@@ -123,7 +198,7 @@ export const useLibraryManager = () => {
       }
     } catch (e) { console.error(e); }
     return null;
-  }, []);
+  }, [nasMode]);
 
   const handleManualFilesSelect = useCallback(async (files: FileList) => {
     setIsImporting(true);
@@ -163,63 +238,24 @@ export const useLibraryManager = () => {
   }, []);
 
   const syncFolders = useCallback(async (specificFolderId?: string) => {
+    if (nasMode) {
+      return syncNasLibrary();
+    }
+
     setIsImporting(true);
     setImportProgress(0);
     setSyncingFolderId(specificFolderId || 'ALL');
     setCurrentProcessingFile('正在盘点本地路径...');
-  
+
     const savedFolders = await getAllLibraryFolders();
     if (savedFolders.length === 0) { setIsImporting(false); setSyncingFolderId(null); return false; }
-  
+
     const foldersToScan = specificFolderId 
       ? savedFolders.filter(f => f.id === specificFolderId)
       : savedFolders;
-  
-    const filesToProcess: { handle: FileSystemFileHandle, folderId: string, directoryCoverBlob: Blob | null, artistImageBlob: Blob | null }[] = [];
-  
-    const scanDirectoryRecursive = async (dirHandle: FileSystemDirectoryHandle, folderId: string, inheritedArtistImageBlob: Blob | null = null) => {
-      const musicFileEntries: FileSystemFileHandle[] = [];
-      const subDirectories: FileSystemDirectoryHandle[] = [];
-      let coverHandle: FileSystemFileHandle | undefined;
-      let artistImageHandle: FileSystemFileHandle | undefined;
-      const coverFileNames = ['cover.jpg', 'cover.png', 'folder.jpg', 'albumart.jpg', 'album.jpg', 'cover.jpeg'];
-      const artistImageNames = ['folder.jpg', 'folder.png', 'artist.jpg', 'artist.png'];
-  
-      for await (const entry of (dirHandle as any).values()) {
-        if (entry.kind === 'directory') {
-          subDirectories.push(entry as FileSystemDirectoryHandle);
-        } else if (entry.kind === 'file') {
-          const lowerName = entry.name.toLowerCase();
-          if (SUPPORTED_FORMATS.some(ext => lowerName.endsWith(ext))) {
-            musicFileEntries.push(entry as FileSystemFileHandle);
-          } else {
-            if (!coverHandle && coverFileNames.includes(lowerName)) {
-              coverHandle = entry as FileSystemFileHandle;
-            }
-            if (!artistImageHandle && artistImageNames.includes(lowerName)) {
-              artistImageHandle = entry as FileSystemFileHandle;
-            }
-          }
-        }
-      }
-  
-      let directoryCoverBlob: Blob | null = null;
-      if (coverHandle) { try { directoryCoverBlob = await coverHandle.getFile(); } catch (e) { console.warn(`Could not read cover file ${coverHandle.name}`, e); } }
-  
-      let currentArtistImageBlob: Blob | null = null;
-      if (artistImageHandle) { try { currentArtistImageBlob = await artistImageHandle.getFile(); } catch (e) { console.warn(`Could not read artist image file ${artistImageHandle.name}`, e); } }
-      
-      const effectiveArtistImageBlob = currentArtistImageBlob || inheritedArtistImageBlob;
 
-      for (const musicHandle of musicFileEntries) {
-        filesToProcess.push({ handle: musicHandle, folderId, directoryCoverBlob, artistImageBlob: effectiveArtistImageBlob });
-      }
-      
-      for (const subDir of subDirectories) {
-        await scanDirectoryRecursive(subDir, folderId, effectiveArtistImageBlob);
-      }
-    };
-  
+    const filesToProcess: { handle: FileSystemFileHandle, folderId: string, folderHandle: FileSystemDirectoryHandle }[] = [];
+
     for (const folder of foldersToScan) {
       if (!folder.handle) continue;
       try {
@@ -227,92 +263,85 @@ export const useLibraryManager = () => {
         if (permission !== 'granted') permission = await folder.handle.requestPermission({ mode: 'read' });
         
         if (permission === 'granted') {
-          await scanDirectoryRecursive(folder.handle, folder.id);
+          const fastScan = async (dirHandle: FileSystemDirectoryHandle) => {
+            for await (const [name, entry] of (dirHandle as any)) {
+              if (entry.kind === 'file' && SUPPORTED_FORMATS.some(ext => name.toLowerCase().endsWith(ext))) {
+                filesToProcess.push({ handle: entry as FileSystemFileHandle, folderId: folder.id, folderHandle: folder.handle! });
+              } else if (entry.kind === 'directory') await fastScan(entry as FileSystemDirectoryHandle);
+            }
+          };
+          await fastScan(folder.handle);
         }
       } catch (e) { console.error(e); }
     }
-  
+
     for (const folder of foldersToScan) {
         const count = filesToProcess.filter(f => f.folderId === folder.id).length;
         if (folder.handle) {
             await saveLibraryFolder(folder.id, folder.handle, count, Date.now());
         }
     }
-    await loadData(); 
-  
+    
+    const updatedFolders = await getAllLibraryFolders();
+    setImportedFolders(prev => updatedFolders.map(f => ({
+        ...f,
+        lastSync: f.lastSync || 0,
+        trackCount: prev.find(p => p.id === f.id)?.trackCount || 0,
+        hasHandle: !!f.handle
+    })));
+
     const total = filesToProcess.length;
     if (total === 0) { setIsImporting(false); setSyncingFolderId(null); return true; }
-  
-    const tracksByFingerprint = new Map(tracks.map(t => [t.fingerprint, t]));
+
     const BATCH_SIZE = 15; 
     let processedCount = 0;
-  
+
     for (let i = 0; i < filesToProcess.length; i += BATCH_SIZE) {
       const batch = filesToProcess.slice(i, i + BATCH_SIZE);
       const batchResults: Track[] = [];
-      const artistMetadataToUpdate: { name: string; blob: Blob }[] = [];
-  
+
       await Promise.all(batch.map(async (item) => {
         try {
           const file = await item.handle.getFile();
           const fingerprint = `${file.name}-${file.size}`;
-          // FIX: Explicitly cast the result from the map. The TypeScript compiler was inferring
-          // `existingTrack` as `unknown`, leading to errors when accessing its properties.
-          // This assertion ensures it's correctly typed as `Track | undefined`.
-          const existingTrack = tracksByFingerprint.get(fingerprint) as Track | undefined;
-          const needsCoverUpdate = existingTrack && !existingTrack.coverBlob && item.directoryCoverBlob;
           
-          if (!existingTrack || needsCoverUpdate) {
-              setCurrentProcessingFile(file.name);
-              const newTrackData = await parseFileToTrack(file, item.directoryCoverBlob);
-              
-              const finalTrack = existingTrack ? { ...existingTrack, ...newTrackData, id: existingTrack.id } : newTrackData;
-              finalTrack.folderId = item.folderId;
-              (finalTrack as any).fileName = file.name;
-              batchResults.push(finalTrack);
-
-              if (item.artistImageBlob && finalTrack.artist !== '未知歌手') {
-                const artists = finalTrack.artist.split(' / ').map(a => a.trim());
-                artists.forEach(artistName => {
-                  artistMetadataToUpdate.push({ name: artistName, blob: item.artistImageBlob! });
-                });
-              }
+          const isExisting = tracks.some(t => t.fingerprint === fingerprint);
+          if (isExisting) {
+              processedCount++;
+              return;
           }
+
+          setCurrentProcessingFile(file.name);
+          const t = await parseFileToTrack(file);
+          t.folderId = item.folderId;
+          (t as any).fileName = file.name;
+          batchResults.push(t);
           processedCount++;
         } catch (err) { 
-            console.error(`Failed to process ${item.handle.name}:`, err); 
+            console.error(err); 
             processedCount++;
         }
       }));
-  
+
       if (batchResults.length > 0) {
         await saveTracksToCache(batchResults);
-        setTracks(prev => {
-            const newAndUpdatedMap = new Map(batchResults.map(t => [t.fingerprint, t]));
-            const oldTracksKept = prev.filter(t => !newAndUpdatedMap.has(t.fingerprint));
-            return [...oldTracksKept, ...batchResults];
-        });
+        setTracks(prev => [...prev, ...batchResults]);
       }
-      if (artistMetadataToUpdate.length > 0) {
-        for (const meta of artistMetadataToUpdate) {
-          await saveArtistMetadata(meta.name, meta.blob);
-        }
-      }
-  
+
       setImportProgress(Math.floor((processedCount / total) * 100));
       await new Promise(r => requestAnimationFrame(r));
     }
-  
+
     setImportProgress(100);
-    await loadData();
     setTimeout(() => {
         setIsImporting(false);
         setSyncingFolderId(null);
     }, 800);
     return true;
-  }, [tracks, loadData]);
+  }, [nasMode, syncNasLibrary, tracks.length]);
 
   const registerFolder = async (handle: FileSystemDirectoryHandle) => {
+    if (nasMode) return 'NAS_ROOT';
     const id = handle.name + "_" + Date.now();
     await saveLibraryFolder(id, handle);
     await loadData();
@@ -320,16 +349,20 @@ export const useLibraryManager = () => {
   };
 
   const reconnectFolder = async (folderId: string, handle: FileSystemDirectoryHandle) => {
+    if (nasMode) return;
     await saveLibraryFolder(folderId, handle);
     await loadData();
     syncFolders(folderId);
   };
 
   const handleRemoveFolder = useCallback(async (id: string) => {
-    await removeLibraryFolder(id);
-    await loadData();
-    setTracks(prev => prev.filter(t => t.folderId !== id));
-  }, [loadData]);
+    if (nasMode) return; // NAS 模式不允许移除系统卷
+    if(confirm("确定要移除该文件夹吗？其下的曲目记录也将被从曲库移除。")) {
+        await removeLibraryFolder(id);
+        setTracks(prev => prev.filter(t => t.folderId !== id));
+        await loadData();
+    }
+  }, [loadData, nasMode]);
 
   const handleUpdateTrack = useCallback((trackId: string, updates: Partial<Track>) => {
     setTracks(prev => {
@@ -388,13 +421,12 @@ export const useLibraryManager = () => {
     isImporting, importProgress, currentProcessingFile, syncingFolderId,
     searchQuery, setSearchQuery, filteredTracks,
     favorites, handleToggleFavorite, handleUpdateTrack, reorderTracks,
-    artistMetadata,
     syncAll: () => syncFolders(), 
     syncFolder: (id: string) => syncFolders(id), 
     registerFolder, reconnectFolder, removeFolder: handleRemoveFolder, resolveTrackFile,
     handleManualFilesSelect,
     historyTracks,
     recordTrackPlayback,
-    fetchHistory, clearHistory, needsPermission
+    fetchHistory, clearHistory, needsPermission, nasMode
   };
 };

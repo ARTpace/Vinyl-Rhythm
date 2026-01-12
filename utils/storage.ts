@@ -1,11 +1,10 @@
+
 const DB_NAME = 'VinylRhythmDB';
-const DB_VERSION = 10; // 升级版本至10
+const DB_VERSION = 7; // 升级版本
 const STORE_NAME = 'libraryHandles';
 const STORIES_STORE = 'trackStories';
 const HISTORY_STORE = 'playbackHistory';
 const TRACKS_CACHE_STORE = 'tracksCache';
-const ARTIST_METADATA_STORE = 'artistMetadata';
-const PLAYLISTS_STORE = 'playlists';
 
 let dbInstance: IDBDatabase | null = null;
 
@@ -28,14 +27,7 @@ const initDB = async (): Promise<IDBDatabase> => {
         store.createIndex('artist', 'artist', { unique: false });
         store.createIndex('album', 'album', { unique: false });
         store.createIndex('folderId', 'folderId', { unique: false });
-        store.createIndex('dateAdded', 'dateAdded', { unique: false });
-      }
-      if (!db.objectStoreNames.contains(ARTIST_METADATA_STORE)) {
-        db.createObjectStore(ARTIST_METADATA_STORE, { keyPath: 'name' });
-      }
-      // 核心修复：确保歌单存储空间存在
-      if (!db.objectStoreNames.contains(PLAYLISTS_STORE)) {
-        db.createObjectStore(PLAYLISTS_STORE, { keyPath: 'id' });
+        store.createIndex('dateAdded', 'dateAdded', { unique: false }); // 为入库时间建立索引
       }
     };
     request.onsuccess = () => {
@@ -44,96 +36,6 @@ const initDB = async (): Promise<IDBDatabase> => {
     };
     request.onerror = () => reject(request.error);
   });
-};
-
-export const savePlaylist = async (playlist: any) => {
-  const db = await initDB();
-  return new Promise<void>((resolve, reject) => {
-    const tx = db.transaction(PLAYLISTS_STORE, 'readwrite');
-    const store = tx.objectStore(PLAYLISTS_STORE);
-    const { coverUrl, ...serializablePlaylist } = playlist;
-    const request = store.put(serializablePlaylist);
-    request.onsuccess = () => resolve();
-    request.onerror = () => reject(request.error);
-  });
-};
-
-export const updatePlaylist = async (updatedPlaylist: any) => {
-    const db = await initDB();
-    return new Promise<void>((resolve, reject) => {
-        const tx = db.transaction(PLAYLISTS_STORE, 'readwrite');
-        const store = tx.objectStore(PLAYLISTS_STORE);
-        const { coverUrl, ...serializablePlaylist } = updatedPlaylist;
-        const request = store.put(serializablePlaylist);
-        request.onsuccess = () => resolve();
-        request.onerror = () => reject(request.error);
-    });
-};
-
-export const getPlaylist = async (id: string): Promise<any | undefined> => {
-    const db = await initDB();
-    const tx = db.transaction(PLAYLISTS_STORE, 'readonly');
-    const request = tx.objectStore(PLAYLISTS_STORE).get(id);
-    return new Promise((resolve, reject) => {
-        request.onsuccess = () => resolve(request.result);
-        request.onerror = () => reject(request.error);
-    });
-};
-
-export const getAllPlaylists = async (): Promise<any[]> => {
-  const db = await initDB();
-  const tx = db.transaction(PLAYLISTS_STORE, 'readonly');
-  const request = tx.objectStore(PLAYLISTS_STORE).getAll();
-  return new Promise((resolve, reject) => {
-    request.onsuccess = () => {
-      const results = request.result || [];
-      const hydrated = results.map(p => {
-        if (p.coverBlob) {
-          try { return { ...p, coverUrl: URL.createObjectURL(p.coverBlob) }; } catch (e) { return p; }
-        }
-        return p;
-      }).sort((a,b) => b.createdAt - a.createdAt);
-      resolve(hydrated);
-    };
-    request.onerror = () => reject(request.error);
-  });
-};
-
-export const removePlaylist = async (id: string) => {
-  const db = await initDB();
-  const tx = db.transaction(PLAYLISTS_STORE, 'readwrite');
-  tx.objectStore(PLAYLISTS_STORE).delete(id);
-  return new Promise<void>((resolve, reject) => {
-    tx.oncomplete = () => resolve();
-    tx.onerror = () => reject(tx.error);
-  });
-};
-
-export const saveArtistMetadata = async (name: string, coverBlob: Blob) => {
-    const db = await initDB();
-    const tx = db.transaction(ARTIST_METADATA_STORE, 'readwrite');
-    const store = tx.objectStore(ARTIST_METADATA_STORE);
-    store.put({ name, coverBlob });
-    return new Promise<void>((resolve, reject) => {
-        tx.oncomplete = () => resolve();
-        tx.onerror = () => reject(tx.error);
-    });
-};
-
-export const getAllArtistMetadata = async (): Promise<{name: string, coverUrl: string}[]> => {
-    const db = await initDB();
-    const tx = db.transaction(ARTIST_METADATA_STORE, 'readonly');
-    const request = tx.objectStore(ARTIST_METADATA_STORE).getAll();
-    return new Promise((resolve, reject) => {
-        request.onsuccess = () => {
-            const results = (request.result || []).map(item => ({
-                ...item,
-                coverUrl: URL.createObjectURL(item.coverBlob)
-            }));
-            resolve(results);
-        };
-        request.onerror = () => reject(request.error);
-    });
 };
 
 export const saveTracksToCache = async (tracks: any[]) => {
@@ -202,15 +104,37 @@ export const clearPlaybackHistory = async () => {
   tx.objectStore(HISTORY_STORE).clear();
 };
 
-export const saveLibraryFolder = async (id: string, handle: FileSystemDirectoryHandle, totalFilesCount?: number, lastSync?: number) => {
+export const saveLibraryFolder = async (id: string, handle: FileSystemDirectoryHandle, totalFilesCount?: number, lastSync?: number): Promise<void> => {
   const db = await initDB();
-  const tx = db.transaction(STORE_NAME, 'readwrite');
-  const store = tx.objectStore(STORE_NAME);
-  const request = store.get(id);
-  request.onsuccess = () => {
-      const existing = request.result;
-      store.put({ id, handle, name: handle.name, addedAt: existing?.addedAt || Date.now(), lastSync: lastSync !== undefined ? lastSync : (existing?.lastSync || 0), totalFilesCount: totalFilesCount !== undefined ? totalFilesCount : existing?.totalFilesCount });
-  };
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE_NAME, 'readwrite');
+    const store = tx.objectStore(STORE_NAME);
+    const request = store.get(id);
+
+    request.onsuccess = () => {
+        const existing = request.result;
+        store.put({ 
+            id, 
+            handle, 
+            name: handle.name, 
+            addedAt: existing?.addedAt || Date.now(), 
+            lastSync: lastSync !== undefined ? lastSync : (existing?.lastSync || 0), 
+            totalFilesCount: totalFilesCount !== undefined ? totalFilesCount : existing?.totalFilesCount 
+        });
+    };
+
+    // 如果 get 失败，依然尝试 put
+    request.onerror = () => {
+        store.put({ id, handle, name: handle.name, addedAt: Date.now(), lastSync: lastSync || 0, totalFilesCount });
+    };
+
+    tx.oncomplete = () => {
+      resolve();
+    };
+    tx.onerror = () => {
+      reject(tx.error);
+    };
+  });
 };
 
 export const getAllLibraryFolders = async (): Promise<{id: string, handle: FileSystemDirectoryHandle, name: string, totalFilesCount?: number, lastSync?: number, addedAt?: number}[]> => {

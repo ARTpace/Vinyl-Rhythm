@@ -1,0 +1,14 @@
+
+version: '3.8'
+services:
+  vinyl-rhythm:
+    build: .
+    container_name: vinyl-rhythm
+    ports:
+      - "3000:3000"
+    volumes:
+      - /volume1/music:/music:ro # 将 NAS 的音乐路径映射到容器，建议使用 ro (只读) 模式
+      - ./data:/app/data # 可选：用于持久化存储数据库
+    environment:
+      - GEMINI_API_KEY=${GEMINI_API_KEY} # 如果有 AI key，可以在环境变量中提供
+    restart: unless-stopped

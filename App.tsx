@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import Sidebar from './components/Sidebar';
 import MobileNav from './components/MobileNav';
@@ -9,9 +10,7 @@ import SettingsView from './components/SettingsView';
 import PlayerControls from './components/PlayerControls';
 import VinylRecord, { ToneArm } from './components/VinylRecord';
 import SwipeableTrack from './components/SwipeableTrack';
-import PlaylistsView from './components/PlaylistsView';
-import PlaylistDetailView from './components/PlaylistDetailView';
-import { Track, ViewType, Playlist } from './types';
+import { Track, ViewType } from './types';
 import { getTrackStory } from './services/geminiService';
 import { s2t } from './utils/chineseConverter';
 
@@ -21,13 +20,11 @@ import { useAudioAnalyzer } from './hooks/useAudioAnalyzer';
 import { useThemeColor } from './hooks/useThemeColor';
 import { useAppSettings } from './hooks/useAppSettings';
 import { usePlaylist } from './hooks/usePlaylist';
-import { usePlaylists } from './hooks/usePlaylists';
 
 const App: React.FC = () => {
   const { settings, updateSettings, resetSettings } = useAppSettings();
   const [view, setView] = useState<ViewType>('player');
   const [selectedArtist, setSelectedArtist] = useState<string | null>(null);
-  const [selectedPlaylist, setSelectedPlaylist] = useState<Playlist | null>(null);
   const [isImportWindowOpen, setIsImportWindowOpen] = useState(false);
   const [navigationRequest, setNavigationRequest] = useState<{ type: any, name: string } | null>(null);
 
@@ -37,8 +34,6 @@ const App: React.FC = () => {
   }, [settings.useTraditionalChinese]);
 
   const library = useLibraryManager();
-  const { playlists, createPlaylist, deletePlaylist, getPlaylistTracks } = usePlaylists(library.tracks);
-  
   const { 
     playlist, 
     setPlaylist, 
@@ -107,7 +102,6 @@ const App: React.FC = () => {
     setView(v);
     setNavigationRequest(null);
     setSelectedArtist(null);
-    setSelectedPlaylist(null);
     library.setSearchQuery('');
   };
 
@@ -149,52 +143,6 @@ const App: React.FC = () => {
     player.setIsPlaying(true); 
   }, [player]);
 
-  const handleSaveQueueAsPlaylist = useCallback(async () => {
-    if (playlist.length === 0) {
-      alert("播放队列为空，无法创建歌单。");
-      return;
-    }
-    
-    const name = prompt("请输入新歌单的名称：", "我的收藏");
-    if (name) {
-      try {
-        await createPlaylist(name, playlist);
-        alert(`歌单 "${name}" 已成功保存！`);
-      } catch (error: any) {
-        console.error("保存歌单失败:", error);
-        alert(`保存歌单失败: ${error.message || '未知错误'}`);
-      }
-    }
-  }, [playlist, createPlaylist]);
-
-  const handleCreateNewPlaylist = useCallback(async () => {
-    const name = prompt("请输入新歌单的名称：", "我的新歌单");
-    if (name) {
-      try {
-        await createPlaylist(name, []);
-        alert(`歌单 "${name}" 已成功创建！`);
-      } catch (error: any) {
-        console.error("创建歌单失败:", error);
-        alert(`创建歌单失败: ${error.message || '未知错误'}`);
-      }
-    }
-  }, [createPlaylist]);
-
-  const handleDeletePlaylist = (id: string) => {
-    deletePlaylist(id);
-    setSelectedPlaylist(null);
-  };
-
-  const handlePlayPlaylist = (p: Playlist) => {
-    const playlistTracks = getPlaylistTracks(p);
-    if (playlistTracks.length > 0) {
-      setPlaylist(playlistTracks);
-      player.setCurrentTrackIndex(0);
-      player.setIsPlaying(true);
-      setView('player');
-    }
-  };
-
   return (
     <div className="flex h-screen overflow-hidden font-sans selection:bg-yellow-500/30">
       <ImportWindow 
@@ -217,6 +165,7 @@ const App: React.FC = () => {
         importedFolders={library.importedFolders} 
         isImporting={library.isImporting}
         syncingFolderId={library.syncingFolderId}
+        nasMode={library.nasMode}
       />
       
       <div className="hidden md:flex flex-col h-full z-50">
@@ -224,7 +173,7 @@ const App: React.FC = () => {
       </div>
 
       <main className="flex-1 flex flex-col relative pb-32 md:pb-28 bg-gradient-to-br from-[#1c1c1c] via-[#121212] to-[#0a0a0a]">
-        {library.needsPermission && !library.isImporting && (
+        {library.needsPermission && !library.isImporting && !library.nasMode && (
           <div className="absolute top-0 left-0 right-0 z-[100] bg-yellow-500 text-black px-4 py-2 flex items-center justify-center gap-3 animate-in slide-in-from-top duration-500 shadow-xl">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><path d="m21 21-4.3-4.3M11 8l3 3-3 3M8 11h6"/></svg>
             <span className="text-[10px] font-black uppercase tracking-widest">检测到还原记录或浏览器已重置权限，请在“管理库”中重新关联路径。</span>
@@ -260,12 +209,12 @@ const App: React.FC = () => {
             <button onClick={() => library.syncAll()} disabled={library.isImporting} title="同步并修复音乐库" className="w-10 h-10 flex items-center justify-center bg-white/5 hover:bg-white/10 text-white border border-white/10 rounded-full transition-all group">
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" className={`${library.isImporting ? 'animate-spin' : 'group-hover:rotate-180 transition-transform duration-500'}`}><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.85.83 6.72 2.24L21 8"/><path d="M21 3v5h-5"/></svg>
             </button>
-            <button onClick={() => setIsImportWindowOpen(true)} className="bg-yellow-500 text-black px-6 py-2.5 rounded-full font-black text-xs uppercase tracking-widest active:scale-95 transition-all">{processDisplayString("管理库")}</button>
+            <button onClick={() => setIsImportWindowOpen(true)} className="bg-yellow-500 text-black px-6 py-2.5 rounded-full font-black text-xs uppercase tracking-widest active:scale-95 transition-all">{processDisplayString(library.nasMode ? "NAS管理" : "管理库")}</button>
           </div>
         </header>
 
         <div className="flex-1 relative overflow-hidden">
-            <div key={view + (selectedArtist || '') + (selectedPlaylist?.id || '')} className="absolute inset-0 flex flex-col animate-in fade-in duration-700">
+            <div key={view + (selectedArtist || '')} className="absolute inset-0 flex flex-col animate-in fade-in duration-700">
                 {view === 'player' ? (
                   <div className="flex-1 flex flex-col items-center justify-center gap-2 p-6 md:p-8 overflow-hidden relative">
                     <div className="text-center relative z-40 px-6 w-full max-w-4xl flex flex-col items-center mb-4">
@@ -274,28 +223,17 @@ const App: React.FC = () => {
                           {processDisplayString(currentTrack?.name || "黑胶时光")}
                         </h2>
                       </div>
-                      <div className="flex items-center gap-2 mb-2 w-full justify-center flex-wrap px-10">
-                        {currentTrack?.artist ? (
-                          currentTrack.artist.split(' / ').map((artist, index, arr) => (
-                            <React.Fragment key={index}>
-                              <button onClick={() => handleNavigate('artistProfile', artist.trim())} className="text-zinc-400 font-bold uppercase tracking-[0.15em] text-[11px] md:text-xs hover:text-yellow-500 transition-colors">
-                                {processDisplayString(artist.trim())}
-                              </button>
-                              {index < arr.length - 1 && <span className="text-zinc-700 font-black mx-1">/</span>}
-                            </React.Fragment>
-                          ))
-                        ) : (
-                          <span className="text-zinc-400 font-bold uppercase tracking-[0.15em] text-[11px] md:text-xs">
-                            {processDisplayString("享受纯净音质")}
-                          </span>
-                        )}
+                      <div className="flex items-center gap-2 mb-2 w-full justify-center truncate px-10">
+                        <button onClick={() => handleNavigate('artistProfile', currentTrack?.artist || '')} className="text-zinc-400 font-bold uppercase tracking-[0.15em] text-[11px] md:text-xs hover:text-yellow-500 transition-colors flex-shrink-0">
+                          {processDisplayString(currentTrack?.artist || "享受纯净音质")}
+                        </button>
                         {currentTrack?.album && (
-                          <div className="flex items-center gap-2">
-                            <span className="text-zinc-800 font-black mx-1">•</span>
+                          <>
+                            <span className="text-zinc-800 font-black mx-1 flex-shrink-0">•</span>
                             <button onClick={() => handleNavigate('albums', currentTrack.album)} className="text-zinc-500 font-bold uppercase tracking-[0.15em] text-[11px] md:text-xs hover:text-white transition-colors truncate max-w-[200px]">
                               {processDisplayString(currentTrack.album)}
                             </button>
-                          </div>
+                          </>
                         )}
                       </div>
                     </div>
@@ -327,34 +265,12 @@ const App: React.FC = () => {
                       </div>
                     )}
                   </div>
-                ) : view === 'playlists' ? (
-                  selectedPlaylist ? (
-                    <PlaylistDetailView 
-                        playlist={selectedPlaylist}
-                        allTracks={library.tracks}
-                        onBack={() => setSelectedPlaylist(null)}
-                        onPlayTrack={handlePlayFromLibrary}
-                        onPlayPlaylist={handlePlayPlaylist}
-                        onDeletePlaylist={handleDeletePlaylist}
-                        favorites={library.favorites}
-                        onToggleFavorite={library.handleToggleFavorite}
-                        displayConverter={processDisplayString}
-                    />
-                  ) : (
-                    <PlaylistsView 
-                        playlists={playlists}
-                        onSelectPlaylist={setSelectedPlaylist}
-                        onPlayPlaylist={handlePlayPlaylist}
-                        onCreatePlaylist={handleCreateNewPlaylist}
-                        displayConverter={processDisplayString}
-                    />
-                  )
                 ) : view === 'artistProfile' && selectedArtist ? (
-                  <ArtistProfile artistName={selectedArtist} allTracks={library.tracks} onBack={() => { setView('collection'); setSelectedArtist(null); }} onPlayTrack={handlePlayFromLibrary} onAddToPlaylist={addToPlaylist} onPlayAlbum={handlePlayAlbum} onPlayArtist={handlePlayArtist} onNavigateToAlbum={(album) => handleNavigate('albums', album)} favorites={library.favorites} onToggleFavorite={library.handleToggleFavorite} artistMetadata={library.artistMetadata} />
+                  <ArtistProfile artistName={selectedArtist} allTracks={library.tracks} onBack={() => { setView('collection'); setSelectedArtist(null); }} onPlayTrack={handlePlayFromLibrary} onAddToPlaylist={addToPlaylist} onPlayAlbum={handlePlayAlbum} onPlayArtist={handlePlayArtist} onNavigateToAlbum={(album) => handleNavigate('albums', album)} favorites={library.favorites} onToggleFavorite={library.handleToggleFavorite} />
                 ) : view === 'settings' ? (
                   <SettingsView settings={settings} onUpdate={updateSettings} onReset={resetSettings} onClearHistory={library.clearHistory} />
                 ) : (view === 'collection' || view === 'albums' || view === 'artists') ? (
-                  <CollectionView tracks={library.tracks} onNavigate={handleNavigate} onPlayAlbum={handlePlayAlbum} displayConverter={processDisplayString} searchQuery={library.searchQuery} initialTab={view === 'albums' ? 'albums' : 'artists'} onTabChange={(newTab) => setView(newTab)} artistMetadata={library.artistMetadata} />
+                  <CollectionView tracks={library.tracks} onNavigate={handleNavigate} onPlayAlbum={handlePlayAlbum} displayConverter={processDisplayString} searchQuery={library.searchQuery} initialTab={view === 'albums' ? 'albums' : 'artists'} onTabChange={(newTab) => setView(newTab)} />
                 ) : (
                   <LibraryView 
                     view={view} 
@@ -402,8 +318,7 @@ const App: React.FC = () => {
           onReorder={reorderPlaylist} 
           onClearHistory={library.clearHistory} 
           onClearQueue={clearPlaylist} 
-          onPlayFromHistory={handlePlayFromLibrary}
-          onSaveQueueAsPlaylist={handleSaveQueueAsPlaylist}
+          onPlayFromHistory={handlePlayFromLibrary} 
           themeColor="#eab308" 
           settings={settings} 
           displayConverter={processDisplayString}
