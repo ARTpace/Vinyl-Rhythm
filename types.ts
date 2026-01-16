@@ -5,9 +5,10 @@ export interface Track {
   artist: string;
   album: string;
   url: string;
+  path?: string; // 新增：本地文件路径 (Electron)
   coverUrl?: string;
   coverBlob?: Blob; 
-  file: File;
+  file?: File; // 修改为可选
   duration?: number;
   bitrate?: number;
   fingerprint: string; 
@@ -32,6 +33,7 @@ export interface HistoryEntry {
 export interface LibraryFolder {
   id: string;
   name: string;
+  path?: string; // 新增：本地文件夹路径 (Electron)
   lastSync: number;
   trackCount: number;
   totalFilesCount?: number; 

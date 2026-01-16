@@ -45,9 +45,28 @@ const ImportWindow: React.FC<ImportWindowProps> = ({
     if (importInputRef.current) importInputRef.current.click();
   };
 
+  const onImportWithLog = () => {
+    console.log("Import button clicked");
+    if (window.windowBridge) {
+      console.log("windowBridge found, calling onImport");
+    } else if ('showDirectoryPicker' in window) {
+      console.log("showDirectoryPicker found, calling onImport");
+    } else {
+      console.log("Fallback to file input");
+      fileInputRef.current?.click();
+      return;
+    }
+    onImport();
+  };
+
   const handleReconnect = async (id: string) => {
     if (nasMode) return;
     try {
+      if (window.windowBridge) {
+        // Electron 环境下，直接触发同步即可，或者让用户重新选择路径
+        if (onSyncFolder) onSyncFolder(id);
+        return;
+      }
       const handle = await window.showDirectoryPicker();
       if (onReconnectFolder) {
         onReconnectFolder(id, handle);
@@ -192,7 +211,7 @@ const ImportWindow: React.FC<ImportWindowProps> = ({
           {!nasMode ? (
             <div className="space-y-3">
               <button 
-                onClick={() => { if ('showDirectoryPicker' in window) onImport(); else fileInputRef.current?.click(); }} 
+                onClick={onImportWithLog} 
                 disabled={isImporting}
                 className="w-full bg-yellow-500 hover:bg-yellow-400 text-black py-4 rounded-full font-black text-sm active:scale-95 transition-all shadow-xl flex items-center justify-center gap-3 group disabled:opacity-50"
               >

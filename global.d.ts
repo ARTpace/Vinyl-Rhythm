@@ -35,6 +35,42 @@ interface FileSystemWritableFileStream extends WritableStream {
 }
 
 interface Window {
+  windowBridge?: {
+    minimize: () => Promise<void>;
+    maximize: () => Promise<void>;
+    close: () => Promise<void>;
+    isMaximized: () => Promise<boolean>;
+    openDirectory: () => Promise<string | null>;
+    scanDirectory: (path: string) => Promise<Array<{
+      path: string;
+      name: string;
+      ext: string;
+      size: number;
+      mtime: Date;
+    }>>;
+    getMetadata: (path: string) => Promise<{
+      title?: string;
+      artist?: string;
+      album?: string;
+      duration?: number;
+      bitrate?: number;
+      year?: number;
+      genre?: string;
+      cover?: {
+        data: Uint8Array;
+        format: string;
+      };
+    } | null>;
+  };
+  shortcutBridge?: {
+    onPlayPause: (callback: () => void) => () => void;
+    onNext: (callback: () => void) => () => void;
+    onPrev: (callback: () => void) => () => void;
+    onStop: (callback: () => void) => () => void;
+  };
+  electronAPI?: {
+    getAudioUrl: (filePath: string) => string;
+  };
   showDirectoryPicker(options?: { id?: string; mode?: 'read' | 'readwrite'; startIn?: 'desktop' | 'documents' | 'downloads' | 'music' | 'pictures' | 'videos' }): Promise<FileSystemDirectoryHandle>;
   showOpenFilePicker(options?: { multiple?: boolean; excludeAcceptAllOption?: boolean; types?: { description?: string; accept: Record<string, string[]> }[] }): Promise<FileSystemFileHandle[]>;
   showSaveFilePicker(options?: { suggestedName?: string; excludeAcceptAllOption?: boolean; types?: { description?: string; accept: Record<string, string[]> }[] }): Promise<FileSystemFileHandle>;

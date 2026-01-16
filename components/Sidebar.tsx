@@ -78,8 +78,11 @@ const Sidebar: React.FC<SidebarProps> = ({ activeView, onViewChange, trackCount 
          <div className="w-1.5 h-12 bg-zinc-700 rounded-full group-hover:bg-yellow-500 transition-colors duration-300" />
       </button>
 
-      <div className={`p-0 h-24 flex items-center overflow-hidden shrink-0 ${transitionClass} ${isCollapsed ? 'pl-[22px]' : 'pl-8'}`}>
-        <div className="flex items-center">
+      <div 
+        className={`p-0 h-24 flex items-center overflow-hidden shrink-0 ${transitionClass} ${isCollapsed ? 'pl-[22px]' : 'pl-8'}`}
+        style={{ WebkitAppRegion: 'drag' } as any}
+      >
+        <div className="flex items-center" style={{ WebkitAppRegion: 'no-drag' } as any}>
           <div className="w-10 h-10 bg-zinc-900 rounded-xl flex items-center justify-center border border-white/5 shadow-2xl shrink-0">
             <span className="text-2xl font-black text-yellow-500 select-none">V</span>
           </div>

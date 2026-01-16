@@ -143,17 +143,74 @@ const App: React.FC = () => {
     player.setIsPlaying(true); 
   }, [player]);
 
+  const [isMaximized, setIsMaximized] = useState(false);
+
+  useEffect(() => {
+    console.log("App mounted");
+    console.log("windowBridge available:", !!window.windowBridge);
+    console.log("electronAPI available:", !!window.electronAPI);
+    
+    if (window.windowBridge) {
+      const checkMaximized = async () => {
+        try {
+          const maximized = await window.windowBridge.isMaximized();
+          setIsMaximized(maximized);
+        } catch (e) {
+          console.error("Failed to check maximized state:", e);
+        }
+      };
+      checkMaximized();
+    }
+  }, []);
+
+  const handleMinimize = () => window.windowBridge?.minimize();
+  const handleMaximize = async () => {
+    await window.windowBridge?.maximize();
+    const maximized = await window.windowBridge?.isMaximized();
+    setIsMaximized(maximized || false);
+  };
+  const handleClose = () => window.windowBridge?.close();
+
   return (
     <div className="flex h-screen overflow-hidden font-sans selection:bg-yellow-500/30">
       <ImportWindow 
         isOpen={isImportWindowOpen} 
         onClose={() => setIsImportWindowOpen(false)} 
         onImport={async () => {
+           console.log("App: onImport triggered");
            try { 
-             const handle = await window.showDirectoryPicker(); 
+             let handle: any = undefined;
+             const isElectron = /electron/i.test(navigator.userAgent) || !!window.windowBridge;
+
+             if (isElectron) {
+               if (!window.windowBridge) {
+                 console.error("App: Detected Electron environment but windowBridge is missing!");
+                 throw new Error("检测到处于 Electron 环境，但通信桥(windowBridge)未加载。请检查安装包完整性或重新启动应用。");
+               }
+               console.log("App: In Electron, proceeding to registerFolder");
+             } else {
+               console.log("App: Not in Electron, using showDirectoryPicker");
+               if (!('showDirectoryPicker' in window)) {
+                 throw new Error("当前浏览器不支持文件夹选择，请使用 Chrome 或 Edge 浏览器。");
+               }
+               handle = await (window as any).showDirectoryPicker(); 
+             }
+             
+             console.log("App: Calling registerFolder");
              const newFolderId = await library.registerFolder(handle); 
-             library.syncFolder(newFolderId); 
-           } catch (e) {}
+             console.log("App: registerFolder result:", newFolderId);
+             
+             if (newFolderId) {
+               console.log("App: Triggering syncFolder for:", newFolderId);
+               library.syncFolder(newFolderId); 
+             } else {
+               console.log("App: No folder ID returned (user canceled?)");
+             }
+           } catch (e) {
+             console.error("App: onImport error detail:", e);
+             const errorMsg = e instanceof Error ? e.message : String(e);
+             alert("添加文件夹失败: " + errorMsg);
+           }
         }} 
         onReconnectFolder={library.reconnectFolder}
         onManualFilesSelect={async (files) => {
@@ -174,10 +231,19 @@ const App: React.FC = () => {
 
       <main className="flex-1 flex flex-col relative pb-32 md:pb-28 bg-gradient-to-br from-[#1c1c1c] via-[#121212] to-[#0a0a0a]">
         {library.needsPermission && !library.isImporting && !library.nasMode && (
-          <div className="absolute top-0 left-0 right-0 z-[100] bg-yellow-500 text-black px-4 py-2 flex items-center justify-center gap-3 animate-in slide-in-from-top duration-500 shadow-xl">
+          <div 
+            className="absolute top-0 left-0 right-0 z-[100] bg-yellow-500 text-black px-4 py-2 flex items-center justify-center gap-3 animate-in slide-in-from-top duration-500 shadow-xl"
+            style={{ WebkitAppRegion: 'drag' } as any}
+          >
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><path d="m21 21-4.3-4.3M11 8l3 3-3 3M8 11h6"/></svg>
             <span className="text-[10px] font-black uppercase tracking-widest">检测到还原记录或浏览器已重置权限，请在“管理库”中重新关联路径。</span>
-            <button onClick={() => setIsImportWindowOpen(true)} className="bg-black text-white px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-tighter hover:scale-105 transition-transform">前往管理</button>
+            <button 
+              onClick={() => setIsImportWindowOpen(true)} 
+              className="bg-black text-white px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-tighter hover:scale-105 transition-transform"
+              style={{ WebkitAppRegion: 'no-drag' } as any}
+            >
+              前往管理
+            </button>
           </div>
         )}
 
@@ -187,14 +253,17 @@ const App: React.FC = () => {
           </div>
         )}
 
-        <header className="p-4 md:p-6 flex justify-between items-center z-50 relative gap-3">
-          <div className="flex items-center gap-4 md:gap-6 flex-1 min-w-0">
+        <header 
+          className="p-4 md:p-6 flex justify-between items-center z-50 relative gap-3"
+          style={{ WebkitAppRegion: 'drag' } as any}
+        >
+          <div className="flex items-center gap-4 md:gap-6 flex-1 min-w-0" style={{ WebkitAppRegion: 'no-drag' } as any}>
              <div className="relative group max-w-md w-full">
                 <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-zinc-500"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg></div>
                 <input type="text" placeholder={processDisplayString(searchPlaceholder)} value={library.searchQuery} onChange={(e) => { library.setSearchQuery(e.target.value); if(view === 'player' && e.target.value) setView('all'); }} className="w-full bg-white/5 border border-white/10 rounded-full py-2.5 px-11 text-sm text-white focus:border-yellow-500/50 outline-none backdrop-blur-md transition-all" />
              </div>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3" style={{ WebkitAppRegion: 'no-drag' } as any}>
             {library.isImporting && (
               <div className="hidden md:flex items-center gap-3 px-4 py-2 bg-black/40 border border-white/5 rounded-2xl backdrop-blur-md animate-in fade-in">
                 <div className="flex flex-col items-end min-w-0 max-w-[120px]">
@@ -210,6 +279,24 @@ const App: React.FC = () => {
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" className={`${library.isImporting ? 'animate-spin' : 'group-hover:rotate-180 transition-transform duration-500'}`}><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.85.83 6.72 2.24L21 8"/><path d="M21 3v5h-5"/></svg>
             </button>
             <button onClick={() => setIsImportWindowOpen(true)} className="bg-yellow-500 text-black px-6 py-2.5 rounded-full font-black text-xs uppercase tracking-widest active:scale-95 transition-all">{processDisplayString(library.nasMode ? "NAS管理" : "管理库")}</button>
+            
+            {window.windowBridge && (
+              <div className="flex items-center gap-1 ml-2 border-l border-white/10 pl-3">
+                <button onClick={handleMinimize} className="w-8 h-8 flex items-center justify-center hover:bg-white/10 text-zinc-400 hover:text-white transition-colors rounded-lg" title="最小化">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><path d="M5 12h14"/></svg>
+                </button>
+                <button onClick={handleMaximize} className="w-8 h-8 flex items-center justify-center hover:bg-white/10 text-zinc-400 hover:text-white transition-colors rounded-lg" title={isMaximized ? "还原" : "最大化"}>
+                  {isMaximized ? (
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><rect width="14" height="14" x="8" y="2" rx="2"/><path d="M4 8a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-2"/></svg>
+                  ) : (
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><rect width="18" height="18" x="3" y="3" rx="2" ry="2"/></svg>
+                  )}
+                </button>
+                <button onClick={handleClose} className="w-8 h-8 flex items-center justify-center hover:bg-red-500 text-zinc-400 hover:text-white transition-colors rounded-lg" title="关闭">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><path d="M18 6 6 18M6 6l12 12"/></svg>
+                </button>
+              </div>
+            )}
           </div>
         </header>
 

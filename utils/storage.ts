@@ -104,7 +104,8 @@ export const clearPlaybackHistory = async () => {
   tx.objectStore(HISTORY_STORE).clear();
 };
 
-export const saveLibraryFolder = async (id: string, handle: FileSystemDirectoryHandle, totalFilesCount?: number, lastSync?: number): Promise<void> => {
+export const saveLibraryFolder = async (id: string, handle: FileSystemDirectoryHandle, totalFilesCount?: number, lastSync?: number, path?: string): Promise<void> => {
+  console.log("saveLibraryFolder:", { id, path, lastSync, totalFilesCount });
   const db = await initDB();
   return new Promise((resolve, reject) => {
     const tx = db.transaction(STORE_NAME, 'readwrite');
@@ -113,31 +114,46 @@ export const saveLibraryFolder = async (id: string, handle: FileSystemDirectoryH
 
     request.onsuccess = () => {
         const existing = request.result;
-        store.put({ 
+        const data = { 
             id, 
             handle, 
-            name: handle.name, 
+            path: path || existing?.path,
+            name: handle ? handle.name : (path ? path.split(/[\\/]/).pop() : (existing?.name || '未知文件夹')), 
             addedAt: existing?.addedAt || Date.now(), 
             lastSync: lastSync !== undefined ? lastSync : (existing?.lastSync || 0), 
             totalFilesCount: totalFilesCount !== undefined ? totalFilesCount : existing?.totalFilesCount 
-        });
+        };
+        console.log("saveLibraryFolder: putting data", data);
+        store.put(data);
     };
 
     // 如果 get 失败，依然尝试 put
     request.onerror = () => {
-        store.put({ id, handle, name: handle.name, addedAt: Date.now(), lastSync: lastSync || 0, totalFilesCount });
+        const data = { 
+          id, 
+          handle, 
+          path,
+          name: handle ? handle.name : (path ? path.split(/[\\/]/).pop() : '未知文件夹'), 
+          addedAt: Date.now(), 
+          lastSync: lastSync || 0, 
+          totalFilesCount 
+        };
+        console.log("saveLibraryFolder: put error, fallback putting data", data);
+        store.put(data);
     };
 
     tx.oncomplete = () => {
+      console.log("saveLibraryFolder: transaction complete");
       resolve();
     };
     tx.onerror = () => {
+      console.error("saveLibraryFolder: transaction error", tx.error);
       reject(tx.error);
     };
   });
 };
 
-export const getAllLibraryFolders = async (): Promise<{id: string, handle: FileSystemDirectoryHandle, name: string, totalFilesCount?: number, lastSync?: number, addedAt?: number}[]> => {
+export const getAllLibraryFolders = async (): Promise<{id: string, handle: FileSystemDirectoryHandle, path?: string, name: string, totalFilesCount?: number, lastSync?: number, addedAt?: number}[]> => {
   const db = await initDB();
   const tx = db.transaction(STORE_NAME, 'readonly');
   const request = tx.objectStore(STORE_NAME).getAll();

@@ -1,0 +1,36 @@
+appId: com.vinyl-rhythm.app
+productName: 黑胶时光
+copyright: Copyright © 2026
+
+directories:
+  output: dist_electron
+  buildResources: build
+
+# 默认会包含所有文件并自动排除 devDependencies，所以我们不需要手动指定 files
+# 除非我们要包含项目根目录以外的文件
+# files:
+#   - dist/**/*
+#   - electron/**/*
+#   - package.json
+
+# 排除开发相关的 node_modules
+# extraResources:
+#   - from: electron/assets
+#     to: assets
+
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+  # icon: build/icon.ico
+
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: 黑胶时光
+
+# 针对 ES 模块的优化
+asar: true
