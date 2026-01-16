@@ -11,7 +11,8 @@ import {
   clearPlaybackHistory,
   saveTracksToCache,
   getCachedTracks,
-  addToHistory
+  addToHistory,
+  getAllArtistMetadata
 } from '../utils/storage';
 import { normalizeChinese } from '../utils/chineseConverter';
 
@@ -26,6 +27,7 @@ export const useLibraryManager = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [needsPermission, setNeedsPermission] = useState(false);
   const [nasMode, setNasMode] = useState(false);
+  const [artistMetadata, setArtistMetadata] = useState<Map<string, string>>(new Map());
   
   const [favorites, setFavorites] = useState<Set<string>>(() => {
     const saved = localStorage.getItem('vinyl_favorites');
@@ -63,7 +65,6 @@ export const useLibraryManager = () => {
       
       for (let i = 0; i < total; i++) {
         const fileData = nasFiles[i];
-        // 指纹保持一致性，确保即使从本地切换到 NAS 也能识别同一首歌
         const fingerprint = `${fileData.name}-${fileData.size}`;
         
         const existing = cachedTracks.find((t: any) => t.fingerprint === fingerprint);
@@ -103,14 +104,16 @@ export const useLibraryManager = () => {
   }, [isImporting]);
 
   const loadData = useCallback(async () => {
-    console.log("loadData: starting...");
     const isNas = await checkNasMode();
     const cached = await getCachedTracks();
-    console.log("loadData: cached tracks count:", cached.length);
+    
+    // 加载歌手元数据
+    const metaList = await getAllArtistMetadata();
+    const metaMap = new Map<string, string>();
+    metaList.forEach(m => metaMap.set(m.name, m.coverUrl));
+    setArtistMetadata(metaMap);
     
     if (isNas) {
-      console.log("loadData: NAS mode active");
-      // NAS 模式下忽略文件夹记录，直接同步
       setImportedFolders([{ id: 'NAS_ROOT', name: 'NAS 存储卷', lastSync: Date.now(), trackCount: cached.length, hasHandle: true }]);
       if (cached.length === 0) {
         syncNasLibrary();
@@ -118,27 +121,18 @@ export const useLibraryManager = () => {
         setTracks(cached);
       }
     } else {
-      console.log("loadData: Local mode active, fetching folders");
       const foldersFromDB = await getAllLibraryFolders();
-      console.log("loadData: foldersFromDB count:", foldersFromDB.length);
       setImportedFolders(foldersFromDB.map(f => ({
         ...f,
         lastSync: f.lastSync || 0,
         trackCount: cached.filter(t => t.folderId === f.id).length,
-        hasHandle: window.windowBridge ? !!f.path : !!f.handle 
+        hasHandle: window.windowBridge ? !!(f as any).path : !!f.handle 
       })));
-      if (cached && cached.length > 0) {
-        console.log("loadData: setting tracks from cache");
-        setTracks(cached);
-      }
+      if (cached && cached.length > 0) setTracks(cached);
       if (foldersFromDB.length > 0 && !window.windowBridge && foldersFromDB.some(f => !f.handle)) {
-        console.log("loadData: needs permission");
         setNeedsPermission(true);
-      } else {
-        setNeedsPermission(false);
       }
     }
-    console.log("loadData: finished");
   }, [checkNasMode, syncNasLibrary]);
 
   useEffect(() => {
@@ -165,15 +159,13 @@ export const useLibraryManager = () => {
   }, [fetchHistory]);
 
   const resolveTrackFile = useCallback(async (track: Track): Promise<Track | null> => {
-    // Electron 环境下使用自定义协议
-    if (window.electronAPI && track.path) {
+    if (window.windowBridge && (track as any).path) {
       return {
         ...track,
-        url: window.electronAPI.getAudioUrl(track.path)
+        url: (window as any).electronAPI.getAudioUrl((track as any).path)
       };
     }
 
-    // NAS 模式下的曲目自带 /api/stream 的 URL，直接播放即可
     if (track.url && (track.url.startsWith('http') || track.url.startsWith('/api'))) return track;
     if (track.file && track.url) return track;
     
@@ -276,119 +268,6 @@ export const useLibraryManager = () => {
       ? savedFolders.filter(f => f.id === specificFolderId)
       : savedFolders;
 
-    if (window.windowBridge) {
-      console.log("syncFolders: In Electron environment, starting native scan");
-      // Electron 环境下的原生扫描
-      for (const folder of foldersToScan) {
-        if (!folder.path) {
-          console.warn(`syncFolders: Folder ${folder.name} has no path, skipping`);
-          continue;
-        }
-        console.log(`syncFolders: Scanning folder ${folder.name} at path ${folder.path}`);
-        setCurrentProcessingFile(`正在扫描 ${folder.name}...`);
-        
-        try {
-          const files = await window.windowBridge.scanDirectory(folder.path);
-          console.log(`syncFolders: scanDirectory found ${files.length} files`);
-          const total = files.length;
-          let processedCount = 0;
-          const batchResults: Track[] = [];
-
-          const BATCH_SIZE = 15;
-          for (let i = 0; i < files.length; i += BATCH_SIZE) {
-            const batch = files.slice(i, i + BATCH_SIZE);
-            const batchTracks: Track[] = [];
-
-            for (const fileData of batch) {
-              const fingerprint = `${fileData.name}-${fileData.size}`;
-              const isExisting = tracks.some(t => t.fingerprint === fingerprint);
-              
-              if (!isExisting) {
-                setCurrentProcessingFile(fileData.name);
-                try {
-                  // 确保 mtime 是 Date 对象
-                  const mtime = fileData.mtime instanceof Date ? fileData.mtime : new Date(fileData.mtime);
-
-                  // 在 Electron 中，直接调用主进程获取元数据
-                  const nativeMetadata = await window.windowBridge.getMetadata(fileData.path);
-                  
-                  if (nativeMetadata) {
-                    let coverUrl: string | undefined = undefined;
-                    let coverBlob: Blob | undefined = undefined;
-
-                    if (nativeMetadata.cover) {
-                      // 强制转换为 any 以绕过 Uint8Array/SharedArrayBuffer 的类型检查
-                      coverBlob = new Blob([nativeMetadata.cover.data as any], { type: nativeMetadata.cover.format });
-                      coverUrl = URL.createObjectURL(coverBlob);
-                    }
-
-                    const track: Track = {
-                      id: Math.random().toString(36).substring(2, 9),
-                      name: nativeMetadata.title || fileData.name,
-                      artist: nativeMetadata.artist || '未知歌手',
-                      album: nativeMetadata.album || '本地曲库',
-                      path: fileData.path,
-                      url: window.electronAPI.getAudioUrl(fileData.path),
-                      coverUrl,
-                      coverBlob,
-                      duration: nativeMetadata.duration,
-                      bitrate: nativeMetadata.bitrate,
-                      fingerprint: fingerprint,
-                      folderId: folder.id,
-                      year: nativeMetadata.year,
-                      genre: nativeMetadata.genre,
-                      lastModified: mtime.getTime(),
-                      dateAdded: Date.now()
-                    };
-                    batchTracks.push(track);
-                  } else {
-                    throw new Error("Native metadata parsing returned null");
-                  }
-                } catch (e) {
-                  console.error(`Error parsing ${fileData.name}:`, e);
-                  const mtime = fileData.mtime instanceof Date ? fileData.mtime : new Date(fileData.mtime);
-                  
-                  // 回退到基本信息
-                  batchTracks.push({
-                    id: Math.random().toString(36).substring(2, 9),
-                    name: fileData.name,
-                    artist: '未知歌手',
-                    album: '本地曲库',
-                    path: fileData.path,
-                    url: window.electronAPI.getAudioUrl(fileData.path),
-                    fingerprint: fingerprint,
-                    folderId: folder.id,
-                    lastModified: mtime.getTime(),
-                    dateAdded: Date.now()
-                  });
-                }
-              }
-              processedCount++;
-            }
-
-            if (batchTracks.length > 0) {
-              await saveTracksToCache(batchTracks);
-              setTracks(prev => {
-                const existingFingerprints = new Set(prev.map(t => t.fingerprint));
-                const newUnique = batchTracks.filter(t => !existingFingerprints.has(t.fingerprint));
-                return [...prev, ...newUnique];
-              });
-            }
-            setImportProgress(Math.floor((processedCount / total) * 100));
-          }
-
-          await saveLibraryFolder(folder.id, undefined as any, total, Date.now(), folder.path);
-        } catch (e) {
-          console.error(`Failed to scan ${folder.path}`, e);
-        }
-      }
-      
-      setIsImporting(false);
-      setSyncingFolderId(null);
-      await loadData();
-      return true;
-    }
-
     const filesToProcess: { handle: FileSystemFileHandle, folderId: string, folderHandle: FileSystemDirectoryHandle }[] = [];
 
     for (const folder of foldersToScan) {
@@ -477,47 +356,10 @@ export const useLibraryManager = () => {
 
   const registerFolder = async (handle?: FileSystemDirectoryHandle) => {
     if (nasMode) return 'NAS_ROOT';
-
-    let id: string;
-    let folderPath: string | undefined;
-    let name: string;
-
-    console.log("registerFolder: starting with handle:", !!handle);
-
-    if (window.windowBridge && !handle) {
-      // Electron 环境下
-      console.log("registerFolder: In Electron environment, calling windowBridge.openDirectory");
-      try {
-        const selectedPath = await window.windowBridge.openDirectory();
-        console.log("registerFolder: openDirectory selectedPath:", selectedPath);
-        if (!selectedPath) {
-          console.log("registerFolder: user canceled folder selection");
-          return null;
-        }
-        folderPath = selectedPath;
-        name = folderPath.split(/[\\/]/).pop() || folderPath;
-        id = name + "_" + Date.now();
-        console.log("registerFolder: saving library folder to storage", { id, folderPath });
-        await saveLibraryFolder(id, undefined as any, 0, 0, folderPath);
-      } catch (err) {
-        console.error("registerFolder: openDirectory failed error:", err);
-        // 向上抛出错误，以便 App.tsx 捕获并显示
-        throw new Error(`无法打开目录选择器: ${err instanceof Error ? err.message : String(err)}`);
-      }
-    } else if (handle) {
-      // 浏览器环境下
-      console.log("registerFolder: In Browser environment, using handle:", handle.name);
-      id = handle.name + "_" + Date.now();
-      name = handle.name;
-      await saveLibraryFolder(id, handle);
-    } else {
-      console.warn("registerFolder: No windowBridge and no handle provided");
-      return null;
-    }
-
-    console.log("registerFolder: loading data after save");
+    if (!handle) return null;
+    const id = handle.name + "_" + Date.now();
+    await saveLibraryFolder(id, handle);
     await loadData();
-    console.log("registerFolder: success, returning id:", id);
     return id; 
   };
 
@@ -529,7 +371,7 @@ export const useLibraryManager = () => {
   };
 
   const handleRemoveFolder = useCallback(async (id: string) => {
-    if (nasMode) return; // NAS 模式不允许移除系统卷
+    if (nasMode) return;
     if(confirm("确定要移除该文件夹吗？其下的曲目记录也将被从曲库移除。")) {
         await removeLibraryFolder(id);
         setTracks(prev => prev.filter(t => t.folderId !== id));
@@ -600,6 +442,6 @@ export const useLibraryManager = () => {
     handleManualFilesSelect,
     historyTracks,
     recordTrackPlayback,
-    fetchHistory, clearHistory, needsPermission, nasMode
+    fetchHistory, clearHistory, needsPermission, nasMode, artistMetadata
   };
 };

@@ -5,10 +5,9 @@ export interface Track {
   artist: string;
   album: string;
   url: string;
-  path?: string; // 新增：本地文件路径 (Electron)
   coverUrl?: string;
   coverBlob?: Blob; 
-  file?: File; // 修改为可选
+  file: File;
   duration?: number;
   bitrate?: number;
   fingerprint: string; 
@@ -19,6 +18,15 @@ export interface Track {
   dateAdded: number; // 新增：记录加入曲库的实际时间
   historyTime?: number; 
   duplicateCount?: number; 
+}
+
+export interface Playlist {
+  id: string;
+  name: string;
+  songFingerprints: string[];
+  coverUrl?: string;
+  coverBlob?: Blob;
+  createdAt: number;
 }
 
 export interface HistoryEntry {
@@ -33,7 +41,6 @@ export interface HistoryEntry {
 export interface LibraryFolder {
   id: string;
   name: string;
-  path?: string; // 新增：本地文件夹路径 (Electron)
   lastSync: number;
   trackCount: number;
   totalFilesCount?: number; 
@@ -45,7 +52,7 @@ export interface LibraryGroup {
   coverUrl?: string;
 }
 
-export type ViewType = 'all' | 'collection' | 'player' | 'favorites' | 'folders' | 'artistProfile' | 'settings' | 'history' | 'albums' | 'artists';
+export type ViewType = 'all' | 'collection' | 'player' | 'favorites' | 'folders' | 'artistProfile' | 'settings' | 'history' | 'albums' | 'artists' | 'playlists';
 
 export type PlaybackMode = 'normal' | 'shuffle' | 'loop';
 

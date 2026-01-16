@@ -15,11 +15,16 @@ export const useAudioPlayer = (
     const saved = localStorage.getItem('vinyl_volume');
     return saved ? parseFloat(saved) : 0.8;
   });
+  const volumeRef = useRef(volume);
   const [playbackMode, setPlaybackMode] = useState<PlaybackMode>('normal');
   const [isSeeking, setIsSeeking] = useState(false);
   
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const currentFingerprintRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    volumeRef.current = volume;
+  }, [volume]);
 
   // 同步当前播放曲目的唯一标识，用于在列表变动时追踪位置
   useEffect(() => {
@@ -30,28 +35,53 @@ export const useAudioPlayer = (
     }
   }, [currentTrackIndex, tracks]);
 
-  const setVolume = useCallback((val: number) => {
-    setVolumeState(val);
-    localStorage.setItem('vinyl_volume', val.toString());
+  const getGainNode = useCallback(() => (window as any).gainNodeInstance as GainNode | undefined, []);
+  const getAudioCtx = useCallback(() => (window as any).audioContextInstance as AudioContext | undefined, []);
+
+  const clampVolume = useCallback((val: number) => {
+    if (!Number.isFinite(val)) return 0;
+    return Math.min(1, Math.max(0, val));
   }, []);
 
-  const getGainNode = () => (window as any).gainNodeInstance as GainNode | undefined;
-  const getAudioCtx = () => (window as any).audioContextInstance as AudioContext | undefined;
+  const setPhysicalVolumeImmediate = useCallback((target: number) => {
+    const audio = audioRef.current;
+    if (!audio) return;
+    const next = clampVolume(target);
+    const gainNode = getGainNode();
+    const ctx = getAudioCtx();
+    if (gainNode && ctx) {
+      gainNode.gain.cancelScheduledValues(ctx.currentTime);
+      gainNode.gain.setValueAtTime(next, ctx.currentTime);
+      audio.volume = 1;
+      return;
+    }
+    audio.volume = next;
+  }, [clampVolume, getAudioCtx, getGainNode]);
+
+  const setVolume = useCallback((val: number) => {
+    const next = clampVolume(val);
+    volumeRef.current = next;
+    setVolumeState(next);
+    localStorage.setItem('vinyl_volume', next.toString());
+    setPhysicalVolumeImmediate(next);
+  }, [clampVolume, setPhysicalVolumeImmediate]);
 
   const fadePhysicalVolume = useCallback((target: number, durationSec: number, onComplete?: () => void) => {
+    const next = clampVolume(target);
     const gainNode = getGainNode();
     const ctx = getAudioCtx();
     if (!gainNode || !ctx) {
-      if (audioRef.current) audioRef.current.volume = target;
+      if (audioRef.current) audioRef.current.volume = next;
       onComplete?.();
       return;
     }
+    if (audioRef.current) audioRef.current.volume = 1;
     const now = ctx.currentTime;
     gainNode.gain.cancelScheduledValues(now);
     gainNode.gain.setValueAtTime(gainNode.gain.value, now);
-    gainNode.gain.linearRampToValueAtTime(target, now + durationSec);
+    gainNode.gain.linearRampToValueAtTime(next, now + durationSec);
     if (onComplete) setTimeout(onComplete, (durationSec * 1000) + 50);
-  }, []);
+  }, [clampVolume, getAudioCtx, getGainNode]);
 
   const playWithFade = useCallback(async () => {
     const audio = audioRef.current;
@@ -59,12 +89,6 @@ export const useAudioPlayer = (
     
     const track = tracks[currentTrackIndex];
     if (!track) return;
-    
-    // 检查是否是同一首歌
-    const isSameSource = track.url && audio.src === track.url;
-    if (isSameSource && !audio.paused) {
-      return; 
-    }
 
     // 处理路径解析
     let sourceUrl = track.url;
@@ -84,9 +108,20 @@ export const useAudioPlayer = (
       if (ctx && (ctx.state === 'suspended' || (ctx.state as string) === 'interrupted')) {
         await ctx.resume();
       }
+
+      const normalizeUrl = (u: string) => {
+        try {
+          return new URL(u).href;
+        } catch {
+          return u;
+        }
+      };
+      const currentSrc = audio.currentSrc || audio.src || '';
+      const isSameSource = !!currentSrc && normalizeUrl(currentSrc) === normalizeUrl(sourceUrl);
+      if (isSameSource && !audio.paused) return;
       
       // 切歌时的物理重置
-      if (audio.src !== sourceUrl) {
+      if (!isSameSource) {
         audio.pause();
         audio.src = sourceUrl;
         audio.load(); 
@@ -108,11 +143,11 @@ export const useAudioPlayer = (
         onTrackStart(track);
       }
       
-      setTimeout(() => fadePhysicalVolume(volume, 0.5), 50);
+      setTimeout(() => fadePhysicalVolume(volumeRef.current, 0.5), 50);
     } catch (err) {
       console.error("播放失败:", err);
     }
-  }, [volume, fadePhysicalVolume, currentTrackIndex, tracks, resolveTrackFile, onTrackStart]);
+  }, [currentTrackIndex, fadePhysicalVolume, getAudioCtx, getGainNode, onTrackStart, resolveTrackFile, tracks]);
 
   const pauseWithFade = useCallback(() => {
     const audio = audioRef.current;

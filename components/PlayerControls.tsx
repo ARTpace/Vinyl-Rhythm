@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { Track, AppSettings } from '../types';
+import { Track, AppSettings, Playlist } from '../types';
 import { formatTime } from '../utils/audioParser';
 
 interface PlayerControlsProps {
@@ -21,6 +21,7 @@ interface PlayerControlsProps {
   onSeek: (val: number) => void;
   isFavorite: boolean;
   onToggleFavorite: (trackId?: string) => void;
+  onAddToPlaylist: (track: Track) => void;
   onNavigate?: (type: 'artists' | 'albums' | 'folders' | 'artistProfile', name: string) => void;
   favorites?: Set<string>;
   playbackMode: 'normal' | 'shuffle' | 'loop';
@@ -29,6 +30,7 @@ interface PlayerControlsProps {
   onClearHistory?: () => void;
   onClearQueue?: () => void;
   onPlayFromHistory?: (track: Track) => void;
+  onSaveQueueAsPlaylist?: () => void;
   themeColor?: string;
   settings?: AppSettings; 
   displayConverter?: (str: string) => string; 
@@ -52,6 +54,7 @@ const PlayerControls: React.FC<PlayerControlsProps> = ({
     onSeek,
     isFavorite,
     onToggleFavorite,
+    onAddToPlaylist,
     onNavigate,
     favorites = new Set(),
     playbackMode,
@@ -60,6 +63,7 @@ const PlayerControls: React.FC<PlayerControlsProps> = ({
     onClearHistory,
     onClearQueue,
     onPlayFromHistory,
+    onSaveQueueAsPlaylist,
     themeColor = '#eab308',
     settings,
     displayConverter
@@ -68,7 +72,6 @@ const PlayerControls: React.FC<PlayerControlsProps> = ({
   const [queueTab, setQueueTab] = useState<'queue' | 'history'>('queue');
   const [lastVolume, setLastVolume] = useState(0.8);
   const [isQueuePulsing, setIsQueuePulsing] = useState(false);
-  const queueEndRef = useRef<HTMLDivElement>(null);
   const prevQueueLength = useRef(tracks.length);
   
   const [draggedOverId, setDraggedOverId] = useState<string | null>(null);
@@ -82,7 +85,6 @@ const PlayerControls: React.FC<PlayerControlsProps> = ({
 
   const convert = (s: string) => displayConverter ? displayConverter(s) : s;
 
-  // 监听队列长度，触发脉冲动画
   useEffect(() => {
     if (tracks.length > prevQueueLength.current) {
         setIsQueuePulsing(true);
@@ -173,20 +175,9 @@ const PlayerControls: React.FC<PlayerControlsProps> = ({
 
   const handleClearAction = () => {
     if (queueTab === 'queue') {
-        if (tracks.length === 0) return;
-        if (confirm('确定要清空当前的播放队列吗？')) {
-            if (isPlaying) {
-                onTogglePlay(); 
-                setTimeout(() => onClearQueue?.(), 500); 
-            } else {
-                onClearQueue?.();
-            }
-        }
+        onClearQueue?.();
     } else {
-        if (historyTracks.length === 0) return;
-        if (confirm('确定要清空播放历史记录吗？')) {
-            onClearHistory?.();
-        }
+        onClearHistory?.();
     }
   };
 
@@ -194,10 +185,8 @@ const PlayerControls: React.FC<PlayerControlsProps> = ({
     <>
       {showQueue && <div className="fixed inset-0 z-[80] bg-black/40 backdrop-blur-sm transition-opacity" onClick={() => setShowQueue(false)} />}
       
-      {/* 优化：固定高度 height: 60vh 替代 max-height，确保切换时面板不跳动 */}
       <div className={`fixed right-0 md:right-6 bottom-16 md:bottom-28 w-full md:w-[480px] bg-[#161616] md:border border-[#333] rounded-t-3xl md:rounded-3xl shadow-[0_-10px_40px_rgba(0,0,0,0.9)] z-[90] transform transition-all duration-300 flex flex-col overflow-hidden ${showQueue ? 'translate-y-0 opacity-100' : 'translate-y-full opacity-0 pointer-events-none'}`} style={{ height: '60vh' }}>
         
-        {/* 顶部页签 + 清空图标 */}
         <div className="p-3 border-b border-[#2a2a2a] bg-gradient-to-b from-[#222] to-[#161616] shrink-0">
           <div className="flex items-center justify-between gap-3">
             <div className="flex bg-black/40 p-1 rounded-2xl flex-1 border border-white/5">
@@ -214,19 +203,29 @@ const PlayerControls: React.FC<PlayerControlsProps> = ({
                   {convert('播放历史')}
                </button>
             </div>
-            
-            <button 
-              onClick={handleClearAction}
-              disabled={(queueTab === 'queue' && tracks.length === 0) || (queueTab === 'history' && historyTracks.length === 0)}
-              title={convert(queueTab === 'queue' ? '清空队列' : '清空历史')}
-              className={`w-10 h-10 flex items-center justify-center rounded-full transition-all shrink-0 border border-white/5 bg-white/5 active:scale-90 ${((queueTab === 'queue' && tracks.length === 0) || (queueTab === 'history' && historyTracks.length === 0)) ? 'opacity-10 cursor-not-allowed text-zinc-600' : 'text-zinc-400 hover:bg-red-500/20 hover:text-red-500 hover:border-red-500/20'}`}
-            >
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M10 11v6M14 11v6"/></svg>
-            </button>
+            <div className="flex items-center gap-2">
+              {queueTab === 'queue' && (
+                <button 
+                  onClick={onSaveQueueAsPlaylist}
+                  disabled={tracks.length === 0}
+                  title="存为歌单"
+                  className="w-10 h-10 flex items-center justify-center rounded-full transition-all shrink-0 border border-white/5 bg-white/5 active:scale-90 disabled:opacity-20 disabled:cursor-not-allowed text-zinc-400 hover:bg-yellow-500/20 hover:text-yellow-500 hover:border-yellow-500/20"
+                >
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg>
+                </button>
+              )}
+              <button 
+                onClick={handleClearAction}
+                disabled={(queueTab === 'queue' && tracks.length === 0) || (queueTab === 'history' && historyTracks.length === 0)}
+                title={convert(queueTab === 'queue' ? '清空队列' : '清空历史')}
+                className={`w-10 h-10 flex items-center justify-center rounded-full transition-all shrink-0 border border-white/5 bg-white/5 active:scale-90 ${((queueTab === 'queue' && tracks.length === 0) || (queueTab === 'history' && historyTracks.length === 0)) ? 'opacity-10 cursor-not-allowed text-zinc-600' : 'text-zinc-400 hover:bg-red-500/20 hover:text-red-500 hover:border-red-500/20'}`}
+              >
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M10 11v6M14 11v6"/></svg>
+              </button>
+            </div>
           </div>
         </div>
 
-        {/* 统一列表区域 */}
         <div className="overflow-y-auto p-2 flex-1 custom-scrollbar bg-[#111]">
           {queueTab === 'queue' ? (
             tracks.length > 0 ? (
@@ -244,7 +243,7 @@ const PlayerControls: React.FC<PlayerControlsProps> = ({
                             const draggedId = e.dataTransfer.getData('trackId');
                             if (draggedId !== track.id) onReorder(draggedId, track.id);
                         }}
-                        className={`group flex items-center gap-4 p-3 rounded-2xl cursor-pointer transition-all border mb-1 relative ${idx === currentIndex ? 'bg-[#1a1a1a] border-[#333]' : 'border-transparent hover:bg-white/[0.03]'} ${draggedOverId === track.id ? 'border-t-2 border-t-yellow-500 pt-6' : ''}`}
+                        className={`group flex items-center gap-4 p-3 rounded-2xl cursor-pointer transition-all border mb-1 relative active:bg-white/5 ${idx === currentIndex ? 'bg-[#1a1a1a] border-[#333]' : 'border-transparent hover:bg-white/[0.03]'} ${draggedOverId === track.id ? 'border-t-2 border-t-yellow-500 pt-6' : ''}`}
                         onClick={() => onSelectTrack(idx)}
                         >
                         <div className="w-8 flex items-center justify-center shrink-0">
@@ -255,8 +254,18 @@ const PlayerControls: React.FC<PlayerControlsProps> = ({
                         </div>
                         <div className="flex-1 min-w-0">
                             <div className={`font-bold text-sm truncate mb-0.5 tracking-tight ${idx === currentIndex ? 'text-yellow-500' : 'text-zinc-100'}`}>{convert(track.name)}</div>
-                            <div className="text-[10px] text-zinc-500 truncate font-bold uppercase tracking-widest">
-                                {convert(track.artist)}
+                            <div className="flex items-center gap-1 truncate">
+                                {track.artist.split(' / ').map((artist, index, arr) => (
+                                    <React.Fragment key={index}>
+                                        <button
+                                            onClick={(e) => { e.stopPropagation(); if (onNavigate) { onNavigate('artistProfile', artist.trim()); setShowQueue(false); } }}
+                                            className="text-[10px] text-zinc-500 font-bold uppercase tracking-widest text-left hover:text-yellow-500 transition-colors flex-shrink-0"
+                                        >
+                                            {convert(artist.trim())}
+                                        </button>
+                                        {index < arr.length - 1 && <span className="text-zinc-600 text-[10px] font-bold">/</span>}
+                                    </React.Fragment>
+                                ))}
                             </div>
                         </div>
                         
@@ -291,7 +300,7 @@ const PlayerControls: React.FC<PlayerControlsProps> = ({
                 return (
                     <div 
                     key={track.id + (track.historyTime || idx)} 
-                    className="group flex items-center gap-4 p-3 rounded-2xl cursor-pointer hover:bg-white/[0.03] transition-all mb-1 border border-transparent"
+                    className="group flex items-center gap-4 p-3 rounded-2xl cursor-pointer hover:bg-white/[0.03] active:bg-white/5 transition-all mb-1 border border-transparent"
                     onClick={() => onPlayFromHistory?.(track)}
                     >
                     <div className="w-8 flex items-center justify-center shrink-0 text-zinc-700">
@@ -302,7 +311,19 @@ const PlayerControls: React.FC<PlayerControlsProps> = ({
                     </div>
                     <div className="flex-1 min-w-0">
                         <div className="font-bold text-sm truncate mb-0.5 text-zinc-300 group-hover:text-white tracking-tight">{convert(track.name)}</div>
-                        <div className="text-[10px] text-zinc-500 truncate font-bold uppercase tracking-widest">{convert(track.artist)}</div>
+                        <div className="flex items-center gap-1 truncate">
+                            {track.artist.split(' / ').map((artist, index, arr) => (
+                                <React.Fragment key={index}>
+                                    <button
+                                        onClick={(e) => { e.stopPropagation(); if (onNavigate) { onNavigate('artistProfile', artist.trim()); setShowQueue(false); } }}
+                                        className="text-[10px] text-zinc-500 font-bold uppercase tracking-widest text-left hover:text-yellow-500 transition-colors flex-shrink-0"
+                                    >
+                                        {convert(artist.trim())}
+                                    </button>
+                                    {index < arr.length - 1 && <span className="text-zinc-600 text-[10px] font-bold">/</span>}
+                                </React.Fragment>
+                            ))}
+                        </div>
                     </div>
                     <div className="flex items-center gap-1 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
                         <button 
@@ -327,11 +348,38 @@ const PlayerControls: React.FC<PlayerControlsProps> = ({
           )}
         </div>
         
-        {/* 底部渐变遮罩，保持列表底部平滑感 */}
         <div className="h-4 bg-gradient-to-t from-[#111] to-transparent shrink-0 pointer-events-none" />
       </div>
 
-      {/* 底部主控制栏 */}
+      {/* 移动端控制条 - 增大点击区域和触控感 */}
+      <div className={`md:hidden fixed bottom-16 left-0 right-0 z-[100] px-4 py-2 bg-black/40 backdrop-blur-xl border-t border-white/5`}>
+          <div ref={mobileProgressBarRef} onPointerDown={handleSeekStart} onPointerMove={handleSeekMove} onPointerUp={handleSeekEnd} onPointerCancel={handleSeekEnd} className="absolute -top-1.5 left-0 right-0 h-4 flex items-center cursor-pointer group touch-none">
+              <div className="h-0.5 w-full bg-white/10 relative overflow-hidden">
+                  <div className="absolute top-0 left-0 h-full bg-yellow-500 transition-all duration-100" style={{ width: `${progressPercent}%` }} />
+              </div>
+          </div>
+          <div className="flex items-center justify-between gap-4">
+              <div className="flex items-center gap-3 min-w-0 flex-1" onClick={() => setShowQueue(!showQueue)}>
+                  <div className="w-10 h-10 rounded-lg bg-zinc-800 shrink-0 overflow-hidden shadow-lg">
+                      {currentTrack?.coverUrl ? <img src={currentTrack.coverUrl} className="w-full h-full object-cover" /> : <div className="w-full h-full bg-yellow-500/10" />}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                      <div className="text-xs font-bold text-white truncate">{convert(currentTrack?.name || "黑胶时光")}</div>
+                      <div className="text-[10px] text-zinc-500 truncate">{convert(currentTrack?.artist || "享受纯净音质")}</div>
+                  </div>
+              </div>
+              <div className="flex items-center gap-1">
+                  <button onClick={(e) => { e.stopPropagation(); onTogglePlay(); }} className="w-12 h-12 flex items-center justify-center text-white active:scale-90 transition-transform">
+                      {isPlaying ? <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg> : <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M5 3l14 9-14 9V3z"/></svg>}
+                  </button>
+                  <button onClick={(e) => { e.stopPropagation(); onNext(); }} className="w-12 h-12 flex items-center justify-center text-white active:scale-90 transition-transform">
+                      <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M5 4l10 8-10 8V4zM19 5v14h-2V5h2z"/></svg>
+                  </button>
+              </div>
+          </div>
+      </div>
+
+      {/* 桌面端面板保持一致 */}
       <div className={`hidden md:flex fixed bottom-0 left-0 right-0 h-28 px-8 items-center justify-between z-[100] ${metallicPanelClass}`}>
         <div className="flex items-center gap-5 w-1/4 min-w-0">
            <div className="w-16 h-16 rounded-md bg-[#111] p-1 flex-shrink-0 relative overflow-hidden group">
@@ -339,9 +387,23 @@ const PlayerControls: React.FC<PlayerControlsProps> = ({
            </div>
            <div className="min-w-0 flex flex-col gap-1 pr-2">
               <h4 className="font-bold truncate text-sm text-yellow-500 select-none whitespace-nowrap overflow-hidden">{convert(currentTrack?.name || "等待选择曲目")}</h4>
-              <button onClick={() => onNavigate?.('artistProfile', currentTrack?.artist || '')} className="text-zinc-500 text-[10px] font-bold uppercase tracking-wider truncate text-left hover:text-yellow-500 transition-colors">{convert(currentTrack?.artist || "Vinyl Rhythm")}</button>
+              <div className="flex items-center gap-1.5 truncate">
+                {currentTrack?.artist ? (
+                  currentTrack.artist.split(' / ').map((artist, index, arr) => (
+                    <React.Fragment key={index}>
+                      <button onClick={() => onNavigate?.('artistProfile', artist.trim())} className="text-zinc-500 text-[10px] font-bold uppercase tracking-wider text-left hover:text-yellow-500 transition-colors flex-shrink-0">
+                        {convert(artist.trim())}
+                      </button>
+                      {index < arr.length - 1 && <span className="text-zinc-700 text-[10px] font-bold">/</span>}
+                    </React.Fragment>
+                  ))
+                ) : (
+                  <span className="text-zinc-500 text-[10px] font-bold uppercase tracking-wider truncate text-left">{convert("Vinyl Rhythm")}</span>
+                )}
+              </div>
            </div>
            <button onClick={() => onToggleFavorite()} disabled={!currentTrack} className={`w-8 h-8 flex-shrink-0 ${insetButtonClass(isFavorite)} ${isFavorite ? 'text-yellow-500' : ''} disabled:opacity-30`}><svg width="14" height="14" viewBox="0 0 24 24" fill={isFavorite ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2.5"><path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"/></svg></button>
+           <button onClick={() => currentTrack && onAddToPlaylist(currentTrack)} disabled={!currentTrack} className={`w-8 h-8 flex-shrink-0 ${insetButtonClass(false)} disabled:opacity-30`}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="19" x2="19" y1="8" y2="14"/><line x1="22" x2="16" y1="11" y2="11"/></svg></button>
         </div>
 
         <div className="flex flex-col items-center justify-center gap-1 w-2/4 h-full pt-1">
