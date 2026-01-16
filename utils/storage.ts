@@ -1,17 +1,24 @@
 const DB_NAME = 'VinylRhythmDB';
-const DB_VERSION = 10; // 升级版本至10
+const DB_VERSION = 11;
 const STORE_NAME = 'libraryHandles';
 const STORIES_STORE = 'trackStories';
 const HISTORY_STORE = 'playbackHistory';
 const TRACKS_CACHE_STORE = 'tracksCache';
 const ARTIST_METADATA_STORE = 'artistMetadata';
 const PLAYLISTS_STORE = 'playlists';
+const WEBDAV_FOLDERS_STORE = 'webdavFolders';
 
 let dbInstance: IDBDatabase | null = null;
 
 const initDB = async (): Promise<IDBDatabase> => {
   if (dbInstance) return dbInstance;
-  if (navigator.storage && navigator.storage.persist) await navigator.storage.persist();
+  if (navigator.storage && navigator.storage.persist) {
+    try {
+      await navigator.storage.persist();
+    } catch (e) {
+      console.warn('storage.persist failed:', e);
+    }
+  }
 
   return new Promise((resolve, reject) => {
     const request = indexedDB.open(DB_NAME, DB_VERSION);
@@ -36,6 +43,9 @@ const initDB = async (): Promise<IDBDatabase> => {
       // 核心修复：确保歌单存储空间存在
       if (!db.objectStoreNames.contains(PLAYLISTS_STORE)) {
         db.createObjectStore(PLAYLISTS_STORE, { keyPath: 'id' });
+      }
+      if (!db.objectStoreNames.contains(WEBDAV_FOLDERS_STORE)) {
+        db.createObjectStore(WEBDAV_FOLDERS_STORE, { keyPath: 'id' });
       }
     };
     request.onsuccess = () => {
@@ -202,18 +212,48 @@ export const clearPlaybackHistory = async () => {
   tx.objectStore(HISTORY_STORE).clear();
 };
 
-export const saveLibraryFolder = async (id: string, handle: FileSystemDirectoryHandle, totalFilesCount?: number, lastSync?: number) => {
-  const db = await initDB();
-  const tx = db.transaction(STORE_NAME, 'readwrite');
-  const store = tx.objectStore(STORE_NAME);
-  const request = store.get(id);
-  request.onsuccess = () => {
-      const existing = request.result;
-      store.put({ id, handle, name: handle.name, addedAt: existing?.addedAt || Date.now(), lastSync: lastSync !== undefined ? lastSync : (existing?.lastSync || 0), totalFilesCount: totalFilesCount !== undefined ? totalFilesCount : existing?.totalFilesCount });
-  };
+const getFolderNameFromPath = (folderPath: string) => {
+  const normalized = folderPath.replace(/[\\/]+$/, '');
+  const parts = normalized.split(/[\\/]/).filter(Boolean);
+  return parts.length > 0 ? parts[parts.length - 1] : folderPath;
 };
 
-export const getAllLibraryFolders = async (): Promise<{id: string, handle: FileSystemDirectoryHandle, name: string, totalFilesCount?: number, lastSync?: number, addedAt?: number}[]> => {
+export const saveLibraryFolder = async (
+  id: string,
+  handleOrPath: FileSystemDirectoryHandle | string,
+  totalFilesCount?: number,
+  lastSync?: number
+) => {
+  const db = await initDB();
+  return new Promise<void>((resolve, reject) => {
+    const tx = db.transaction(STORE_NAME, 'readwrite');
+    const store = tx.objectStore(STORE_NAME);
+    const request = store.get(id);
+    request.onsuccess = () => {
+      const existing = request.result;
+      const base: any = {
+        id,
+        name: typeof handleOrPath === 'string' ? getFolderNameFromPath(handleOrPath) : handleOrPath.name,
+        addedAt: existing?.addedAt || Date.now(),
+        lastSync: lastSync !== undefined ? lastSync : (existing?.lastSync || 0),
+        totalFilesCount: totalFilesCount !== undefined ? totalFilesCount : existing?.totalFilesCount
+      };
+      if (typeof handleOrPath === 'string') {
+        base.path = handleOrPath;
+        base.handle = undefined;
+      } else {
+        base.handle = handleOrPath;
+        base.path = undefined;
+      }
+      store.put(base);
+    };
+    request.onerror = () => reject(request.error);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+};
+
+export const getAllLibraryFolders = async (): Promise<{id: string, handle?: FileSystemDirectoryHandle, path?: string, name: string, totalFilesCount?: number, lastSync?: number, addedAt?: number}[]> => {
   const db = await initDB();
   const tx = db.transaction(STORE_NAME, 'readonly');
   const request = tx.objectStore(STORE_NAME).getAll();
@@ -234,6 +274,58 @@ export const removeLibraryFolder = async (id: string) => {
     request.onsuccess = (event: any) => {
       const cursor = event.target.result;
       if (cursor) { cursor.delete(); cursor.continue(); } else { resolve(); }
+    };
+    request.onerror = () => reject(request.error);
+  });
+};
+
+export const saveWebdavFolder = async (folder: any) => {
+  const db = await initDB();
+  return new Promise<void>((resolve, reject) => {
+    const tx = db.transaction(WEBDAV_FOLDERS_STORE, 'readwrite');
+    const store = tx.objectStore(WEBDAV_FOLDERS_STORE);
+    store.put(folder);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+};
+
+export const getWebdavFolder = async (id: string): Promise<any | undefined> => {
+  const db = await initDB();
+  const tx = db.transaction(WEBDAV_FOLDERS_STORE, 'readonly');
+  const request = tx.objectStore(WEBDAV_FOLDERS_STORE).get(id);
+  return new Promise((resolve, reject) => {
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+};
+
+export const getAllWebdavFolders = async (): Promise<any[]> => {
+  const db = await initDB();
+  const tx = db.transaction(WEBDAV_FOLDERS_STORE, 'readonly');
+  const request = tx.objectStore(WEBDAV_FOLDERS_STORE).getAll();
+  return new Promise((resolve) => {
+    request.onsuccess = () => resolve(request.result || []);
+    request.onerror = () => resolve([]);
+  });
+};
+
+export const removeWebdavFolder = async (id: string) => {
+  const db = await initDB();
+  const tx = db.transaction([WEBDAV_FOLDERS_STORE, TRACKS_CACHE_STORE], 'readwrite');
+  tx.objectStore(WEBDAV_FOLDERS_STORE).delete(id);
+  const trackStore = tx.objectStore(TRACKS_CACHE_STORE);
+  const index = trackStore.index('folderId');
+  const request = index.openCursor(IDBKeyRange.only(id));
+  return new Promise<void>((resolve, reject) => {
+    request.onsuccess = (event: any) => {
+      const cursor = event.target.result;
+      if (cursor) {
+        cursor.delete();
+        cursor.continue();
+      } else {
+        resolve();
+      }
     };
     request.onerror = () => reject(request.error);
   });
@@ -266,6 +358,13 @@ export const exportDatabase = async () => {
       resolve(raw.map(({ handle, ...rest }: any) => rest));
     };
   });
+  const txWebdav = db.transaction(WEBDAV_FOLDERS_STORE, 'readonly');
+  const webdavFolders = await new Promise<any[]>(resolve => {
+    txWebdav.objectStore(WEBDAV_FOLDERS_STORE).getAll().onsuccess = (e: any) => {
+      const raw = e.target.result || [];
+      resolve(raw.map(({ password, ...rest }: any) => rest));
+    };
+  });
   const txStories = db.transaction(STORIES_STORE, 'readonly');
   const stories = await new Promise<any[]>(resolve => {
     txStories.objectStore(STORIES_STORE).getAll().onsuccess = (e: any) => resolve(e.target.result);
@@ -277,7 +376,7 @@ export const exportDatabase = async () => {
         resolve(raw.map(({ coverBlob, ...rest }: any) => rest));
     };
   });
-  const data = { version: DB_VERSION, exportDate: Date.now(), folders, stories, tracks, favorites: JSON.parse(localStorage.getItem('vinyl_favorites') || '[]') };
+  const data = { version: DB_VERSION, exportDate: Date.now(), folders, webdavFolders, stories, tracks, favorites: JSON.parse(localStorage.getItem('vinyl_favorites') || '[]') };
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
@@ -295,6 +394,12 @@ export const importDatabase = async (jsonString: string) => {
       const tx = db.transaction(STORE_NAME, 'readwrite');
       const store = tx.objectStore(STORE_NAME);
       for (const item of data.folders) store.put(item);
+      await new Promise(res => tx.oncomplete = res);
+    }
+    if (data.webdavFolders && Array.isArray(data.webdavFolders)) {
+      const tx = db.transaction(WEBDAV_FOLDERS_STORE, 'readwrite');
+      const store = tx.objectStore(WEBDAV_FOLDERS_STORE);
+      for (const item of data.webdavFolders) store.put(item);
       await new Promise(res => tx.oncomplete = res);
     }
     if (data.stories && Array.isArray(data.stories)) {

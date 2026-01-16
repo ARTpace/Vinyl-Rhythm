@@ -3,7 +3,7 @@ productName: 黑胶时光
 copyright: Copyright © 2026
 
 directories:
-  output: dist_electron
+  output: dist_electron_fixed
   buildResources: build
 
 # 默认会包含所有文件并自动排除 devDependencies，所以我们不需要手动指定 files

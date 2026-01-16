@@ -61,6 +61,14 @@ interface Window {
         format: string;
       };
     } | null>;
+    webdavList: (options: { baseUrl: string; rootPath: string; username?: string; password?: string }) => Promise<Array<{
+      remotePath: string;
+      name: string;
+      size: number;
+      lastModified?: number;
+    }>>;
+    webdavDownload: (options: { baseUrl: string; remotePath: string; username?: string; password?: string; folderId: string }) => Promise<{ localPath: string }>;
+    webdavClearCache: (folderId: string) => Promise<void>;
   };
   shortcutBridge?: {
     onPlayPause: (callback: () => void) => () => void;

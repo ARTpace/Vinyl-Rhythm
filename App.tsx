@@ -121,37 +121,137 @@ const App: React.FC = () => {
     });
   }, []);
 
-  useEffect(() => {
+  const captureSnapshot = useCallback((eventName: string) => {
     const audio = player.audioRef.current;
-    if (!audio) return;
+    const now = new Date();
+    const base = [`${now.toLocaleTimeString()}.${String(now.getMilliseconds()).padStart(3, '0')}`, eventName];
 
-    const snapshot = (eventName: string) => {
+    const env = window.windowBridge ? 'electron' : 'web';
+    base.push(`env=${env}`);
+    base.push(`view=${view}`);
+    base.push(`tracks=${library.tracks.length}`);
+    base.push(`queue=${playlist.length}`);
+    base.push(`folders=${library.importedFolders.length}`);
+    base.push(`importing=${library.isImporting ? 1 : 0}`);
+
+    if (currentTrack) {
+      base.push(`track=${(currentTrack.name || '').slice(0, 36)}`);
+      base.push(`artist=${(currentTrack.artist || '').slice(0, 24)}`);
+      base.push(`album=${(currentTrack.album || '').slice(0, 24)}`);
+      base.push(`fp=${(currentTrack.fingerprint || '').slice(0, 28)}`);
+      base.push(`folder=${(currentTrack.folderId || '').slice(0, 18)}`);
+      if ((currentTrack as any).path) base.push(`path=${String((currentTrack as any).path).split(/[\\/]/).pop()}`);
+    }
+
+    if (audio) {
       const src = audio.currentSrc || audio.src || '';
       const e = audio.error;
       const err = e ? `ERR_${e.code}` : 'none';
       const ctx = (window as any).audioContextInstance as AudioContext | undefined;
       const ctxState = ctx?.state || 'none';
-      const line = [
-        new Date().toLocaleTimeString(),
-        eventName,
-        `paused=${audio.paused}`,
-        `readyState=${audio.readyState}`,
-        `err=${err}`,
-        `ctx=${ctxState}`,
-        src ? `src=${src.split('/').pop()}` : ''
-      ].filter(Boolean).join(' | ');
-      pushAudioDebugLine(line);
-    };
+      const bufferedEnd = (() => {
+        try {
+          return audio.buffered.length ? audio.buffered.end(audio.buffered.length - 1) : 0;
+        } catch {
+          return 0;
+        }
+      })();
+
+      base.push(`paused=${audio.paused ? 1 : 0}`);
+      base.push(`rs=${audio.readyState}`);
+      base.push(`ns=${audio.networkState}`);
+      base.push(`t=${Number.isFinite(audio.currentTime) ? audio.currentTime.toFixed(2) : 'na'}`);
+      base.push(`d=${Number.isFinite(audio.duration) ? audio.duration.toFixed(2) : 'na'}`);
+      base.push(`buf=${Number.isFinite(bufferedEnd) ? bufferedEnd.toFixed(2) : 'na'}`);
+      base.push(`vol=${audio.volume.toFixed(2)}`);
+      base.push(`rate=${audio.playbackRate.toFixed(2)}`);
+      base.push(`err=${err}`);
+      base.push(`ctx=${ctxState}`);
+      if (src) base.push(`src=${src.split('/').pop()}`);
+    } else {
+      base.push('audio=none');
+    }
+
+    pushAudioDebugLine(base.filter(Boolean).join(' | '));
+  }, [player.audioRef, view, library.tracks.length, playlist.length, library.importedFolders.length, library.isImporting, currentTrack, pushAudioDebugLine]);
+
+  useEffect(() => {
+    const audio = player.audioRef.current;
+    if (!audio) return;
 
     const events: Array<keyof HTMLMediaElementEventMap> = [
       'error', 'play', 'playing', 'pause', 'waiting', 'stalled', 'loadstart', 'canplay', 'ended'
     ];
 
-    events.forEach(name => audio.addEventListener(name, () => snapshot(name)));
+    const handlers = new Map<string, any>();
+    events.forEach(name => {
+      const handler = () => captureSnapshot(name);
+      handlers.set(name, handler);
+      audio.addEventListener(name, handler);
+    });
     return () => {
-      events.forEach(name => audio.removeEventListener(name, () => snapshot(name)));
+      events.forEach(name => {
+        const handler = handlers.get(name);
+        if (handler) audio.removeEventListener(name, handler);
+      });
     };
-  }, [player.audioRef, pushAudioDebugLine]);
+  }, [player.audioRef, captureSnapshot]);
+
+  useEffect(() => {
+    const onError = (event: ErrorEvent) => {
+      const msg = event.message || 'unknown';
+      const src = event.filename ? event.filename.split('/').pop() : '';
+      pushAudioDebugLine([new Date().toLocaleTimeString(), 'window.error', msg, src, event.lineno ? `L${event.lineno}` : ''].filter(Boolean).join(' | '));
+    };
+    const onRejection = (event: PromiseRejectionEvent) => {
+      const reason = (event.reason && (event.reason.stack || event.reason.message || String(event.reason))) || 'unknown';
+      pushAudioDebugLine([new Date().toLocaleTimeString(), 'unhandledrejection', String(reason).slice(0, 180)].join(' | '));
+    };
+    window.addEventListener('error', onError);
+    window.addEventListener('unhandledrejection', onRejection);
+    return () => {
+      window.removeEventListener('error', onError);
+      window.removeEventListener('unhandledrejection', onRejection);
+    };
+  }, [pushAudioDebugLine]);
+
+  useEffect(() => {
+    const origLog = console.log;
+    const origWarn = console.warn;
+    const origError = console.error;
+    const formatArg = (a: any) => {
+      if (a instanceof Error) return a.stack || a.message || String(a);
+      if (typeof a === 'string') return a;
+      if (a && typeof a === 'object') {
+        const msg = (a as any).message;
+        const stack = (a as any).stack;
+        if (typeof stack === 'string' && stack.trim()) return stack;
+        if (typeof msg === 'string' && msg.trim()) return msg;
+        try {
+          const s = JSON.stringify(a);
+          if (s && s !== '{}' && s !== '[]') return s;
+        } catch {}
+      }
+      try { return String(a); } catch { return 'unprintable'; }
+    };
+    console.log = (...args: any[]) => {
+      try { pushAudioDebugLine([new Date().toLocaleTimeString(), 'log', args.map(formatArg).join(' ')].join(' | ').slice(0, 240)); } catch {}
+      origLog(...args);
+    };
+    console.warn = (...args: any[]) => {
+      try { pushAudioDebugLine([new Date().toLocaleTimeString(), 'warn', args.map(formatArg).join(' ')].join(' | ').slice(0, 240)); } catch {}
+      origWarn(...args);
+    };
+    console.error = (...args: any[]) => {
+      try { pushAudioDebugLine([new Date().toLocaleTimeString(), 'error', args.map(formatArg).join(' ')].join(' | ').slice(0, 240)); } catch {}
+      origError(...args);
+    };
+    return () => {
+      console.log = origLog;
+      console.warn = origWarn;
+      console.error = origError;
+    };
+  }, [pushAudioDebugLine]);
 
   // 窗口控制逻辑
   useEffect(() => {
@@ -260,10 +360,14 @@ const App: React.FC = () => {
       <ImportWindow 
         isOpen={isImportWindowOpen} 
         onClose={() => setIsImportWindowOpen(false)} 
-        onFolderSelected={async (handle) => {
-           const newFolderId = await library.registerFolder(handle); 
+        onFolderSelected={async (handleOrPath) => {
+           const newFolderId = await library.registerFolder(handleOrPath); 
            if (newFolderId) library.syncFolder(newFolderId); 
         }} 
+        onWebdavSelected={async (config) => {
+          const newFolderId = await library.registerWebdavFolder?.(config);
+          if (newFolderId) library.syncFolder(newFolderId);
+        }}
         onReconnectFolder={library.reconnectFolder}
         onManualFilesSelect={async (files) => {
           const ok = await library.handleManualFilesSelect(files);
@@ -483,8 +587,11 @@ const App: React.FC = () => {
         {audioDebugOpen && (
           <div className="absolute left-4 right-4 bottom-32 md:bottom-28 z-[120] max-h-[40vh] overflow-hidden rounded-2xl border border-white/10 bg-black/70 backdrop-blur-md shadow-2xl">
             <div className="flex items-center justify-between px-4 py-3 border-b border-white/10">
-              <span className="text-[10px] font-black uppercase tracking-widest text-yellow-400">运行日志</span>
+              <span className="text-[10px] font-black uppercase tracking-widest text-yellow-400">
+                运行日志 · {window.windowBridge ? 'Electron' : 'Web'} · {library.importedFolders.length} folders
+              </span>
               <div className="flex items-center gap-2">
+                <button onClick={() => captureSnapshot('manual')} className="px-3 py-1 rounded-full bg-white/5 hover:bg-white/10 text-white text-[10px] font-black uppercase tracking-widest border border-white/10">快照</button>
                 <button onClick={async () => { const text = audioDebugLines.join('\n'); try { await navigator.clipboard.writeText(text); } catch {} }} className="px-3 py-1 rounded-full bg-white/5 hover:bg-white/10 text-white text-[10px] font-black uppercase tracking-widest border border-white/10">复制</button>
                 <button onClick={() => setAudioDebugLines([])} className="px-3 py-1 rounded-full bg-white/5 hover:bg-white/10 text-white text-[10px] font-black uppercase tracking-widest border border-white/10">清空</button>
                 <button onClick={() => setAudioDebugOpen(false)} className="w-8 h-8 flex items-center justify-center hover:bg-white/10 text-zinc-300 transition-colors rounded-lg"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><path d="M18 6 6 18M6 6l12 12"/></svg></button>

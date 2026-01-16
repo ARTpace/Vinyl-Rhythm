@@ -44,6 +44,7 @@ export interface LibraryFolder {
   lastSync: number;
   trackCount: number;
   totalFilesCount?: number; 
+  sourceType?: 'local' | 'webdav' | 'nas';
 }
 
 export interface LibraryGroup {

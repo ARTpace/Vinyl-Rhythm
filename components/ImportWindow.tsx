@@ -6,8 +6,9 @@ import ConfirmModal from './ConfirmModal';
 interface ImportWindowProps {
   isOpen: boolean;
   onClose: () => void;
-  onFolderSelected: (handle: FileSystemDirectoryHandle) => void;
-  onReconnectFolder?: (id: string, handle: FileSystemDirectoryHandle) => void;
+  onFolderSelected: (handleOrPath: FileSystemDirectoryHandle | string) => void;
+  onWebdavSelected?: (config: { baseUrl: string; rootPath: string; username?: string; password?: string; name?: string }) => void | Promise<void>;
+  onReconnectFolder?: (id: string, handleOrPath: FileSystemDirectoryHandle | string) => void;
   onRemoveFolder: (id: string) => void;
   importedFolders: (LibraryFolder & { hasHandle: boolean })[];
   onManualFilesSelect?: (files: FileList) => void;
@@ -20,6 +21,7 @@ const ImportWindow: React.FC<ImportWindowProps> = ({
   isOpen, 
   onClose, 
   onFolderSelected, 
+  onWebdavSelected,
   onReconnectFolder,
   onRemoveFolder, 
   importedFolders,
@@ -37,6 +39,13 @@ const ImportWindow: React.FC<ImportWindowProps> = ({
     folderName: string | null;
   }>({ isOpen: false, folderId: null, folderName: null });
 
+  const [webdavModalOpen, setWebdavModalOpen] = useState(false);
+  const [webdavName, setWebdavName] = useState('');
+  const [webdavBaseUrl, setWebdavBaseUrl] = useState('');
+  const [webdavRootPath, setWebdavRootPath] = useState('/music');
+  const [webdavUsername, setWebdavUsername] = useState('');
+  const [webdavPassword, setWebdavPassword] = useState('');
+
   if (!isOpen) return null;
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -51,6 +60,13 @@ const ImportWindow: React.FC<ImportWindowProps> = ({
 
   const handleReconnect = async (id: string) => {
     try {
+      if (window.windowBridge?.openDirectory) {
+        const folderPath = await window.windowBridge.openDirectory();
+        if (!folderPath) return;
+        if (onReconnectFolder) onReconnectFolder(id, folderPath);
+        return;
+      }
+
       const handle = await window.showDirectoryPicker();
       if (onReconnectFolder) {
         onReconnectFolder(id, handle);
@@ -94,6 +110,13 @@ const ImportWindow: React.FC<ImportWindowProps> = ({
 
   const handleAddFolderClick = async () => {
     try {
+      if (window.windowBridge?.openDirectory) {
+        const folderPath = await window.windowBridge.openDirectory();
+        if (!folderPath) return;
+        onFolderSelected(folderPath);
+        return;
+      }
+
       if (!window.showDirectoryPicker) {
         throw new Error("showDirectoryPicker API is not supported.");
       }
@@ -103,6 +126,33 @@ const ImportWindow: React.FC<ImportWindowProps> = ({
       console.warn("Modern directory picker failed, falling back to legacy input.", err);
       fileInputRef.current?.click();
     }
+  };
+
+  const canUseWebdav = !!onWebdavSelected;
+
+  const handleOpenWebdav = () => {
+    if (!canUseWebdav) return;
+    setWebdavModalOpen(true);
+  };
+
+  const handleSubmitWebdav = async () => {
+    if (!onWebdavSelected) return;
+    const baseUrl = webdavBaseUrl.trim();
+    const rootPath = webdavRootPath.trim() || '/';
+    if (!baseUrl || !rootPath) return;
+    await onWebdavSelected({
+      name: webdavName.trim() || undefined,
+      baseUrl,
+      rootPath,
+      username: webdavUsername || undefined,
+      password: webdavPassword || undefined
+    });
+    setWebdavModalOpen(false);
+    setWebdavName('');
+    setWebdavBaseUrl('');
+    setWebdavRootPath('/music');
+    setWebdavUsername('');
+    setWebdavPassword('');
   };
 
   return (
@@ -121,6 +171,58 @@ const ImportWindow: React.FC<ImportWindowProps> = ({
         onCancel={handleCancelRemove}
         confirmText="确认移除"
       />
+      {webdavModalOpen && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-md flex items-center justify-center z-[110] animate-in fade-in duration-300 px-4">
+          <div className="bg-[#181818] border border-white/10 rounded-[2.5rem] p-6 md:p-8 w-full max-w-[34rem] shadow-2xl relative overflow-hidden">
+            <div className="absolute top-0 right-0 -translate-y-1/2 translate-x-1/2 w-64 h-64 bg-blue-500/5 rounded-full blur-3xl" />
+            <div className="flex justify-between items-start mb-6 relative z-10">
+              <div>
+                <h2 className="text-2xl font-black text-white tracking-tighter">添加 WebDAV</h2>
+                <p className="text-zinc-500 text-[10px] font-black mt-1 uppercase tracking-[0.2em]">
+                  WebDAV Import
+                </p>
+              </div>
+              <button onClick={() => setWebdavModalOpen(false)} className="w-10 h-10 flex items-center justify-center rounded-full bg-white/5 hover:bg-white/10 text-zinc-400 hover:text-white transition-all active:scale-90">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><path d="M18 6 6 18M6 6l12 12"/></svg>
+              </button>
+            </div>
+
+            <div className="space-y-3 relative z-10">
+              <div>
+                <div className="text-[9px] font-black uppercase tracking-widest text-zinc-500 mb-1">名称（可选）</div>
+                <input value={webdavName} onChange={(e) => setWebdavName(e.target.value)} className="w-full bg-white/5 border border-white/10 rounded-2xl py-3 px-4 text-sm text-white focus:border-blue-500/50 outline-none transition-all" placeholder="例如：家里 NAS WebDAV" />
+              </div>
+              <div>
+                <div className="text-[9px] font-black uppercase tracking-widest text-zinc-500 mb-1">服务器地址</div>
+                <input value={webdavBaseUrl} onChange={(e) => setWebdavBaseUrl(e.target.value)} className="w-full bg-white/5 border border-white/10 rounded-2xl py-3 px-4 text-sm text-white focus:border-blue-500/50 outline-none transition-all" placeholder="例如：https://example.com/remote.php/dav/files/user" />
+              </div>
+              <div>
+                <div className="text-[9px] font-black uppercase tracking-widest text-zinc-500 mb-1">根目录路径</div>
+                <input value={webdavRootPath} onChange={(e) => setWebdavRootPath(e.target.value)} className="w-full bg-white/5 border border-white/10 rounded-2xl py-3 px-4 text-sm text-white focus:border-blue-500/50 outline-none transition-all" placeholder="/music 或 /Music" />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <div className="text-[9px] font-black uppercase tracking-widest text-zinc-500 mb-1">用户名</div>
+                  <input value={webdavUsername} onChange={(e) => setWebdavUsername(e.target.value)} className="w-full bg-white/5 border border-white/10 rounded-2xl py-3 px-4 text-sm text-white focus:border-blue-500/50 outline-none transition-all" />
+                </div>
+                <div>
+                  <div className="text-[9px] font-black uppercase tracking-widest text-zinc-500 mb-1">密码</div>
+                  <input type="password" value={webdavPassword} onChange={(e) => setWebdavPassword(e.target.value)} className="w-full bg-white/5 border border-white/10 rounded-2xl py-3 px-4 text-sm text-white focus:border-blue-500/50 outline-none transition-all" />
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-6 grid grid-cols-2 gap-3 relative z-10">
+              <button onClick={() => setWebdavModalOpen(false)} className="w-full bg-white/5 hover:bg-white/10 text-white py-4 rounded-full font-black text-xs uppercase tracking-widest active:scale-95 transition-all">
+                取消
+              </button>
+              <button onClick={handleSubmitWebdav} disabled={isImporting || !webdavBaseUrl.trim() || !webdavRootPath.trim()} className="w-full bg-blue-500 hover:bg-blue-400 text-black py-4 rounded-full font-black text-xs uppercase tracking-widest active:scale-95 transition-all disabled:opacity-50">
+                连接并导入
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       <div className="fixed inset-0 bg-black/80 backdrop-blur-md flex items-center justify-center z-[100] animate-in fade-in duration-300 px-4">
         <div className="bg-[#181818] border border-white/10 rounded-[2.5rem] p-6 md:p-8 w-full max-w-[34rem] max-h-[85vh] shadow-2xl relative overflow-hidden flex flex-col">
           
@@ -229,6 +331,14 @@ const ImportWindow: React.FC<ImportWindowProps> = ({
               >
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" className="group-hover:rotate-90 transition-transform"><path d="M12 5v14M5 12h14"/></svg>
                 添加新的音乐文件夹
+              </button>
+              <button
+                onClick={handleOpenWebdav}
+                disabled={isImporting || !canUseWebdav}
+                className="w-full bg-blue-500/10 hover:bg-blue-500 text-blue-400 hover:text-black border border-blue-500/20 py-4 rounded-full font-black text-sm active:scale-95 transition-all shadow-xl flex items-center justify-center gap-3 disabled:opacity-50"
+              >
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><path d="M4 12h16M12 4v16"/></svg>
+                添加 WebDAV
               </button>
               <div className="px-4 py-2.5 bg-blue-500/5 rounded-2xl border border-blue-500/10">
                 <p className="text-center text-[8px] text-blue-400/70 font-black uppercase tracking-widest">
