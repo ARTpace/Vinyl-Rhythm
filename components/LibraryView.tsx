@@ -21,7 +21,6 @@ interface LibraryViewProps {
   isSearching?: boolean;
   displayConverter?: (str: string) => string; 
   onEditFolder?: (folder: LibraryFolder) => void;
-  initialSortKey?: 'name' | 'artist' | 'album' | 'dateAdded' | 'discTrack';
 }
 
 const PAGE_SIZE = 50; 
@@ -150,7 +149,7 @@ const TrackRow = React.memo<{
 
 const LibraryView: React.FC<LibraryViewProps> = ({ 
   view, tracks, folders = [], onPlay, onAddToQueue, onAddToPlaylist, favorites, onToggleFavorite, onUpdateTrack, onNavigate, onBack,
-  navigationRequest, onNavigationProcessed, isSearching = false, displayConverter, onEditFolder
+  navigationRequest, onNavigationProcessed, isSearching = false, displayConverter, onEditFolder, initialSortKey
 }) => {
   const [activeGroup, setActiveGroup] = useState<string | null>(null);
   const [activeAlbum, setActiveAlbum] = useState<string | null>(null);
@@ -158,8 +157,11 @@ const LibraryView: React.FC<LibraryViewProps> = ({
   const [scrapingId, setScrapingId] = useState<string | null>(null);
   const [subTab, setSubTab] = useState<'all' | 'fav' | 'folders'>('all');
   
-  const [sortKey, setSortKey] = useState<'name' | 'artist' | 'album' | 'dateAdded' | 'discTrack'>(initialSortKey || 'dateAdded');
+  const [sortKey, setSortKey] = useState<'name' | 'artist' | 'album' | 'dateAdded'>('dateAdded');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
+  
+  const [albumSortKey, setAlbumSortKey] = useState<'name' | 'artist' | 'album' | 'dateAdded' | 'discTrack'>('dateAdded');
+  const [albumSortOrder, setAlbumSortOrder] = useState<'asc' | 'desc'>('asc');
 
   const [filterQuality, setFilterQuality] = useState<'all' | 'hires' | 'lossless' | 'hq' | 'sd'>('all');
   const [filterDecade, setFilterDecade] = useState<'all' | '2020s' | '2010s' | '2000s' | '90s' | '80s' | '70s' | 'pre70s'>('all');
@@ -169,6 +171,15 @@ const LibraryView: React.FC<LibraryViewProps> = ({
   const observerRef = useRef<IntersectionObserver | null>(null);
   const loadMoreRef = useRef<HTMLDivElement>(null);
   const lastViewRef = useRef(view);
+
+  useEffect(() => {
+    if (activeAlbum && albumSortKey !== 'discTrack') {
+      setAlbumSortKey('discTrack');
+      setAlbumSortOrder('asc');
+    } else if (!activeAlbum && albumSortKey === 'discTrack') {
+      setAlbumSortKey('dateAdded');
+    }
+  }, [activeAlbum, albumSortKey]);
 
   const folderIdToName = useMemo(() => {
     const map = new Map<string, string>();
@@ -237,28 +248,31 @@ const LibraryView: React.FC<LibraryViewProps> = ({
       });
     }
     
+    const currentSortKey = activeAlbum ? albumSortKey : sortKey;
+    const currentSortOrder = activeAlbum ? albumSortOrder : sortOrder;
+    
     list.sort((a, b) => {
-      if (sortKey === 'discTrack') {
+      if (currentSortKey === 'discTrack') {
         const discA = a.discNumber ?? 0;
         const discB = b.discNumber ?? 0;
         const trackA = a.trackNumber ?? 0;
         const trackB = b.trackNumber ?? 0;
         
         if (discA !== discB) {
-          return sortOrder === 'asc' ? discA - discB : discB - discA;
+          return currentSortOrder === 'asc' ? discA - discB : discB - discA;
         }
-        return sortOrder === 'asc' ? trackA - trackB : trackB - trackA;
+        return currentSortOrder === 'asc' ? trackA - trackB : trackB - trackA;
       }
       
-      let valA: any = (a as any)[sortKey] ?? '';
-      let valB: any = (b as any)[sortKey] ?? '';
+      let valA: any = (a as any)[currentSortKey] ?? '';
+      let valB: any = (b as any)[currentSortKey] ?? '';
       if (typeof valA === 'string' && typeof valB === 'string') { valA = valA.toLowerCase(); valB = valB.toLowerCase(); }
-      if (valA < valB) return sortOrder === 'asc' ? -1 : 1;
-      if (valA > valB) return sortOrder === 'asc' ? 1 : -1;
+      if (valA < valB) return currentSortOrder === 'asc' ? -1 : 1;
+      if (valA > valB) return currentSortOrder === 'asc' ? 1 : -1;
       return 0;
     });
     return list;
-  }, [tracks, favorites, subTab, activeGroup, activeAlbum, sortKey, sortOrder, isSearching, filterQuality, filterDecade, filterDuration, view]);
+  }, [tracks, favorites, subTab, activeGroup, activeAlbum, sortKey, sortOrder, albumSortKey, albumSortOrder, isSearching, filterQuality, filterDecade, filterDuration, view]);
 
   const groups = useMemo(() => {
     if (view !== 'all' || subTab !== 'folders' || activeGroup || activeAlbum || isSearching) return null;
@@ -340,7 +354,7 @@ const LibraryView: React.FC<LibraryViewProps> = ({
     return '本地曲库';
   }, [activeGroup, activeAlbum, view, folderIdToName]);
 
-  const sortOptions = [{ key: 'dateAdded', label: '最近添加' }, { key: 'name', label: '名称' }, { key: 'artist', label: '艺人' }, { key: 'album', label: '专辑' }, { key: 'discTrack', label: '碟号+音轨' }] as const;
+  const sortOptions = [{ key: 'dateAdded', label: '最近添加' }, { key: 'name', label: '名称' }, { key: 'artist', label: '艺人' }, { key: 'album', label: '专辑' }] as const;
   const resetFilters = () => { setFilterQuality('all'); setFilterDecade('all'); setFilterDuration('all'); };
   const hasActiveFilters = filterQuality !== 'all' || filterDecade !== 'all' || filterDuration !== 'all';
   const subTabs = [
@@ -422,9 +436,91 @@ const LibraryView: React.FC<LibraryViewProps> = ({
             })}
           </div>
         ) : (
-          <div className="space-y-1">
-            {filteredAndSortedTracks.length === 0 ? <div className="py-20 text-center flex flex-col items-center gap-4"><div className="text-zinc-800"><svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3M8 11h6"/></svg></div><p className="text-zinc-700 font-black uppercase tracking-[0.3em]">No matching tracks</p></div> : <>{filteredAndSortedTracks.slice(0, displayLimit).map((track, index) => <TrackRow key={track.id} track={track} index={index} isFavorite={favorites.has(track.id)} onPlay={onPlay} onAddToQueue={onAddToQueue} onAddToPlaylist={onAddToPlaylist} onToggleFavorite={onToggleFavorite} onScrape={handleScrape} isScraping={scrapingId === track.id} onNavigate={onNavigate} displayConverter={displayConverter} />)}</>}
-            {displayLimit < filteredAndSortedTracks.length && <div ref={loadMoreRef} className="h-20 flex items-center justify-center"><div className="w-1.5 h-1.5 rounded-full bg-yellow-500/30 animate-pulse" /></div>}
+          <div className="space-y-6">
+            {filteredAndSortedTracks.length === 0 ? (
+              <div className="py-20 text-center flex flex-col items-center gap-4">
+                <div className="text-zinc-800"><svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3M8 11h6"/></svg></div>
+                <p className="text-zinc-700 font-black uppercase tracking-[0.3em]">No matching tracks</p>
+              </div>
+            ) : activeAlbum ? (
+              (() => {
+                const tracksByDisc = filteredAndSortedTracks.reduce((acc: Map<number, Track[]>, track: Track) => {
+                  const disc = track.discNumber ?? 1;
+                  if (!acc.has(disc)) acc.set(disc, []);
+                  acc.get(disc)!.push(track);
+                  return acc;
+                }, new Map<number, Track[]>());
+                
+                const sortedDiscs = (Array.from(tracksByDisc.keys()) as number[]).sort((a: number, b: number) => a - b);
+                const totalDisplayed = sortedDiscs.reduce((sum: number, disc: number) => {
+                  const discTracks = tracksByDisc.get(disc)!;
+                  const discLimit = Math.max(0, (displayLimit as number) - sum);
+                  return sum + Math.min(discTracks.length, discLimit);
+                }, 0);
+                
+                return (
+                  <>
+                    {sortedDiscs.map((disc: number, discIndex: number) => {
+                      const discTracks = tracksByDisc.get(disc)!;
+                      const discStartIndex = (sortedDiscs.slice(0, discIndex) as number[]).reduce((sum: number, d: number) => sum + (tracksByDisc.get(d)?.length || 0), 0);
+                      const discLimit = Math.max(0, (displayLimit as number) - (discStartIndex as number));
+                      const displayTracks = discTracks.slice(0, discLimit);
+                      
+                      if (displayTracks.length === 0) return null;
+                      
+                      return (
+                        <div key={disc} className="space-y-1">
+                          <div className="flex items-center gap-3 mb-3">
+                            <div className="h-px flex-1 bg-gradient-to-r from-yellow-500/50 to-transparent"></div>
+                            <span className="text-xs font-black text-yellow-500 uppercase tracking-widest">
+                              {sortedDiscs.length > 1 ? `Disc ${disc}` : 'Track List'}
+                            </span>
+                            <div className="h-px flex-1 bg-gradient-to-l from-yellow-500/50 to-transparent"></div>
+                          </div>
+                          {displayTracks.map((track, index) => (
+                            <TrackRow 
+                              key={track.id} 
+                              track={track} 
+                              index={track.trackNumber ? track.trackNumber - 1 : index} 
+                              isFavorite={favorites.has(track.id)} 
+                              onPlay={onPlay} 
+                              onAddToQueue={onAddToQueue} 
+                              onAddToPlaylist={onAddToPlaylist} 
+                              onToggleFavorite={onToggleFavorite} 
+                              onScrape={handleScrape} 
+                              isScraping={scrapingId === track.id} 
+                              onNavigate={onNavigate} 
+                              displayConverter={displayConverter} 
+                            />
+                          ))}
+                        </div>
+                      );
+                    })}
+                    {totalDisplayed < filteredAndSortedTracks.length && <div ref={loadMoreRef} className="h-20 flex items-center justify-center"><div className="w-1.5 h-1.5 rounded-full bg-yellow-500/30 animate-pulse" /></div>}
+                  </>
+                );
+              })()
+            ) : (
+              <>
+                {filteredAndSortedTracks.slice(0, displayLimit).map((track, index) => (
+                  <TrackRow 
+                    key={track.id} 
+                    track={track} 
+                    index={index} 
+                    isFavorite={favorites.has(track.id)} 
+                    onPlay={onPlay} 
+                    onAddToQueue={onAddToQueue} 
+                    onAddToPlaylist={onAddToPlaylist} 
+                    onToggleFavorite={onToggleFavorite} 
+                    onScrape={handleScrape} 
+                    isScraping={scrapingId === track.id} 
+                    onNavigate={onNavigate} 
+                    displayConverter={displayConverter} 
+                  />
+                ))}
+                {displayLimit < filteredAndSortedTracks.length && <div ref={loadMoreRef} className="h-20 flex items-center justify-center"><div className="w-1.5 h-1.5 rounded-full bg-yellow-500/30 animate-pulse" /></div>}
+              </>
+            )}
           </div>
         )}
       </div>

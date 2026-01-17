@@ -157,8 +157,8 @@ export const parseFileToTrack = async (file: File, directoryCoverBlob: Blob | nu
     const artist = cleanArtistName(artistRaw);
     const album = common.album || "未知专辑";
     const title = common.title || fileInfo.title;
-    const discNumber = common.disk?.no || common.disk?.number || undefined;
-    const trackNumber = common.track?.no || common.track?.number || undefined;
+    const discNumber = common.disk?.no || undefined;
+    const trackNumber = common.track?.no || undefined;
 
     return {
       id: Math.random().toString(36).substring(2, 9),

@@ -820,6 +820,8 @@ export const useLibraryManager = () => {
                 bitrate: meta?.bitrate ?? existing.bitrate,
                 year: meta?.year ?? existing.year,
                 genre: meta?.genre ?? existing.genre,
+                discNumber: meta?.discNumber ?? existing.discNumber,
+                trackNumber: meta?.trackNumber ?? existing.trackNumber,
                 coverBlob: coverBlob || existing.coverBlob,
                 coverUrl: coverUrl || existing.coverUrl
               };
@@ -836,6 +838,8 @@ export const useLibraryManager = () => {
                 bitrate: meta?.bitrate,
                 year: meta?.year,
                 genre: meta?.genre,
+                discNumber: meta?.discNumber,
+                trackNumber: meta?.trackNumber,
                 fingerprint,
                 folderId: item.folderId,
                 lastModified: toTimestamp(item.file.mtime),
@@ -924,6 +928,8 @@ export const useLibraryManager = () => {
                 bitrate: meta?.bitrate,
                 year: meta?.year,
                 genre: meta?.genre,
+                discNumber: meta?.discNumber,
+                trackNumber: meta?.trackNumber,
                 fingerprint,
                 folderId: folder.id,
                 lastModified: Number(file.lastModified || Date.now()),

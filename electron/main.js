@@ -515,6 +515,8 @@ ipcMain.handle('metadata:get', async (event, filePath) => {
         bitrate: format.bitrate,
         year: common.year,
         genre: common.genre ? common.genre[0] : undefined,
+        discNumber: common.disk?.no,
+        trackNumber: common.track?.no,
         cover: coverData
       };
     } catch (error) {

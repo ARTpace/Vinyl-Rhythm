@@ -56,6 +56,8 @@ interface Window {
       bitrate?: number;
       year?: number;
       genre?: string;
+      discNumber?: number;
+      trackNumber?: number;
       cover?: {
         data: Uint8Array;
         format: string;

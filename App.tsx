@@ -690,7 +690,6 @@ const App: React.FC = () => {
                     onUpdateTrack={library.handleUpdateTrack} 
                     displayConverter={processDisplayString} 
                     onEditFolder={() => setIsImportWindowOpen(true)}
-                    initialSortKey={view === 'albums' ? 'discTrack' : undefined}
                   />
                 )}
             </div>
