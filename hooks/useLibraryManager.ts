@@ -380,6 +380,116 @@ export const useLibraryManager = () => {
     return true;
   }, []);
 
+  const testWebdavConnection = useCallback(async (config: { baseUrl: string; rootPath: string; username?: string; password?: string }) => {
+    const { baseUrl, rootPath, username, password } = config;
+    if (!baseUrl || !rootPath) return { success: false, message: '地址和路径不能为空' };
+
+    const toBase64 = (input: string) => {
+      try {
+        return btoa(unescape(encodeURIComponent(input)));
+      } catch {
+        return btoa(input);
+      }
+    };
+
+    const ensureTrailingSlash = (u: string) => u.endsWith('/') ? u : `${u}/`;
+
+    const buildWebdavRootUrl = (baseUrl: string, rootPath: string) => {
+      const base = ensureTrailingSlash(baseUrl.trim());
+      let sub = String(rootPath || '').trim().replace(/^\/+/, '');
+      if (sub && !sub.endsWith('/')) sub = `${sub}/`;
+      try {
+        return new URL(sub, base).toString();
+      } catch {
+        return base + sub;
+      }
+    };
+
+    const url = buildWebdavRootUrl(baseUrl, rootPath);
+
+    if (window.windowBridge) {
+      try {
+        const files = await window.windowBridge.webdavList({
+          baseUrl,
+          rootPath,
+          username,
+          password
+        });
+        if (files && Array.isArray(files)) {
+          return { success: true, message: `连接成功！发现 ${files.length} 个文件。` };
+        }
+        return { success: false, message: '连接失败：未能获取文件列表' };
+      } catch (e: any) {
+        return { success: false, message: `连接失败：${e.message || '未知错误'}` };
+      }
+    }
+
+    // Web Mode
+    try {
+      const headers: Record<string, string> = {
+        Depth: '0',
+        'Content-Type': 'application/xml; charset=utf-8'
+      };
+      if (username || password) {
+        headers.Authorization = `Basic ${toBase64(`${username}:${password}`)}`;
+      }
+      const body =
+        `<?xml version="1.0" encoding="utf-8"?>` +
+        `<d:propfind xmlns:d="DAV:">` +
+        `<d:prop><d:resourcetype/></d:prop>` +
+        `</d:propfind>`;
+
+      const res = await fetch(url, { method: 'PROPFIND', headers, body });
+      if (res.ok) {
+        return { success: true, message: '连接成功！' };
+      }
+      if (res.status === 401) return { success: false, message: '连接失败：用户名或密码错误 (401)' };
+      if (res.status === 404) return { success: false, message: '连接失败：路径不存在 (404)' };
+      if (res.status === 405) return { success: false, message: '连接失败：服务器不支持 PROPFIND (405)，请确认 WebDAV 已开启' };
+      return { success: false, message: `连接失败：HTTP ${res.status}` };
+    } catch (e: any) {
+      console.error('WebDAV test failed:', e);
+      // 检查是否可能是本地 IP 导致的跨域/证书问题
+      const isLocal = baseUrl.includes('192.168.') || baseUrl.includes('127.0.0.1') || baseUrl.includes('localhost') || baseUrl.includes('10.') || baseUrl.includes('172.');
+      if (isLocal) {
+        return { 
+          success: false, 
+          message: '连接失败：如果是网页版，浏览器会拦截私有网络请求。请确保您使用的是桌面客户端版本。' 
+        };
+      }
+      return { success: false, message: '连接失败：网络错误或跨域拦截 (CORS)。' };
+    }
+  }, []);
+
+  const updateWebdavFolder = useCallback(async (id: string, config: { baseUrl: string; rootPath: string; username?: string; password?: string; name?: string }) => {
+    const folders = await getAllWebdavFolders();
+    const existing = folders.find(f => f.id === id);
+    if (!existing) return;
+
+    const updated = {
+      ...existing,
+      ...config,
+      name: config.name || existing.name
+    };
+
+    await saveWebdavFolder(updated);
+    await loadData();
+  }, [loadData]);
+
+  const updateLibraryFolderName = useCallback(async (id: string, newName: string) => {
+    const folders = await getAllLibraryFolders();
+    const existing = folders.find(f => f.id === id);
+    if (!existing) return;
+
+    const updated = {
+      ...existing,
+      name: newName
+    };
+
+    await saveLibraryFolder(id, (existing.path || existing.handle) as any, existing.totalFilesCount, existing.lastSync, newName);
+    await loadData();
+  }, [loadData]);
+
   const syncFolders = useCallback(async (specificFolderId?: string) => {
     if (nasMode) {
       return syncNasLibrary();
@@ -1361,7 +1471,7 @@ export const useLibraryManager = () => {
     favorites, handleToggleFavorite, handleUpdateTrack, reorderTracks,
     syncAll: () => syncFolders(), 
     syncFolder: (id: string) => syncFolders(id), 
-    registerFolder, registerWebdavFolder, reconnectFolder, removeFolder: handleRemoveFolder, resolveTrackFile,
+    registerFolder, registerWebdavFolder, reconnectFolder, updateWebdavFolder, updateLibraryFolderName, testWebdavConnection, removeFolder: handleRemoveFolder, resolveTrackFile,
     handleManualFilesSelect,
     historyTracks,
     recordTrackPlayback,

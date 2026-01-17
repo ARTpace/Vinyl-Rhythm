@@ -67,6 +67,13 @@ interface Window {
       size: number;
       lastModified?: number;
     }>>;
+    webdavBrowse: (options: { baseUrl: string; pathname?: string; username?: string; password?: string }) => Promise<Array<{
+      remotePath: string;
+      name: string;
+      size: number;
+      isCollection: boolean;
+      lastModified?: number;
+    }>>;
     webdavDownload: (options: { baseUrl: string; remotePath: string; username?: string; password?: string; folderId: string }) => Promise<{ localPath: string }>;
     webdavClearCache: (folderId: string) => Promise<void>;
   };

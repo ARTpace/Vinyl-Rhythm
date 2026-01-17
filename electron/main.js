@@ -3,7 +3,7 @@
  * 已转换为 ES Module 以适配 package.json 的 "type": "module"
  */
 
-import { app, BrowserWindow, ipcMain, globalShortcut, shell, Tray, Menu, protocol, dialog, net } from 'electron';
+import { app, BrowserWindow, ipcMain, globalShortcut, shell, Tray, Menu, protocol, dialog, net, session } from 'electron';
 import path from 'path';
 import { fileURLToPath, pathToFileURL } from 'url';
 import fs from 'fs';
@@ -55,8 +55,8 @@ const cachePath = path.join(dataRootPath, 'Cache');
 
 app.setPath('userData', userDataPath);
 app.setPath('cache', cachePath);
-app.commandLine.appendSwitch('user-data-dir', userDataPath);
-app.commandLine.appendSwitch('disk-cache-dir', cachePath);
+// app.commandLine.appendSwitch('user-data-dir', userDataPath);
+// app.commandLine.appendSwitch('disk-cache-dir', cachePath);
 
 let mainWindow = null;
 let tray = null;
@@ -112,12 +112,19 @@ function registerLocalResourceProtocol() {
 
     try {
       const ext = path.extname(decodedPath).toLowerCase();
-      mimeType = 'audio/mpeg';
-      if (ext === '.flac') mimeType = 'audio/flac';
+      if (ext === '.mp3') mimeType = 'audio/mpeg';
+      else if (ext === '.flac') mimeType = 'audio/flac';
       else if (ext === '.wav') mimeType = 'audio/wav';
       else if (ext === '.ogg') mimeType = 'audio/ogg';
       else if (ext === '.m4a') mimeType = 'audio/mp4';
       else if (ext === '.aac') mimeType = 'audio/aac';
+      else if (ext === '.jpg' || ext === '.jpeg') mimeType = 'image/jpeg';
+      else if (ext === '.png') mimeType = 'image/png';
+      else if (ext === '.webp') mimeType = 'image/webp';
+      else if (ext === '.gif') mimeType = 'image/gif';
+      else if (ext === '.svg') mimeType = 'image/svg+xml';
+      else if (ext === '.css') mimeType = 'text/css';
+      else if (ext === '.js') mimeType = 'text/javascript';
 
       if (!fs.existsSync(decodedPath)) {
         console.warn(`[LocalResource] File not found: ${decodedPath}`);
@@ -518,13 +525,25 @@ ipcMain.handle('metadata:get', async (event, filePath) => {
   });
 
   ipcMain.handle('webdav:list', async (_event, options) => {
-    try {
-      const { baseUrl, rootPath, username, password } = options || {};
-      if (!baseUrl || !rootPath) return [];
-      return await webdavListRecursive({ baseUrl, rootPath, username, password });
-    } catch {
-      return [];
+    const { baseUrl, rootPath, username, password } = options || {};
+    if (!baseUrl || !rootPath) throw new Error('地址和路径不能为空');
+    return await webdavListRecursive({ baseUrl, rootPath, username, password });
+  });
+
+  ipcMain.handle('webdav:browse', async (_event, options) => {
+    const { baseUrl, pathname, username, password } = options || {};
+    if (!baseUrl) throw new Error('地址不能为空');
+    
+    let targetUrl = baseUrl;
+    if (!targetUrl.endsWith('/')) targetUrl += '/';
+    if (pathname) {
+      const p = pathname.replace(/^\/+/, '');
+      targetUrl = new URL(p, targetUrl).toString();
     }
+    
+    const xml = await webdavPropfind({ url: targetUrl, username, password });
+    const parsedUrl = new URL(targetUrl);
+    return parseWebdavMultistatus(xml, parsedUrl.pathname);
   });
 
   ipcMain.handle('webdav:download', async (_event, options) => {
@@ -788,6 +807,27 @@ async function webdavClearFolderCache(folderId) {
 
 // 应用准备就绪
 app.whenReady().then(async () => {
+  // 允许本地网络的自签名证书
+  session.defaultSession.setCertificateVerifyProc((request, callback) => {
+    const { hostname } = request;
+    if (!hostname) {
+      callback(-2);
+      return;
+    }
+    
+    if (
+      hostname === '127.0.0.1' ||
+      hostname === 'localhost' ||
+      hostname.startsWith('192.168.') ||
+      hostname.startsWith('10.') ||
+      hostname.startsWith('172.')
+    ) {
+      callback(0); // 0 表示信任证书
+    } else {
+      callback(-2); // -2 表示使用默认验证逻辑
+    }
+  });
+
   registerLocalResourceProtocol();
   createWindow();
   createMenu();
@@ -816,32 +856,5 @@ app.on('before-quit', () => {
   globalShortcut.unregisterAll();
 });
 
-// 监听 WebContents 创建，增加安全性
-app.on('web-contents-created', (event, contents) => {
-  contents.on('will-navigate', (event, navigationUrl) => {
-    const allowedDomains = ['localhost'];
-    try {
-      const url = new URL(navigationUrl);
-      if (!allowedDomains.includes(url.hostname)) {
-        event.preventDefault();
-      }
-    } catch (e) {
-      event.preventDefault();
-    }
-  });
-  
-  contents.setWindowOpenHandler(({ url }) => {
-    const allowedDomains = ['localhost'];
-    try {
-      const targetUrl = new URL(url);
-      if (allowedDomains.includes(targetUrl.hostname)) {
-        return { action: 'allow' };
-      }
-    } catch (e) {
-      // 忽略错误
-    }
-    
-    shell.openExternal(url);
-    return { action: 'deny' };
-  });
-});
+  // 移除可能干扰 UI 加载的全局拦截器
+  // app.on('web-contents-created', (event, contents) => { ... });

@@ -343,7 +343,8 @@ export const saveLibraryFolder = async (
   id: string,
   handleOrPath: FileSystemDirectoryHandle | string,
   totalFilesCount?: number,
-  lastSync?: number
+  lastSync?: number,
+  customName?: string
 ) => {
   const db = await initDB();
   return new Promise<void>((resolve, reject) => {
@@ -354,7 +355,7 @@ export const saveLibraryFolder = async (
       const existing = request.result;
       const base: any = {
         id,
-        name: typeof handleOrPath === 'string' ? getFolderNameFromPath(handleOrPath) : handleOrPath.name,
+        name: customName || existing?.name || (typeof handleOrPath === 'string' ? getFolderNameFromPath(handleOrPath) : handleOrPath.name),
         addedAt: existing?.addedAt || Date.now(),
         lastSync: lastSync !== undefined ? lastSync : (existing?.lastSync || 0),
         totalFilesCount: totalFilesCount !== undefined ? totalFilesCount : existing?.totalFilesCount

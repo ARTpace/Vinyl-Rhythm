@@ -20,6 +20,7 @@ interface LibraryViewProps {
   onNavigationProcessed?: () => void;
   isSearching?: boolean;
   displayConverter?: (str: string) => string; 
+  onEditFolder?: (folder: LibraryFolder) => void;
 }
 
 const PAGE_SIZE = 50; 
@@ -148,7 +149,7 @@ const TrackRow = React.memo<{
 
 const LibraryView: React.FC<LibraryViewProps> = ({ 
   view, tracks, folders = [], onPlay, onAddToQueue, onAddToPlaylist, favorites, onToggleFavorite, onUpdateTrack, onNavigate, onBack,
-  navigationRequest, onNavigationProcessed, isSearching = false, displayConverter
+  navigationRequest, onNavigationProcessed, isSearching = false, displayConverter, onEditFolder
 }) => {
   const [activeGroup, setActiveGroup] = useState<string | null>(null);
   const [activeAlbum, setActiveAlbum] = useState<string | null>(null);
@@ -384,10 +385,26 @@ const LibraryView: React.FC<LibraryViewProps> = ({
               const displayName = folderIdToName.get(id) || (id === 'undefined' ? '未知' : id);
               const isGroupEmpty = groupTracks.every(t => !t.coverUrl && !t.coverBlob);
               return (
-                <div key={id} onClick={() => setActiveGroup(id)} className="group cursor-pointer bg-white/5 border border-white/5 rounded-3xl p-4 hover:bg-white/10 transition-all">
+                <div key={id} onClick={() => setActiveGroup(id)} className="group cursor-pointer bg-white/5 border border-white/5 rounded-3xl p-4 hover:bg-white/10 transition-all relative">
                   <div className="aspect-square rounded-2xl bg-zinc-900 overflow-hidden mb-4 shadow-xl">{groupTracks.find(t => t.coverUrl)?.coverUrl ? <img src={groupTracks.find(t => t.coverUrl)!.coverUrl} className="w-full h-full object-cover opacity-60 group-hover:opacity-100 transition-opacity" /> : <div className="w-full h-full flex items-center justify-center text-zinc-700 text-4xl font-black relative">{displayName[0]}{isGroupEmpty && <div className="absolute top-2 right-2"><div className="w-2 h-2 rounded-full bg-yellow-500 animate-pulse" /></div>}</div>}</div>
                   <h3 className="text-white font-bold text-sm truncate uppercase tracking-tight">{convert(displayName)}</h3>
-                  <div className="flex items-center justify-between mt-1"><p className="text-[10px] text-zinc-600 font-bold uppercase tracking-widest">{groupTracks.length} TRACKS</p>{isGroupEmpty && <span className="text-[8px] text-yellow-500/50 font-black uppercase">Pending Sync</span>}</div>
+                  <div className="flex items-center justify-between mt-1">
+                    <p className="text-[10px] text-zinc-600 font-bold uppercase tracking-widest">{groupTracks.length} TRACKS</p>
+                    <div className="flex items-center gap-2">
+                      {isGroupEmpty && <span className="text-[8px] text-yellow-500/50 font-black uppercase">Pending Sync</span>}
+                      <button 
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          const folder = folders.find(f => f.id === id);
+                          if (folder) onEditFolder?.(folder);
+                        }}
+                        className="p-1.5 rounded-lg bg-white/5 text-zinc-500 hover:text-yellow-500 hover:bg-white/10 transition-all opacity-0 group-hover:opacity-100"
+                        title="编辑文件夹"
+                      >
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"/></svg>
+                      </button>
+                    </div>
+                  </div>
                 </div>
               );
             })}

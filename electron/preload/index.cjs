@@ -13,6 +13,7 @@ const windowBridge = {
   scanDirectory: (path) => ipcRenderer.invoke('fs:scan-directory', path),
   getMetadata: (path) => ipcRenderer.invoke('metadata:get', path),
   webdavList: (options) => ipcRenderer.invoke('webdav:list', options),
+  webdavBrowse: (options) => ipcRenderer.invoke('webdav:browse', options),
   webdavDownload: (options) => ipcRenderer.invoke('webdav:download', options),
   webdavClearCache: (folderId) => ipcRenderer.invoke('webdav:clear-cache', folderId)
 };

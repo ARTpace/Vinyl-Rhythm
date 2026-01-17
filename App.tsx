@@ -429,12 +429,15 @@ const App: React.FC = () => {
           const newFolderId = await library.registerWebdavFolder?.(config);
           if (newFolderId) library.syncFolder(newFolderId);
         }}
+        onTestWebdav={library.testWebdavConnection}
         onReconnectFolder={library.reconnectFolder}
         onManualFilesSelect={async (files) => {
           const ok = await library.handleManualFilesSelect(files);
           if (ok) { setView('all'); setIsImportWindowOpen(false); }
         }}
         onSyncFolder={library.syncFolder}
+        onUpdateWebdavFolder={library.updateWebdavFolder}
+        onUpdateLibraryFolderName={library.updateLibraryFolderName}
         onRemoveFolder={library.removeFolder} 
         importedFolders={library.importedFolders} 
         isImporting={library.isImporting}
@@ -677,6 +680,7 @@ const App: React.FC = () => {
                     onToggleFavorite={library.handleToggleFavorite} 
                     onUpdateTrack={library.handleUpdateTrack} 
                     displayConverter={processDisplayString} 
+                    onEditFolder={() => setIsImportWindowOpen(true)}
                   />
                 )}
             </div>
