@@ -29,6 +29,9 @@ const cleanArtistName = (artist) => {
   return artists.join(' / ');
 };
 
+// 允许忽略自签名证书错误（针对 WebDAV）
+app.commandLine.appendSwitch('ignore-certificate-errors');
+
 // 注册特权协议，必须在 app ready 之前调用
 protocol.registerSchemesAsPrivileged([
   { 
@@ -49,14 +52,17 @@ const dataRootPath = path.join(app.getPath('appData'), dataRootName);
 const userDataPath = path.join(dataRootPath, 'Profile');
 const cachePath = path.join(dataRootPath, 'Cache');
 
+// 支持的音乐格式后缀
+const AUDIO_EXTENSIONS = ['.mp3', '.flac', '.wav', '.ogg', '.m4a', '.aac'];
+
 [dataRootPath, userDataPath, cachePath].forEach((p) => {
   if (!fs.existsSync(p)) fs.mkdirSync(p, { recursive: true });
 });
 
 app.setPath('userData', userDataPath);
 app.setPath('cache', cachePath);
-// app.commandLine.appendSwitch('user-data-dir', userDataPath);
-// app.commandLine.appendSwitch('disk-cache-dir', cachePath);
+app.commandLine.appendSwitch('user-data-dir', userDataPath);
+app.commandLine.appendSwitch('disk-cache-dir', cachePath);
 
 let mainWindow = null;
 let tray = null;
@@ -112,19 +118,12 @@ function registerLocalResourceProtocol() {
 
     try {
       const ext = path.extname(decodedPath).toLowerCase();
-      if (ext === '.mp3') mimeType = 'audio/mpeg';
-      else if (ext === '.flac') mimeType = 'audio/flac';
+      mimeType = 'audio/mpeg';
+      if (ext === '.flac') mimeType = 'audio/flac';
       else if (ext === '.wav') mimeType = 'audio/wav';
       else if (ext === '.ogg') mimeType = 'audio/ogg';
       else if (ext === '.m4a') mimeType = 'audio/mp4';
       else if (ext === '.aac') mimeType = 'audio/aac';
-      else if (ext === '.jpg' || ext === '.jpeg') mimeType = 'image/jpeg';
-      else if (ext === '.png') mimeType = 'image/png';
-      else if (ext === '.webp') mimeType = 'image/webp';
-      else if (ext === '.gif') mimeType = 'image/gif';
-      else if (ext === '.svg') mimeType = 'image/svg+xml';
-      else if (ext === '.css') mimeType = 'text/css';
-      else if (ext === '.js') mimeType = 'text/javascript';
 
       if (!fs.existsSync(decodedPath)) {
         console.warn(`[LocalResource] File not found: ${decodedPath}`);
@@ -530,20 +529,10 @@ ipcMain.handle('metadata:get', async (event, filePath) => {
     return await webdavListRecursive({ baseUrl, rootPath, username, password });
   });
 
-  ipcMain.handle('webdav:browse', async (_event, options) => {
-    const { baseUrl, pathname, username, password } = options || {};
+  ipcMain.handle('webdav:list-dir', async (_event, options) => {
+    const { baseUrl, rootPath, username, password } = options || {};
     if (!baseUrl) throw new Error('地址不能为空');
-    
-    let targetUrl = baseUrl;
-    if (!targetUrl.endsWith('/')) targetUrl += '/';
-    if (pathname) {
-      const p = pathname.replace(/^\/+/, '');
-      targetUrl = new URL(p, targetUrl).toString();
-    }
-    
-    const xml = await webdavPropfind({ url: targetUrl, username, password });
-    const parsedUrl = new URL(targetUrl);
-    return parseWebdavMultistatus(xml, parsedUrl.pathname);
+    return await webdavListDir({ baseUrl, rootPath, username, password });
   });
 
   ipcMain.handle('webdav:download', async (_event, options) => {
@@ -563,7 +552,6 @@ ipcMain.handle('metadata:get', async (event, filePath) => {
  * 递归扫描音频文件
  */
 async function scanAudioFiles(dirPath) {
-  const audioExtensions = ['.mp3', '.flac', '.wav', '.ogg', '.m4a', '.aac'];
   let results = [];
 
   try {
@@ -576,7 +564,7 @@ async function scanAudioFiles(dirPath) {
         results = results.concat(subFiles);
       } else {
         const ext = path.extname(fullPath).toLowerCase();
-        if (audioExtensions.includes(ext)) {
+        if (AUDIO_EXTENSIONS.includes(ext)) {
           results.push({
             path: fullPath,
             name: path.basename(fullPath, ext),
@@ -606,12 +594,22 @@ function normalizeWebdavRootPath(rootPath) {
 }
 
 function resolveWebdavUrl(baseUrl, pathname) {
-  const u = new URL(baseUrl);
-  let base = u.toString();
-  if (!base.endsWith('/')) base = `${base}/`;
-  const raw = String(pathname || '');
-  if (raw.startsWith('http://') || raw.startsWith('https://')) return raw;
-  return new URL(raw, base).toString();
+  try {
+    const u = new URL(baseUrl);
+    let base = u.toString();
+    if (!base.endsWith('/')) base = `${base}/`;
+    const raw = String(pathname || '').trim();
+    if (raw.startsWith('http://') || raw.startsWith('https://')) return raw;
+    
+    if (raw.startsWith('/')) {
+      // 如果是绝对路径，我们尝试将其与 origin 结合
+      return u.origin + raw;
+    }
+    
+    return new URL(raw, base).toString();
+  } catch (e) {
+    return baseUrl + (pathname ? (baseUrl.endsWith('/') ? '' : '/') + pathname.replace(/^\/+/, '') : '');
+  }
 }
 
 function decodeXmlText(input) {
@@ -679,6 +677,7 @@ function parseWebdavMultistatus(xmlText, requestPathname) {
 }
 
 function webdavPropfind({ url, username, password }) {
+  console.log(`[WebDAV] PROPFIND ${url}`);
   const auth = basicAuthHeader(username, password);
   const body =
     `<?xml version="1.0" encoding="utf-8"?>` +
@@ -689,7 +688,8 @@ function webdavPropfind({ url, username, password }) {
   return new Promise((resolve, reject) => {
     const req = net.request({
       method: 'PROPFIND',
-      url
+      url,
+      redirect: 'follow'
     });
     req.setHeader('Depth', '1');
     req.setHeader('Content-Type', 'application/xml; charset=utf-8');
@@ -703,7 +703,7 @@ function webdavPropfind({ url, username, password }) {
         if (status >= 200 && status < 300) {
           resolve(Buffer.concat(chunks).toString('utf8'));
         } else {
-          reject(new Error(`WebDAV PROPFIND failed: ${status}`));
+          reject(new Error(`WebDAV PROPFIND failed: ${status} (URL: ${url})`));
         }
       });
     });
@@ -711,6 +711,27 @@ function webdavPropfind({ url, username, password }) {
     req.write(body);
     req.end();
   });
+}
+
+async function webdavListDir({ baseUrl, rootPath, username, password }) {
+  const root = normalizeWebdavRootPath(rootPath);
+  const rootUrl = resolveWebdavUrl(baseUrl, root ? `${root.replace(/\/+$/, '')}/` : '');
+  const normalizedUrl = rootUrl.endsWith('/') ? rootUrl : `${rootUrl}/`;
+
+  const xml = await webdavPropfind({ url: normalizedUrl, username, password });
+  let requestPathname = '';
+  try {
+    requestPathname = new URL(normalizedUrl).pathname;
+  } catch {}
+  
+  const items = parseWebdavMultistatus(xml, requestPathname || '');
+  return items.map(it => ({
+    remotePath: it.remotePath,
+    name: it.name,
+    size: it.size,
+    isCollection: it.isCollection,
+    lastModified: it.lastModified
+  }));
 }
 
 async function webdavListRecursive({ baseUrl, rootPath, username, password }) {
@@ -735,12 +756,15 @@ async function webdavListRecursive({ baseUrl, rootPath, username, password }) {
         const nextUrl = resolveWebdavUrl(baseUrl, it.remotePath);
         await walk(nextUrl);
       } else {
-        out.push({
-          remotePath: it.remotePath,
-          name: it.name,
-          size: it.size,
-          lastModified: it.lastModified
-        });
+        const ext = path.extname(it.name).toLowerCase();
+        if (AUDIO_EXTENSIONS.includes(ext)) {
+          out.push({
+            remotePath: it.remotePath,
+            name: it.name,
+            size: it.size,
+            lastModified: it.lastModified
+          });
+        }
       }
     }
   };
@@ -809,18 +833,15 @@ async function webdavClearFolderCache(folderId) {
 app.whenReady().then(async () => {
   // 允许本地网络的自签名证书
   session.defaultSession.setCertificateVerifyProc((request, callback) => {
-    const { hostname } = request;
-    if (!hostname) {
-      callback(-2);
-      return;
-    }
-    
+    const { url } = request;
     if (
-      hostname === '127.0.0.1' ||
-      hostname === 'localhost' ||
-      hostname.startsWith('192.168.') ||
-      hostname.startsWith('10.') ||
-      hostname.startsWith('172.')
+      url && (
+        url.startsWith('https://127.0.0.1') ||
+        url.startsWith('https://localhost') ||
+        url.startsWith('https://192.168.') ||
+        url.startsWith('https://10.') ||
+        url.startsWith('https://172.')
+      )
     ) {
       callback(0); // 0 表示信任证书
     } else {
@@ -856,5 +877,32 @@ app.on('before-quit', () => {
   globalShortcut.unregisterAll();
 });
 
-  // 移除可能干扰 UI 加载的全局拦截器
-  // app.on('web-contents-created', (event, contents) => { ... });
+// 监听 WebContents 创建，增加安全性
+app.on('web-contents-created', (event, contents) => {
+  contents.on('will-navigate', (event, navigationUrl) => {
+    const allowedDomains = ['localhost'];
+    try {
+      const url = new URL(navigationUrl);
+      if (!allowedDomains.includes(url.hostname)) {
+        event.preventDefault();
+      }
+    } catch (e) {
+      event.preventDefault();
+    }
+  });
+  
+  contents.setWindowOpenHandler(({ url }) => {
+    const allowedDomains = ['localhost'];
+    try {
+      const targetUrl = new URL(url);
+      if (allowedDomains.includes(targetUrl.hostname)) {
+        return { action: 'allow' };
+      }
+    } catch (e) {
+      // 忽略错误
+    }
+    
+    shell.openExternal(url);
+    return { action: 'deny' };
+  });
+});

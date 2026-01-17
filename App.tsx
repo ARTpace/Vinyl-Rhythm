@@ -19,7 +19,7 @@ import SaveToPlaylistModal from './components/SaveToPlaylistModal';
 import ConfirmDialog from './components/ConfirmDialog';
 import SearchDropdown from './components/SearchDropdown';
 import { Track, ViewType, Playlist } from './types';
-import { getTrackStory } from './services/geminiService';
+import { getTrackStory, setApiKey } from './services/geminiService';
 import { s2t } from './utils/chineseConverter';
 
 import { useLibraryManager } from './hooks/useLibraryManager';
@@ -55,6 +55,12 @@ const App: React.FC = () => {
     if (!str) return '';
     return settings.useTraditionalChinese ? s2t(str) : str;
   }, [settings.useTraditionalChinese]);
+
+  useEffect(() => {
+    if (settings.geminiApiKey) {
+      setApiKey(settings.geminiApiKey);
+    }
+  }, [settings.geminiApiKey]);
 
   const library = useLibraryManager();
   
@@ -430,6 +436,7 @@ const App: React.FC = () => {
           if (newFolderId) library.syncFolder(newFolderId);
         }}
         onTestWebdav={library.testWebdavConnection}
+        onListWebdavDir={library.listWebdavDir}
         onReconnectFolder={library.reconnectFolder}
         onManualFilesSelect={async (files) => {
           const ok = await library.handleManualFilesSelect(files);
@@ -442,7 +449,9 @@ const App: React.FC = () => {
         importedFolders={library.importedFolders} 
         isImporting={library.isImporting}
         syncingFolderId={library.syncingFolderId}
-      />
+        lastWebdavConfig={library.lastWebdavConfig}
+          onUpdateWebdavConfig={library.updateWebdavConfig}
+        />
 
       <ImportPlaylistModal 
         isOpen={isImportPlaylistModalOpen}

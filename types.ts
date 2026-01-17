@@ -59,6 +59,7 @@ export type PlaybackMode = 'normal' | 'shuffle' | 'loop';
 
 export interface AppSettings {
   enableAI: boolean;
+  geminiApiKey: string;
   spinSpeed: number; 
   showParticles: boolean;
   showBlurBackground: boolean;

@@ -1,7 +1,8 @@
 
-import React, { useRef } from 'react';
+import React, { useRef, useState } from 'react';
 import { AppSettings } from '../types';
 import { exportDatabase, importDatabase } from '../utils/storage';
+import { testApiKey } from '../services/geminiService';
 
 interface SettingsViewProps {
   settings: AppSettings;
@@ -112,6 +113,21 @@ const SettingsView: React.FC<SettingsViewProps> = ({ settings, onUpdate, onReset
     e.target.value = '';
   };
 
+  const [testingApi, setTestingApi] = useState(false);
+  const [apiTestResult, setApiTestResult] = useState<{ success: boolean; message: string; model?: string } | null>(null);
+
+  const handleTestApiKey = async () => {
+    if (!settings.geminiApiKey) {
+      setApiTestResult({ success: false, message: "请先输入 API Key" });
+      return;
+    }
+    setTestingApi(true);
+    setApiTestResult(null);
+    const result = await testApiKey(settings.geminiApiKey);
+    setApiTestResult(result);
+    setTestingApi(false);
+  };
+
   return (
     <div className="p-4 md:p-12 h-full overflow-y-auto custom-scrollbar animate-in fade-in slide-in-from-bottom-4 duration-700 pb-32">
       <header className="mb-10">
@@ -135,6 +151,42 @@ const SettingsView: React.FC<SettingsViewProps> = ({ settings, onUpdate, onReset
             checked={settings.enableAI} 
             onChange={(val) => onUpdate({ enableAI: val })} 
           />
+          <div className="h-px bg-white/5 my-4" />
+          <div className="space-y-3">
+            <div className="text-sm font-bold text-zinc-200">Gemini API Key</div>
+            <input 
+              type="password"
+              value={settings.geminiApiKey || ''}
+              onChange={(e) => onUpdate({ geminiApiKey: e.target.value })}
+              placeholder="输入您的 Gemini API Key"
+              className="w-full bg-zinc-800 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white placeholder:text-zinc-600 focus:border-yellow-500/50 outline-none transition-all"
+            />
+            <div className="flex items-center justify-between">
+              <div className="text-[10px] text-zinc-500 font-medium">
+                获取 API Key：<a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer" className="text-yellow-500 hover:text-yellow-400 underline">Google AI Studio</a>
+              </div>
+              <button 
+                onClick={handleTestApiKey}
+                disabled={testingApi}
+                className={`px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest transition-all border ${
+                  testingApi 
+                    ? 'bg-zinc-800 text-zinc-500 border-white/5 cursor-not-allowed' 
+                    : apiTestResult?.success 
+                      ? 'bg-emerald-500/20 text-emerald-500 border-emerald-500/30 hover:bg-emerald-500/30' 
+                      : apiTestResult 
+                        ? 'bg-red-500/20 text-red-500 border-red-500/30 hover:bg-red-500/30' 
+                        : 'bg-yellow-500/20 text-yellow-500 border-yellow-500/30 hover:bg-yellow-500/30 hover:shadow-[0_0_15px_rgba(234,179,8,0.3)]'
+                }`}
+              >
+                {testingApi ? '测试中...' : apiTestResult ? apiTestResult.message : '测试连接'}
+              </button>
+            </div>
+            {apiTestResult?.model && (
+              <div className="text-[10px] text-zinc-500 font-medium">
+                模型：{apiTestResult.model}
+              </div>
+            )}
+          </div>
         </SettingsCard>
 
         <SettingsCard title="数据与备份" icon={<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>}>

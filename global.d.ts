@@ -67,7 +67,7 @@ interface Window {
       size: number;
       lastModified?: number;
     }>>;
-    webdavBrowse: (options: { baseUrl: string; pathname?: string; username?: string; password?: string }) => Promise<Array<{
+    webdavListDir: (options: { baseUrl: string; rootPath?: string; username?: string; password?: string }) => Promise<Array<{
       remotePath: string;
       name: string;
       size: number;

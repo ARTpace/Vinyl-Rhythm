@@ -5,7 +5,8 @@ import { AppSettings } from '../types';
 const STORAGE_KEY = 'vinyl_rhythm_settings';
 
 const DEFAULT_SETTINGS: AppSettings = {
-  enableAI: false, // 默认不开启，由用户手动开启
+  enableAI: false,
+  geminiApiKey: '',
   spinSpeed: 15,
   showParticles: true,
   showBlurBackground: true,

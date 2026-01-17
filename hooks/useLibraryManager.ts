@@ -38,6 +38,10 @@ export const useLibraryManager = () => {
   const [nasMode, setNasMode] = useState(false);
   const [artistMetadata, setArtistMetadata] = useState<Map<string, string>>(new Map());
   const [followedArtists, setFollowedArtists] = useState<Set<string>>(new Set());
+  const [lastWebdavConfig, setLastWebdavConfig] = useState<{ baseUrl: string; username?: string; password?: string } | null>(() => {
+    const saved = localStorage.getItem('last_webdav_config');
+    return saved ? JSON.parse(saved) : null;
+  });
 
   const [favorites, setFavorites] = useState<Set<string>>(() => {
     const saved = localStorage.getItem('vinyl_favorites');
@@ -380,6 +384,28 @@ export const useLibraryManager = () => {
     return true;
   }, []);
 
+  const listWebdavDir = useCallback(async (config: { baseUrl: string; rootPath?: string; username?: string; password?: string }) => {
+    const { baseUrl, rootPath = '', username, password } = config;
+    if (!baseUrl) return [];
+
+    if (window.windowBridge) {
+      try {
+        return await (window as any).windowBridge.webdavListDir({
+          baseUrl,
+          rootPath,
+          username,
+          password
+        });
+      } catch (e) {
+        console.error('listWebdavDir failed:', e);
+        return [];
+      }
+    }
+
+    // Web Mode (Simple implementation for now, just to avoid errors)
+    return [];
+  }, []);
+
   const testWebdavConnection = useCallback(async (config: { baseUrl: string; rootPath: string; username?: string; password?: string }) => {
     const { baseUrl, rootPath, username, password } = config;
     if (!baseUrl || !rootPath) return { success: false, message: '地址和路径不能为空' };
@@ -416,6 +442,14 @@ export const useLibraryManager = () => {
           password
         });
         if (files && Array.isArray(files)) {
+          // 测试成功，保存配置
+          const lastConfig = {
+            baseUrl: baseUrl.trim(),
+            username: username || '',
+            password: password || ''
+          };
+          localStorage.setItem('last_webdav_config', JSON.stringify(lastConfig));
+          setLastWebdavConfig(lastConfig);
           return { success: true, message: `连接成功！发现 ${files.length} 个文件。` };
         }
         return { success: false, message: '连接失败：未能获取文件列表' };
@@ -441,6 +475,14 @@ export const useLibraryManager = () => {
 
       const res = await fetch(url, { method: 'PROPFIND', headers, body });
       if (res.ok) {
+        // 测试成功，保存配置
+        const lastConfig = {
+          baseUrl: baseUrl.trim(),
+          username: username || '',
+          password: password || ''
+        };
+        localStorage.setItem('last_webdav_config', JSON.stringify(lastConfig));
+        setLastWebdavConfig(lastConfig);
         return { success: true, message: '连接成功！' };
       }
       if (res.status === 401) return { success: false, message: '连接失败：用户名或密码错误 (401)' };
@@ -1370,7 +1412,17 @@ export const useLibraryManager = () => {
     }
   }, [loadData, nasMode, webdavFolderIds]);
 
-  const registerWebdavFolder = useCallback(async (config: { baseUrl: string; rootPath: string; username?: string; password?: string; name?: string }) => {
+  const updateWebdavConfig = useCallback((config: { baseUrl: string; username?: string; password?: string }) => {
+        const lastConfig = {
+            baseUrl: config.baseUrl.trim(),
+            username: config.username || '',
+            password: config.password || ''
+        };
+        localStorage.setItem('last_webdav_config', JSON.stringify(lastConfig));
+        setLastWebdavConfig(lastConfig);
+    }, []);
+
+    const registerWebdavFolder = useCallback(async (config: { baseUrl: string; rootPath: string; username?: string; password?: string; name?: string }) => {
     if (!config?.baseUrl || !config?.rootPath) return null;
     const id = `WEBDAV_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
     let hostName = '';
@@ -1392,6 +1444,14 @@ export const useLibraryManager = () => {
     };
     try {
       await saveWebdavFolder(entry);
+      // 保存最近使用的 WebDAV 配置（不保存 rootPath，因为用户通常会添加不同的子目录）
+      const lastConfig = {
+        baseUrl: config.baseUrl.trim(),
+        username: config.username || '',
+        password: config.password || ''
+      };
+      localStorage.setItem('last_webdav_config', JSON.stringify(lastConfig));
+      setLastWebdavConfig(lastConfig);
     } catch {}
     setWebdavFolderIds(prev => new Set([...Array.from(prev), id]));
     loadData().catch((e) => console.error('loadData unhandled:', e));
@@ -1471,11 +1531,12 @@ export const useLibraryManager = () => {
     favorites, handleToggleFavorite, handleUpdateTrack, reorderTracks,
     syncAll: () => syncFolders(), 
     syncFolder: (id: string) => syncFolders(id), 
-    registerFolder, registerWebdavFolder, reconnectFolder, updateWebdavFolder, updateLibraryFolderName, testWebdavConnection, removeFolder: handleRemoveFolder, resolveTrackFile,
+    registerFolder, registerWebdavFolder, updateWebdavConfig, reconnectFolder, updateWebdavFolder, updateLibraryFolderName, testWebdavConnection, listWebdavDir, removeFolder: handleRemoveFolder, resolveTrackFile,
     handleManualFilesSelect,
     historyTracks,
     recordTrackPlayback,
     fetchHistory, clearHistory, needsPermission, nasMode, artistMetadata,
-    followedArtists, handleFollowArtist, handleUnfollowArtist
+    followedArtists, handleFollowArtist, handleUnfollowArtist,
+    lastWebdavConfig
   };
 };

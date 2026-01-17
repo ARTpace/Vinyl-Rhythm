@@ -3,25 +3,35 @@ import { GoogleGenAI, Type } from "@google/genai";
 import { getStoredStory, saveStoryToStore } from "../utils/storage";
 
 const storyCache = new Map<string, string>();
+let customApiKey: string | null = null;
+
+export const setApiKey = (apiKey: string) => {
+  customApiKey = apiKey;
+};
+
+const getApiKey = (): string | null => {
+  return customApiKey || process.env.API_KEY || null;
+};
 
 /**
  * 核心请求封装
  */
 const generateContentWithRetry = async (prompt: string, useSearch = false): Promise<any> => {
-  if (!process.env.API_KEY) throw new Error("API_KEY_MISSING");
+  const apiKey = getApiKey();
+  if (!apiKey) throw new Error("API_KEY_MISSING");
 
-  // FIX: 始终使用命名参数对象初始化实例
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-  const model = useSearch ? 'gemini-3-pro-preview' : 'gemini-3-flash-preview';
+  const ai = new GoogleGenAI({ 
+    apiKey,
+    httpOptions: {
+      baseUrl: 'https://generativelanguage.googleapis.com'
+    }
+  });
+  const modelName = useSearch ? 'gemini-2.5-flash' : 'gemini-2.5-flash';
   
-  const config: any = { temperature: 0.7 };
-  if (useSearch) config.tools = [{ googleSearch: {} }];
-
-  // FIX: 调用 generateContent 时直接传入模型名称和内容
   const response = await ai.models.generateContent({
-    model,
+    model: modelName,
     contents: prompt,
-    config
+    config: { temperature: 0.7 }
   });
 
   return response;
@@ -40,18 +50,20 @@ export const getTrackStory = async (trackName: string, artist: string) => {
     return storedStory;
   }
 
-  if (!process.env.API_KEY) return "添加 API Key 解锁 AI 深度音乐解析。";
+  const apiKey = getApiKey();
+  console.log('getTrackStory - API Key:', apiKey ? '已设置' : '未设置');
+  if (!apiKey) return "添加 API Key 解锁 AI 深度音乐解析。";
 
   try {
     const prompt = `你是一位专业的乐评人。请简洁、感性地解读歌曲《${trackName}》（演唱：${artist}）。结合歌词意境和风格，控制在80字内，不要包含无关废话。`;
     const response = await generateContentWithRetry(prompt, false);
-    // FIX: 使用 .text 属性直接提取文本内容
     const result = response.text || "每一段旋律都是一个故事。";
     
     storyCache.set(cacheKey, result);
     saveStoryToStore(artist, trackName, result); 
     return result;
   } catch (e: any) {
+    console.error('Gemini API error:', e);
     if (e?.status === 429) return "AI 休息中，稍后为您解读。";
     return "音乐在指尖，故事在心间。";
   }
@@ -62,14 +74,19 @@ export const getTrackStory = async (trackName: string, artist: string) => {
  * FIX: 采用 SDK 推荐的 responseSchema 配置以获得可靠的 JSON 响应
  */
 export const repairMetadata = async (fileName: string) => {
-  if (!process.env.API_KEY) return null;
+  const apiKey = getApiKey();
+  if (!apiKey) return null;
   try {
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    const ai = new GoogleGenAI({ 
+      apiKey,
+      httpOptions: {
+        baseUrl: 'https://generativelanguage.googleapis.com'
+      }
+    });
     const response = await ai.models.generateContent({
-      model: "gemini-3-pro-preview",
+      model: "gemini-2.5-flash",
       contents: `分析音乐文件名称 "${fileName}"，并利用搜索工具返回准确的元数据。`,
       config: {
-        tools: [{ googleSearch: {} }],
         responseMimeType: "application/json",
         responseSchema: {
           type: Type.OBJECT,
@@ -92,5 +109,66 @@ export const repairMetadata = async (fileName: string) => {
   } catch (e) {
     console.error("Gemini repair metadata error:", e);
     return null;
+  }
+};
+
+export const testApiKey = async (apiKey: string): Promise<{ success: boolean; message: string; model?: string }> => {
+  try {
+    const ai = new GoogleGenAI({ 
+      apiKey,
+      httpOptions: {
+        baseUrl: 'https://generativelanguage.googleapis.com'
+      }
+    });
+    const response = await ai.models.generateContent({
+      model: "gemini-2.5-flash",
+      contents: "请回复：连接成功",
+      config: { temperature: 0.7 }
+    });
+
+    if (response.text && response.text.includes("连接成功")) {
+      return {
+        success: true,
+        message: "API 连接成功",
+        model: "gemini-2.5-flash"
+      };
+    } else {
+      return {
+        success: true,
+        message: "API 连接成功",
+        model: "gemini-2.5-flash"
+      };
+    }
+  } catch (e: any) {
+    console.error("API Key test error:", e);
+    const errorMessage = e?.message || "";
+    
+    if (e?.status === 401 || e?.status === 403) {
+      return {
+        success: false,
+        message: "API Key 无效或已过期"
+      };
+    } else if (e?.status === 429) {
+      if (errorMessage.includes("free_tier") || errorMessage.includes("limit: 0")) {
+        return {
+          success: false,
+          message: "免费配额已用完，请升级计划"
+        };
+      }
+      return {
+        success: false,
+        message: "API 配额已用完"
+      };
+    } else if (errorMessage.includes("RESOURCE_EXHAUSTED")) {
+      return {
+        success: false,
+        message: "资源已耗尽，请稍后重试"
+      };
+    } else {
+      return {
+        success: false,
+        message: e?.message || "连接失败，请检查网络"
+      };
+    }
   }
 };
