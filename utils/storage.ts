@@ -1,5 +1,5 @@
-const DB_NAME = 'VinylRhythmDB';
-const DB_VERSION = 12;
+const DB_NAME = 'VinylRhythm_v2';
+const DB_VERSION = 1;
 const STORE_NAME = 'libraryHandles';
 const STORIES_STORE = 'trackStories';
 const HISTORY_STORE = 'playbackHistory';

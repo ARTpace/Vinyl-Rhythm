@@ -1,147 +1,16 @@
-
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>黑胶时光 - 本地音乐播放器</title>
-    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="/index.css">
     <style>
-        @keyframes spin {
-            from { transform: rotate(0deg); }
-            to { transform: rotate(360deg); }
-        }
-        .animate-spin-slow {
-            animation: spin 15s linear infinite;
-        }
-        
-        /* 黑胶细密沟槽纹理 */
-        .vinyl-texture {
-            background: radial-gradient(circle at center, #222 0%, #111 100%),
-                        repeating-radial-gradient(
-                            circle at center,
-                            transparent,
-                            transparent 1px,
-                            rgba(255, 255, 255, 0.03) 1.5px,
-                            transparent 2px
-                        );
-        }
-        
-        /* 静态环境反光层 */
-        .vinyl-reflection {
-            background: conic-gradient(
-                from 0deg at 50% 50%,
-                transparent 0%,
-                rgba(255, 255, 255, 0.05) 10%,
-                transparent 20%,
-                transparent 45%,
-                rgba(255, 255, 255, 0.08) 50%,
-                transparent 55%,
-                transparent 80%,
-                rgba(255, 255, 255, 0.05) 90%,
-                transparent 100%
-            );
-        }
-
-        /* 音波扩散动画 */
-        @keyframes wave-spread {
-            0% { transform: scale(1); opacity: 0.5; }
-            100% { transform: scale(var(--tw-scale-to, 1.5)); opacity: 0; }
-        }
-        .animate-wave-spread {
-            animation: wave-spread 3s cubic-bezier(0, 0, 0.2, 1) infinite;
-        }
-
-        /* 粒子向上漂浮动画 */
-        @keyframes particle-float {
-            0% { transform: translateY(0) translateX(0) scale(0); opacity: 0; }
-            20% { opacity: 0.8; scale: 1; }
-            100% { transform: translateY(-120px) translateX(var(--tw-translate-x)) scale(0.5); opacity: 0; }
-        }
-        .animate-particle {
-            animation: particle-float var(--particle-duration) ease-out infinite;
-            animation-delay: var(--particle-delay);
-        }
-
-        /* 添加成功后的抛物线飞入动效：优化轨迹与落点 */
-        @keyframes fly-to-queue {
-            0% { 
-                transform: translate(0, 0) scale(1.2) rotate(0deg); 
-                opacity: 0; 
-                filter: blur(0px);
-            }
-            15% {
-                opacity: 1;
-                transform: translate(0, -20px) scale(1.1) rotate(45deg);
-            }
-            45% { 
-                transform: translate(var(--fly-x-mid), var(--fly-y-mid)) scale(0.8) rotate(180deg); 
-                opacity: 0.9;
-                filter: blur(1px);
-            }
-            100% { 
-                transform: translate(var(--fly-x-end), var(--fly-y-end)) scale(0.1) rotate(720deg); 
-                opacity: 0; 
-                filter: blur(4px);
-            }
-        }
-        .animate-fly {
-            animation: fly-to-queue 0.85s cubic-bezier(0.42, 0, 0.58, 1) forwards;
-        }
-
-        /* 按钮点击脉冲 */
-        @keyframes pulse-once {
-            0% { transform: scale(1); }
-            50% { transform: scale(1.3); }
-            100% { transform: scale(1); }
-        }
-        .animate-pulse-once {
-            animation: pulse-once 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
-        }
-
-        ::-webkit-scrollbar {
-            width: 6px;
-        }
-        ::-webkit-scrollbar-track {
-            background: transparent;
-        }
-        ::-webkit-scrollbar-thumb {
-            background: #444;
-            border-radius: 10px;
-        }
-        ::-webkit-scrollbar-thumb:hover {
-            background: #666;
-        }
-        .perspective-1000 {
-            perspective: 1000px;
-        }
+        body { background-color: #121212; color: #e5e7eb; }
     </style>
-<script type="importmap">
-{
-  "imports": {
-    "react": "https://esm.sh/react@19.0.0",
-    "react-dom": "https://esm.sh/react-dom@19.0.0",
-    "react-dom/client": "https://esm.sh/react-dom@19.0.0/client",
-    "@google/genai": "https://esm.sh/@google/genai@1.3.0",
-    "music-metadata-browser": "https://esm.sh/music-metadata-browser@2.5.10?deps=buffer",
-    "buffer": "https://esm.sh/buffer@6.0.3",
-    "react-dom/": "https://esm.sh/react-dom@^19.2.3/",
-    "react/": "https://esm.sh/react@^19.2.3/",
-    "path": "https://esm.sh/path@^0.12.7",
-    "vite": "https://esm.sh/vite@^7.3.1",
-    "@vitejs/plugin-react": "https://esm.sh/@vitejs/plugin-react@^5.1.2",
-    "url": "https://esm.sh/url@^0.11.4",
-    "electron": "https://esm.sh/electron@^40.0.0",
-    "fs": "https://esm.sh/fs@^0.0.1-security",
-    "stream": "https://esm.sh/stream@^0.0.3",
-    "music-metadata": "https://esm.sh/music-metadata@^11.10.6"
-  }
-}
-</script>
-<link rel="stylesheet" href="/index.css">
 </head>
 <body class="bg-[#121212] text-gray-200 overflow-hidden">
     <div id="root"></div>
-<script type="module" src="/index.tsx"></script>
+    <script type="module" src="/index.tsx"></script>
 </body>
 </html>
