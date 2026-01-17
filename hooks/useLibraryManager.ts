@@ -444,6 +444,12 @@ export const useLibraryManager = () => {
           password
         });
         if (files && Array.isArray(files)) {
+          // 过滤出音乐文件进行统计
+          const musicFiles = files.filter(f => {
+            const name = String(f.name || '');
+            return !f.isCollection && SUPPORTED_FORMATS.some(ext => name.toLowerCase().endsWith(ext));
+          });
+          
           // 测试成功，保存配置
           const lastConfig = {
             baseUrl: baseUrl.trim(),
@@ -452,7 +458,7 @@ export const useLibraryManager = () => {
           };
           localStorage.setItem('last_webdav_config', JSON.stringify(lastConfig));
           setLastWebdavConfig(lastConfig);
-          return { success: true, message: `连接成功！发现 ${files.length} 个文件。` };
+          return { success: true, message: `连接成功！当前目录发现 ${musicFiles.length} 个音乐文件。` };
         }
         return { success: false, message: '连接失败：未能获取文件列表' };
       } catch (e: any) {
@@ -666,12 +672,21 @@ export const useLibraryManager = () => {
         const webdavResultsByFolder = new Map<string, any[]>();
         for (const folder of foldersWithWebdav) {
           setCurrentProcessingFile(`扫描：${folder.name}`);
-          const files = await window.windowBridge.webdavList({
+          let files = await window.windowBridge.webdavList({
             baseUrl: folder.baseUrl,
             rootPath: folder.rootPath,
             username: folder.username,
             password: folder.password
           });
+
+          // 核心修复：在这里过滤非音乐文件，确保计数和同步一致
+          if (files && Array.isArray(files)) {
+            files = files.filter(f => {
+              const name = String(f.name || '');
+              return SUPPORTED_FORMATS.some(ext => name.toLowerCase().endsWith(ext));
+            });
+          }
+
           webdavResultsByFolder.set(folder.id, files || []);
           try {
             await saveWebdavFolder({
@@ -1122,13 +1137,17 @@ export const useLibraryManager = () => {
           if (it.isCollection) {
             await walk(it.remoteUrl);
           } else {
-            out.push({
-              remoteUrl: it.remoteUrl,
-              remotePath: it.remotePath,
-              name: it.name,
-              size: it.size,
-              lastModified: it.lastModified
-            });
+            // 核心修复：在这里过滤非音乐文件，确保计数和同步一致
+            const name = String(it.name || '');
+            if (SUPPORTED_FORMATS.some(ext => name.toLowerCase().endsWith(ext))) {
+              out.push({
+                remoteUrl: it.remoteUrl,
+                remotePath: it.remotePath,
+                name: it.name,
+                size: it.size,
+                lastModified: it.lastModified
+              });
+            }
           }
         }
       };
@@ -1351,12 +1370,24 @@ export const useLibraryManager = () => {
 
       const safeName = handleOrPath.replace(/[\\/]+$/, '').split(/[\\/]/).filter(Boolean).pop() || handleOrPath;
       const id = `${safeName}_${Date.now()}`;
-      const entry = { id, name: safeName, path: handleOrPath, lastSync: 0 };
+      
+      // 预先扫描一次以获取正确的音乐文件总数，避免显示 0/0 或错误的比例
+      let initialCount = 0;
+      if (window.windowBridge) {
+        try {
+          const files = await window.windowBridge.scanDirectory(handleOrPath);
+          initialCount = (files || []).length;
+        } catch (e) {
+          console.error('Initial scan failed:', e);
+        }
+      }
+
+      const entry = { id, name: safeName, path: handleOrPath, lastSync: 0, totalFilesCount: initialCount };
       setElectronFolders(prev => prev.some(f => f.path === handleOrPath) ? prev : [entry, ...prev]);
-      setImportedFolders(prev => prev.some(f => f.id === id) ? prev : ([{ ...(entry as any), trackCount: 0, hasHandle: true } as any, ...prev]));
+      setImportedFolders(prev => prev.some(f => f.id === id) ? prev : ([{ ...(entry as any), trackCount: 0, totalFilesCount: initialCount, hasHandle: true } as any, ...prev]));
 
       try {
-        await saveLibraryFolder(id, handleOrPath);
+        await saveLibraryFolder(id, handleOrPath, initialCount);
       } catch (e) {
         console.error('saveLibraryFolder failed:', e);
       }

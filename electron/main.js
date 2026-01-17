@@ -756,11 +756,12 @@ async function webdavListRecursive({ baseUrl, rootPath, username, password }) {
         const nextUrl = resolveWebdavUrl(baseUrl, it.remotePath);
         await walk(nextUrl);
       } else {
-        const ext = path.extname(it.name).toLowerCase();
+        const name = String(it.name || '').trim();
+        const ext = path.extname(name).toLowerCase();
         if (AUDIO_EXTENSIONS.includes(ext)) {
           out.push({
             remotePath: it.remotePath,
-            name: it.name,
+            name: name,
             size: it.size,
             lastModified: it.lastModified
           });

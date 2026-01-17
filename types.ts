@@ -15,9 +15,11 @@ export interface Track {
   year?: number;      
   genre?: string;    
   lastModified: number; 
-  dateAdded: number; // 新增：记录加入曲库的实际时间
+  dateAdded: number;
   historyTime?: number; 
-  duplicateCount?: number; 
+  duplicateCount?: number;
+  discNumber?: number;
+  trackNumber?: number;
 }
 
 export interface Playlist {

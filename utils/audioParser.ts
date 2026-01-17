@@ -157,6 +157,8 @@ export const parseFileToTrack = async (file: File, directoryCoverBlob: Blob | nu
     const artist = cleanArtistName(artistRaw);
     const album = common.album || "未知专辑";
     const title = common.title || fileInfo.title;
+    const discNumber = common.disk?.no || common.disk?.number || undefined;
+    const trackNumber = common.track?.no || common.track?.number || undefined;
 
     return {
       id: Math.random().toString(36).substring(2, 9),
@@ -173,7 +175,9 @@ export const parseFileToTrack = async (file: File, directoryCoverBlob: Blob | nu
       year: common.year,
       genre: common.genre ? common.genre[0] : undefined,
       lastModified: file.lastModified,
-      dateAdded: Date.now() // 记录入库时间
+      dateAdded: Date.now(),
+      discNumber,
+      trackNumber
     };
   } catch (error) {
     let coverUrl: string | undefined = undefined;

@@ -1,5 +1,5 @@
 
-export const SUPPORTED_FORMATS = ['.mp3', '.wav', '.ogg', '.m4a', '.flac'];
+export const SUPPORTED_FORMATS = ['.mp3', '.wav', '.ogg', '.m4a', '.flac', '.aac'];
 
 export const THEME_COLORS = {
   bg: '#121212',
