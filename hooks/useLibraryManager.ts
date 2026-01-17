@@ -435,7 +435,9 @@ export const useLibraryManager = () => {
 
     if (window.windowBridge) {
       try {
-        const files = await window.windowBridge.webdavList({
+        // 使用 listDir 而不是 list (recursive)，因为测试连接只需要确认目录可访问
+        // 这样速度更快，且不容易因为子目录过多而超时
+        const files = await window.windowBridge.webdavListDir({
           baseUrl,
           rootPath,
           username,
@@ -1429,7 +1431,11 @@ export const useLibraryManager = () => {
     try {
       hostName = new URL(config.baseUrl).hostname || '';
     } catch {}
-    const name = config.name?.trim() || hostName || 'WebDAV';
+    
+    // 智能推断名称：如果用户没填名称，则取路径的最后一个层级作为名称
+    const lastSegment = config.rootPath.replace(/\/+$/, '').split('/').pop();
+    const name = config.name?.trim() || (lastSegment ? `${lastSegment} (WebDAV)` : hostName) || 'WebDAV';
+    
     const entry: any = {
       id,
       name,

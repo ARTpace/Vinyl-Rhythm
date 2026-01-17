@@ -100,6 +100,18 @@ const ImportWindow: React.FC<ImportWindowProps> = ({
   const handleSelectBrowserPath = (path: string) => {
     setWebdavRootPath(path);
     setBrowserOpen(false);
+
+    // 如果是通过“添加 WebDAV”大按钮直接进入浏览器的（此时配置弹窗没开）
+    // 选择文件夹后应该直接触发添加逻辑
+    if (!webdavModalOpen && onWebdavSelected) {
+      onWebdavSelected({
+        baseUrl: webdavBaseUrl.trim() || lastWebdavConfig?.baseUrl || '',
+        rootPath: path,
+        username: webdavUsername || lastWebdavConfig?.username || undefined,
+        password: webdavPassword || lastWebdavConfig?.password || undefined,
+        name: webdavName.trim() || undefined
+      });
+    }
   };
 
   const handleTestConnection = async () => {
@@ -216,6 +228,15 @@ const ImportWindow: React.FC<ImportWindowProps> = ({
       handleOpenWebdavSettings();
       return;
     }
+
+    // 重要：在直接打开浏览器前，必须同步基础配置到状态中
+    // 否则 handleOpenBrowser 和后续的 handleSelectBrowserPath 会因为读取到空状态而失败
+    setWebdavBaseUrl(lastWebdavConfig.baseUrl || '');
+    setWebdavUsername(lastWebdavConfig.username || '');
+    setWebdavPassword(lastWebdavConfig.password || '');
+    setWebdavName('');
+    setWebdavRootPath('/');
+    setIsWebdavConfigOnly(false);
 
     // 否则直接打开浏览器
     handleOpenBrowser('/');
