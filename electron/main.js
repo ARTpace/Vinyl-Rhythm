@@ -9,9 +9,25 @@ import { fileURLToPath, pathToFileURL } from 'url';
 import fs from 'fs';
 import { Readable } from 'stream';
 import config from './config/index.js';
+import { findFolderCover, readCoverAsUint8Array } from '../utils/coverUtil.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+/**
+ * 清理和分割歌手名称
+ * 支持使用 / & 、 , ; feat. ft. 等分隔符分割多个歌手
+ */
+const cleanArtistName = (artist) => {
+  if (!artist) return '未知歌手';
+
+  const standardDelimiters = /\s*[\/&、,;]\s*|\s+feat\.?\s+|\s+ft\.?\s+/i;
+  let artists = String(artist).split(standardDelimiters)
+    .map(a => a.trim())
+    .filter(a => a.length > 0);
+
+  return artists.join(' / ');
+};
 
 // 注册特权协议，必须在 app ready 之前调用
 protocol.registerSchemesAsPrivileged([
@@ -51,63 +67,90 @@ let isQuitting = false;
  */
 function registerLocalResourceProtocol() {
   protocol.handle('local-resource', (request) => {
+    console.log('[LocalResource] Request URL:', request.url);
     let decodedPath = '';
+
     try {
       const u = new URL(request.url);
-      const host = u.hostname || '';
-      let pathname = decodeURIComponent(u.pathname || '');
-      if (pathname.startsWith('/') && /^[a-zA-Z]:/.test(pathname.substring(1))) {
-        pathname = pathname.substring(1);
-      }
-      if (host && host.length === 1 && !/^[a-zA-Z]:/.test(pathname)) {
-        decodedPath = `${host.toUpperCase()}:${pathname}`;
+      const hostname = u.hostname || '';
+      const pathname = u.pathname || '';
+      const decodedPathname = decodeURIComponent(pathname);
+
+      console.log('[LocalResource] hostname:', hostname);
+      console.log('[LocalResource] pathname:', pathname);
+      console.log('[LocalResource] decodedPathname:', decodedPathname);
+
+      if (hostname) {
+        if (hostname.includes(':') && /^[A-Za-z]:$/.test(hostname)) {
+          decodedPath = `${hostname}${decodedPathname}`.replace(/\//g, '\\');
+        } else {
+          decodedPath = `\\\\${hostname}${decodedPathname}`.replace(/\//g, '\\');
+        }
       } else {
-        decodedPath = pathname;
-      }
-    } catch {
-      let urlPath = request.url.replace(/^local-resource:\/\//, '');
-      if (urlPath.startsWith('/') && /^[a-zA-Z]:/.test(urlPath.substring(1))) {
-        urlPath = urlPath.substring(1);
-      }
-      decodedPath = decodeURIComponent(urlPath);
-    }
-    decodedPath = path.normalize(decodedPath);
-    
-    try {
-      // 检查文件是否存在
-      if (!fs.existsSync(decodedPath)) {
-        console.warn(`File not found: ${decodedPath}`);
-        return new Response('File Not Found', { status: 404 });
+        let p = decodedPathname;
+        if (p.startsWith('/')) p = p.slice(1);
+        if (p.startsWith('//')) {
+          decodedPath = `\\\\${p.slice(2)}`.replace(/\//g, '\\');
+        } else {
+          decodedPath = p.replace(/\//g, '\\');
+        }
       }
 
-      // 简单的 MIME 类型映射
+      decodedPath = path.win32.normalize(decodedPath);
+      if (decodedPath.endsWith('\\')) decodedPath = decodedPath.slice(0, -1);
+      console.log('[LocalResource] normalized path:', decodedPath);
+    } catch (e) {
+      console.error('[LocalResource] URL parse error:', e);
+      return new Response('Invalid URL', { status: 400 });
+    }
+
+    console.log('[LocalResource] Final path:', decodedPath);
+
+    const isUncPath = decodedPath.startsWith('\\\\');
+    let fileSize = null;
+    let mimeType = 'application/octet-stream';
+
+    try {
       const ext = path.extname(decodedPath).toLowerCase();
-      let mimeType = 'application/octet-stream';
-      if (ext === '.mp3') mimeType = 'audio/mpeg';
-      else if (ext === '.flac') mimeType = 'audio/flac';
+      mimeType = 'audio/mpeg';
+      if (ext === '.flac') mimeType = 'audio/flac';
       else if (ext === '.wav') mimeType = 'audio/wav';
       else if (ext === '.ogg') mimeType = 'audio/ogg';
       else if (ext === '.m4a') mimeType = 'audio/mp4';
       else if (ext === '.aac') mimeType = 'audio/aac';
 
+      if (!fs.existsSync(decodedPath)) {
+        console.warn(`[LocalResource] File not found: ${decodedPath}`);
+        return new Response('File Not Found', { status: 404 });
+      }
+
       const stat = fs.statSync(decodedPath);
-      const size = stat.size;
+      fileSize = stat.size;
 
       const baseHeaders = new Headers();
       baseHeaders.set('Content-Type', mimeType);
       baseHeaders.set('Accept-Ranges', 'bytes');
 
+      if (fileSize !== null) {
+        baseHeaders.set('Content-Length', String(fileSize));
+      }
+
       if (request.method === 'HEAD') {
-        baseHeaders.set('Content-Length', String(size));
+        if (fileSize !== null) {
+          baseHeaders.set('Content-Length', String(fileSize));
+        }
         return new Response(null, { status: 200, headers: baseHeaders });
       }
 
       const rangeHeader = request.headers.get('range') || request.headers.get('Range');
       if (rangeHeader) {
+        if (fileSize === null) {
+          return new Response('Range requests require file size', { status: 416, headers: baseHeaders });
+        }
         const match = /^bytes=(\d*)-(\d*)$/i.exec(rangeHeader);
         if (!match) {
           const headers = new Headers(baseHeaders);
-          headers.set('Content-Range', `bytes */${size}`);
+          headers.set('Content-Range', `bytes */${fileSize}`);
           return new Response(null, { status: 416, headers });
         }
 
@@ -118,31 +161,33 @@ function registerLocalResourceProtocol() {
           const suffixLength = Number.isNaN(end) ? 0 : end;
           if (!suffixLength) {
             const headers = new Headers(baseHeaders);
-            headers.set('Content-Range', `bytes */${size}`);
+            headers.set('Content-Range', `bytes */${fileSize}`);
             return new Response(null, { status: 416, headers });
           }
-          start = Math.max(size - suffixLength, 0);
-          end = size - 1;
+          start = Math.max(fileSize - suffixLength, 0);
+          end = fileSize - 1;
         } else {
-          if (Number.isNaN(end) || end >= size) end = size - 1;
+          if (Number.isNaN(end) || end >= fileSize) end = fileSize - 1;
         }
 
-        if (start < 0 || start >= size || start > end) {
+        if (start < 0 || start >= fileSize || start > end) {
           const headers = new Headers(baseHeaders);
-          headers.set('Content-Range', `bytes */${size}`);
+          headers.set('Content-Range', `bytes */${fileSize}`);
           return new Response(null, { status: 416, headers });
         }
 
         const stream = fs.createReadStream(decodedPath, { start, end });
         const headers = new Headers(baseHeaders);
-        headers.set('Content-Range', `bytes ${start}-${end}/${size}`);
+        headers.set('Content-Range', `bytes ${start}-${end}/${fileSize}`);
         headers.set('Content-Length', String(end - start + 1));
         return new Response(Readable.toWeb(stream), { status: 206, headers });
       }
 
       const stream = fs.createReadStream(decodedPath);
       const headers = new Headers(baseHeaders);
-      headers.set('Content-Length', String(size));
+      if (fileSize !== null) {
+        headers.set('Content-Length', String(fileSize));
+      }
       return new Response(Readable.toWeb(stream), { status: 200, headers });
     } catch (e) {
       console.error('Failed to serve local resource:', e);
@@ -431,21 +476,34 @@ ipcMain.handle('metadata:get', async (event, filePath) => {
     const { parseFile } = await import('music-metadata');
     const metadata = await parseFile(filePath);
     const { common, format } = metadata;
-      
+
       // 提取封面
       let coverData = null;
       if (common.picture && common.picture.length > 0) {
         const pic = common.picture[0];
-        console.log('[Main] Cover found:', pic.format, pic.data ? pic.data.length : 0);
+        console.log('[Main] Cover found in file:', pic.format, pic.data ? pic.data.length : 0);
         coverData = {
           data: pic.data ? new Uint8Array(pic.data) : null,
           format: pic.format
         };
+      } else {
+        console.log('[Main] No embedded cover, searching for folder cover...');
+        const folderCoverPath = findFolderCover(filePath);
+        if (folderCoverPath) {
+          console.log('[Main] Folder cover found:', folderCoverPath);
+          const folderCover = readCoverAsUint8Array(folderCoverPath);
+          if (folderCover) {
+            coverData = folderCover;
+            console.log('[Main] Folder cover loaded:', folderCover.format, folderCover.data?.length);
+          }
+        } else {
+          console.log('[Main] No folder cover found');
+        }
       }
 
       return {
         title: common.title,
-        artist: common.artist || (Array.isArray(common.artists) ? common.artists.join(' / ') : undefined) || common.albumartist,
+        artist: cleanArtistName(common.artist || (Array.isArray(common.artists) ? common.artists.join(' / ') : undefined) || common.albumartist),
         album: common.album,
         duration: format.duration,
         bitrate: format.bitrate,

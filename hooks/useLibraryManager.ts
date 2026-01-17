@@ -1,21 +1,25 @@
 
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { Track, LibraryFolder, HistoryEntry } from '../types';
-import { parseFileToTrack } from '../utils/audioParser';
+import { parseFileToTrack, findFolderCoverFromHandle } from '../utils/audioParser';
 import { SUPPORTED_FORMATS } from '../constants';
-import { 
-  saveLibraryFolder, 
-  getAllLibraryFolders, 
-  removeLibraryFolder, 
+import {
+  saveLibraryFolder,
+  getAllLibraryFolders,
+  removeLibraryFolder,
   saveWebdavFolder,
   getAllWebdavFolders,
   removeWebdavFolder,
   getPlaybackHistory,
   clearPlaybackHistory,
   saveTracksToCache,
+  replaceTracksForFolderInCache,
   getCachedTracks,
   addToHistory,
-  getAllArtistMetadata
+  getAllArtistMetadata,
+  followArtist,
+  unfollowArtist,
+  getAllFollowedArtists
 } from '../utils/storage';
 import { normalizeChinese } from '../utils/chineseConverter';
 
@@ -33,7 +37,8 @@ export const useLibraryManager = () => {
   const [needsPermission, setNeedsPermission] = useState(false);
   const [nasMode, setNasMode] = useState(false);
   const [artistMetadata, setArtistMetadata] = useState<Map<string, string>>(new Map());
-  
+  const [followedArtists, setFollowedArtists] = useState<Set<string>>(new Set());
+
   const [favorites, setFavorites] = useState<Set<string>>(() => {
     const saved = localStorage.getItem('vinyl_favorites');
     return saved ? new Set(JSON.parse(saved)) : new Set();
@@ -65,33 +70,59 @@ export const useLibraryManager = () => {
       const nasFiles = await res.json();
       
       const cachedTracks = await getCachedTracks();
+      const cachedByPath = new Map<string, any>();
+      for (const t of cachedTracks as any[]) {
+        if (!t || t.folderId !== 'NAS_ROOT') continue;
+        const p = typeof t.path === 'string' ? t.path.replace(/^[/\\]+/, '') : '';
+        if (p) {
+          cachedByPath.set(p, t);
+          continue;
+        }
+        const urlStr = typeof t.url === 'string' ? t.url : '';
+        const match = urlStr.match(/[?&]path=([^&]+)/);
+        if (match?.[1]) {
+          try {
+            cachedByPath.set(decodeURIComponent(match[1]).replace(/^[/\\]+/, ''), t);
+          } catch {}
+        }
+      }
       const newTracks: Track[] = [];
       const total = nasFiles.length;
       
       for (let i = 0; i < total; i++) {
         const fileData = nasFiles[i];
-        const fingerprint = `${fileData.name}-${fileData.size}`;
+        const relativePath = String(fileData.path || '').replace(/^[/\\]+/, '');
+        const fingerprint = `NAS:${relativePath}`;
+
+        const existing = cachedByPath.get(relativePath);
+
+        const next: any = {
+          ...(existing ? existing : {}),
+          id: existing ? existing.id : Math.random().toString(36).substring(2, 9),
+          fingerprint,
+          folderId: 'NAS_ROOT',
+          url: `/api/stream?path=${encodeURIComponent(relativePath)}`,
+          path: relativePath,
+          fileName: String(fileData.fileName || ''),
+          lastModified: Number(fileData.lastModified || Date.now()),
+          size: Number(fileData.size || 0),
+          dateAdded: existing ? existing.dateAdded : Date.now(),
+          file: null as any
+        };
+
+        const title = typeof fileData.title === 'string' ? fileData.title.trim() : '';
+        const artist = typeof fileData.artist === 'string' ? fileData.artist.trim() : '';
+        const album = typeof fileData.album === 'string' ? fileData.album.trim() : '';
+
+        // 优先使用最新的元数据，如果元数据为空则回退到文件名
+        next.name = title || String(fileData.name || '') || (existing ? existing.name : '未知曲目');
+        next.artist = artist || '未知歌手';
+        next.album = album || 'NAS 卷';
         
-        const existing = cachedTracks.find((t: any) => t.fingerprint === fingerprint);
-        if (existing) {
-           newTracks.push({
-             ...existing,
-             url: `/api/stream?path=${encodeURIComponent(fileData.path)}`
-           });
-        } else {
-           newTracks.push({
-             id: Math.random().toString(36).substring(2, 9),
-             name: fileData.name.replace(/\.[^/.]+$/, ""),
-             artist: '未知歌手',
-             album: 'NAS 卷',
-             url: `/api/stream?path=${encodeURIComponent(fileData.path)}`,
-             fingerprint: fingerprint,
-             folderId: 'NAS_ROOT',
-             lastModified: fileData.lastModified,
-             dateAdded: Date.now(),
-             file: null as any
-           });
-        }
+        if (fileData.duration != null) next.duration = fileData.duration;
+        if (fileData.bitrate != null) next.bitrate = fileData.bitrate;
+
+        newTracks.push(next as Track);
         
         if (i % 20 === 0) {
           setImportProgress(Math.floor((i / total) * 100));
@@ -99,7 +130,7 @@ export const useLibraryManager = () => {
       }
       
       setTracks(newTracks);
-      await saveTracksToCache(newTracks);
+      await replaceTracksForFolderInCache('NAS_ROOT', newTracks);
       setImportProgress(100);
     } catch (e) {
       console.error('NAS Sync Error:', e);
@@ -127,6 +158,13 @@ export const useLibraryManager = () => {
         setArtistMetadata(metaMap);
       } catch (e) {
         console.error('getAllArtistMetadata failed:', e);
+      }
+
+      try {
+        const followed = await getAllFollowedArtists();
+        setFollowedArtists(new Set(followed));
+      } catch (e) {
+        console.error('getAllFollowedArtists failed:', e);
       }
 
       if (isNas) {
@@ -490,14 +528,25 @@ export const useLibraryManager = () => {
           } catch {}
         }
 
-        const needsMetaUpdate = (t: any) => {
+        const needsMetaUpdate = (t: any, currentFile?: any) => {
+          // 1. 如果基本信息缺失，需要更新
           const artistMissing = !t?.artist || t.artist === '未知歌手';
-          const albumMissing = !t?.album || t.album === '本地文件夹';
+          const albumMissing = !t?.album || t.album === '本地文件夹' || t.album === '未知专辑';
           const nameMissing = !t?.name;
-          const coverMissing = !t?.coverBlob;
           const durationMissing = !t?.duration;
-          const bitrateMissing = !t?.bitrate;
-          return artistMissing || albumMissing || nameMissing || coverMissing || durationMissing || bitrateMissing;
+          
+          if (artistMissing || albumMissing || nameMissing || durationMissing) return true;
+
+          // 2. 如果提供了当前文件信息，对比修改时间
+          if (currentFile && currentFile.mtime) {
+            const currentMtime = toTimestamp(currentFile.mtime);
+            if (t.lastModified && Math.abs(Number(t.lastModified) - currentMtime) > 1000) {
+              console.log(`[Library] File modified, triggering metadata update: ${t.name}`);
+              return true;
+            }
+          }
+
+          return false;
         };
 
         const filesToCreate: Array<{ folderId: string; folderName: string; file: any }> = [];
@@ -513,7 +562,8 @@ export const useLibraryManager = () => {
               filesToCreate.push({ folderId: folder.id, folderName: folder.name, file });
               continue;
             }
-            if (needsMetaUpdate(existing) || !existing.path) {
+            // 传入当前文件信息以检测修改时间
+            if (needsMetaUpdate(existing, file) || !existing.path) {
               filesToUpdate.push({ folderId: folder.id, folderName: folder.name, file, existing });
             }
           }
@@ -967,7 +1017,8 @@ export const useLibraryManager = () => {
     } catch {
       cachedTracks = [];
     }
-    const existingByFingerprint = new Set<string>(cachedTracks.map(t => t.fingerprint));
+    const existingMap = new Map<string, any>();
+    cachedTracks.forEach(t => existingMap.set(t.fingerprint, t));
 
     const webdavNewTracks: any[] = [];
     if (webdavFoldersToScan.length > 0) {
@@ -985,10 +1036,15 @@ export const useLibraryManager = () => {
             const name = String(file.name || '');
             if (!SUPPORTED_FORMATS.some(ext => name.toLowerCase().endsWith(ext))) continue;
             const fingerprint = `${folder.id}:${file.remotePath}-${file.size}`;
-            if (existingByFingerprint.has(fingerprint)) continue;
+            
+            const existing = existingMap.get(fingerprint);
+            const isModified = existing && (Number(existing.lastModified) !== Number(file.lastModified || 0));
+
+            if (existing && !isModified) continue;
+
             const needsAuth = !!(folder.username || folder.password);
             const track: any = {
-              id: hashString(fingerprint),
+              id: existing ? existing.id : hashString(fingerprint),
               name: name.replace(/\.[^/.]+$/, "") || name,
               artist: '未知歌手',
               album: folder.name || 'WebDAV',
@@ -997,14 +1053,14 @@ export const useLibraryManager = () => {
               fingerprint,
               folderId: folder.id,
               lastModified: Number(file.lastModified || Date.now()),
-              dateAdded: Date.now(),
+              dateAdded: existing ? existing.dateAdded : Date.now(),
               remoteUrl: String(file.remoteUrl),
               remotePath: String(file.remotePath),
               fileName: name,
               sourceType: 'webdav'
             };
             webdavNewTracks.push(track);
-            existingByFingerprint.add(fingerprint);
+            existingMap.set(fingerprint, track);
           }
         } catch (e) {
           console.error('WebDAV scan failed:', e);
@@ -1049,8 +1105,22 @@ export const useLibraryManager = () => {
     const total = filesToProcess.length;
     if (total === 0) { setIsImporting(false); setSyncingFolderId(null); return true; }
 
-    const BATCH_SIZE = 15; 
+    const BATCH_SIZE = 15;
     let processedCount = 0;
+
+    const uniqueFolders = [...new Set(filesToProcess.map(f => f.folderId))];
+    const folderCoverBlobs = new Map<string, Blob | null>();
+
+    setCurrentProcessingFile('正在查找文件夹封面...');
+    for (const folderId of uniqueFolders) {
+      const folderItem = filesToProcess.find(f => f.folderId === folderId);
+      if (folderItem?.folderHandle) {
+        const cover = await findFolderCoverFromHandle(folderItem.folderHandle);
+        folderCoverBlobs.set(folderId, cover);
+      } else {
+        folderCoverBlobs.set(folderId, null);
+      }
+    }
 
     for (let i = 0; i < filesToProcess.length; i += BATCH_SIZE) {
       const batch = filesToProcess.slice(i, i + BATCH_SIZE);
@@ -1061,17 +1131,26 @@ export const useLibraryManager = () => {
           const file = await item.handle.getFile();
           const fingerprint = `${file.name}-${file.size}`;
           
-          if (existingByFingerprint.has(fingerprint)) {
+          const existing = existingMap.get(fingerprint);
+          const isModified = existing && (Math.abs(Number(existing.lastModified) - Number(file.lastModified)) > 1000);
+
+          if (existing && !isModified) {
               processedCount++;
               return;
           }
 
           setCurrentProcessingFile(file.name);
-          const t = await parseFileToTrack(file);
+          const t = await parseFileToTrack(file, folderCoverBlobs.get(item.folderId) || null);
           t.folderId = item.folderId;
           (t as any).fileName = file.name;
+          
+          if (existing) {
+            t.id = existing.id;
+            t.dateAdded = existing.dateAdded;
+          }
+
           batchResults.push(t);
-          existingByFingerprint.add(fingerprint);
+          existingMap.set(fingerprint, t);
           processedCount++;
         } catch (err) { 
             console.error(err); 
@@ -1081,7 +1160,12 @@ export const useLibraryManager = () => {
 
       if (batchResults.length > 0) {
         await saveTracksToCache(batchResults);
-        setTracks(prev => [...prev, ...batchResults]);
+        setTracks(prev => {
+          const byFp = new Map<string, any>();
+          prev.forEach(t => byFp.set(t.fingerprint, t));
+          batchResults.forEach(t => byFp.set(t.fingerprint, t));
+          return Array.from(byFp.values());
+        });
       }
 
       setImportProgress(Math.floor((processedCount / total) * 100));
@@ -1256,6 +1340,20 @@ export const useLibraryManager = () => {
     }).filter(Boolean) as Track[];
   }, [tracks, historyEntries]);
 
+  const handleFollowArtist = useCallback(async (artistName: string) => {
+    await followArtist(artistName);
+    setFollowedArtists(prev => new Set([...prev, artistName]));
+  }, []);
+
+  const handleUnfollowArtist = useCallback(async (artistName: string) => {
+    await unfollowArtist(artistName);
+    setFollowedArtists(prev => {
+      const newSet = new Set(prev);
+      newSet.delete(artistName);
+      return newSet;
+    });
+  }, []);
+
   return {
     tracks, setTracks, importedFolders,
     isImporting, importProgress, currentProcessingFile, syncingFolderId,
@@ -1267,6 +1365,7 @@ export const useLibraryManager = () => {
     handleManualFilesSelect,
     historyTracks,
     recordTrackPlayback,
-    fetchHistory, clearHistory, needsPermission, nasMode, artistMetadata
+    fetchHistory, clearHistory, needsPermission, nasMode, artistMetadata,
+    followedArtists, handleFollowArtist, handleUnfollowArtist
   };
 };

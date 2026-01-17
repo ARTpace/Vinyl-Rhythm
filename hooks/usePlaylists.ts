@@ -1,11 +1,13 @@
 
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useMemo } from 'react';
 import { Playlist, Track } from '../types';
 import { savePlaylist, getAllPlaylists, removePlaylist, getPlaylist, updatePlaylist } from '../utils/storage';
 import { generateCompositeCover } from '../utils/uiHelpers';
+import { normalizeChinese } from '../utils/chineseConverter';
 
 export const usePlaylists = (allTracks: Track[]) => {
   const [playlists, setPlaylists] = useState<Playlist[]>([]);
+  const [searchQuery, setSearchQuery] = useState('');
 
   const fetchAllPlaylists = useCallback(async () => {
     try {
@@ -91,8 +93,17 @@ export const usePlaylists = (allTracks: Track[]) => {
       .filter(Boolean) as Track[];
   }, [allTracks]);
 
+  const filteredPlaylists = useMemo(() => {
+    if (!searchQuery.trim()) return playlists;
+    const q = normalizeChinese(searchQuery);
+    return playlists.filter(p => normalizeChinese(p.name).includes(q));
+  }, [playlists, searchQuery]);
+
   return {
     playlists,
+    searchQuery,
+    setSearchQuery,
+    filteredPlaylists,
     createPlaylist,
     addTrackToPlaylist,
     addTracksToPlaylist,

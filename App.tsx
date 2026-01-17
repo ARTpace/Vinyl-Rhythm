@@ -15,6 +15,9 @@ import PlaylistDetailView from './components/PlaylistDetailView';
 import ImportPlaylistModal from './components/ImportPlaylistModal';
 import AddTracksByTextModal from './components/AddTracksByTextModal';
 import CreatePlaylistModal from './components/CreatePlaylistModal';
+import SaveToPlaylistModal from './components/SaveToPlaylistModal';
+import ConfirmDialog from './components/ConfirmDialog';
+import SearchDropdown from './components/SearchDropdown';
 import { Track, ViewType, Playlist } from './types';
 import { getTrackStory } from './services/geminiService';
 import { s2t } from './utils/chineseConverter';
@@ -36,8 +39,12 @@ const App: React.FC = () => {
   const [isImportPlaylistModalOpen, setIsImportPlaylistModalOpen] = useState(false);
   const [isAddByTextModalOpen, setIsAddByTextModalOpen] = useState(false);
   const [isCreatePlaylistModalOpen, setIsCreatePlaylistModalOpen] = useState(false);
+  const [isSaveToPlaylistModalOpen, setIsSaveToPlaylistModalOpen] = useState(false);
   const [pendingPlaylistTracks, setPendingPlaylistTracks] = useState<Track[]>([]);
   const [navigationRequest, setNavigationRequest] = useState<{ type: any, name: string } | null>(null);
+  const [navigationHistory, setNavigationHistory] = useState<Array<{ view: ViewType; artist?: string | null; playlist?: string | null }>>([]);
+  const [deleteConfirmDialog, setDeleteConfirmDialog] = useState<{ isOpen: boolean; playlistId: string; playlistName: string }>({ isOpen: false, playlistId: '', playlistName: '' });
+  const [isSearchDropdownOpen, setIsSearchDropdownOpen] = useState(false);
 
   // 调试与窗口状态
   const [audioDebugOpen, setAudioDebugOpen] = useState(false);
@@ -50,7 +57,6 @@ const App: React.FC = () => {
   }, [settings.useTraditionalChinese]);
 
   const library = useLibraryManager();
-  const { playlists, createPlaylist, deletePlaylist, getPlaylistTracks, addTracksToPlaylist } = usePlaylists(library.tracks);
   
   const { 
     playlist, 
@@ -61,6 +67,17 @@ const App: React.FC = () => {
     reorderPlaylist,
     hydratePlaylist
   } = usePlaylist();
+
+  const { 
+    playlists, 
+    createPlaylist, 
+    deletePlaylist, 
+    getPlaylistTracks, 
+    addTracksToPlaylist,
+    searchQuery: playlistSearchQuery,
+    setSearchQuery: setPlaylistSearchQuery,
+    filteredPlaylists
+  } = usePlaylists(library.tracks);
 
   useEffect(() => {
     if (library.tracks.length > 0) {
@@ -82,6 +99,7 @@ const App: React.FC = () => {
     if (view === 'artists') return "搜索歌手...";
     if (view === 'albums') return "搜索专辑...";
     if (view === 'collection') return "搜索歌手或专辑...";
+    if (view === 'playlists') return "搜索歌单...";
     return "搜索音乐、歌手、专辑...";
   }, [view]);
 
@@ -270,16 +288,40 @@ const App: React.FC = () => {
 
   // 导航与视图切换
   const handleNavigate = useCallback((type: string, name: string) => {
-    if (type === 'artistProfile') { setSelectedArtist(name); setView('artistProfile'); }
-    else if (type === 'albums') { setNavigationRequest({ type: 'albums', name }); setView('all'); }
+    const currentView = view;
+    const currentArtist = selectedArtist;
+    const currentPlaylist = selectedPlaylist?.id;
+
+    if (type === 'artistProfile') {
+      setNavigationHistory(prev => [...prev, { view: currentView, artist: currentArtist, playlist: currentPlaylist }]);
+      setSelectedArtist(name);
+      setView('artistProfile');
+    } else if (type === 'albums') {
+      setNavigationHistory(prev => [...prev, { view: currentView, artist: currentArtist, playlist: currentPlaylist }]);
+      setNavigationRequest({ type: 'albums', name });
+      setView('all');
+    }
     library.setSearchQuery('');
-  }, [library]);
+  }, [library, view, selectedArtist, selectedPlaylist]);
+
+  const handleBack = useCallback(() => {
+    if (navigationHistory.length === 0) return;
+    const previousState = navigationHistory[navigationHistory.length - 1];
+    setNavigationHistory(navigationHistory.slice(0, -1));
+    
+    setView(previousState.view);
+    setSelectedArtist(previousState.artist || null);
+    setSelectedPlaylist(previousState.playlist ? playlists.find(p => p.id === previousState.playlist) || null : null);
+    setNavigationRequest(null);
+    library.setSearchQuery('');
+  }, [navigationHistory, playlists, library]);
 
   const handleSidebarViewChange = (v: ViewType) => {
     setView(v);
     setNavigationRequest(null);
     setSelectedArtist(null);
     setSelectedPlaylist(null);
+    setNavigationHistory([]);
     library.setSearchQuery('');
   };
 
@@ -327,13 +369,21 @@ const App: React.FC = () => {
     }
   }, [getPlaylistTracks, setPlaylist, player]);
 
-  // Fix: Add handleDeletePlaylist implementation
-  const handleDeletePlaylist = useCallback(async (id: string) => {
-    await deletePlaylist(id);
-    if (selectedPlaylist?.id === id) {
+  const handleDeletePlaylistRequest = useCallback((id: string, name: string) => {
+    setDeleteConfirmDialog({ isOpen: true, playlistId: id, playlistName: name });
+  }, []);
+
+  const handleConfirmDeletePlaylist = useCallback(async () => {
+    await deletePlaylist(deleteConfirmDialog.playlistId);
+    if (selectedPlaylist?.id === deleteConfirmDialog.playlistId) {
       setSelectedPlaylist(null);
     }
-  }, [deletePlaylist, selectedPlaylist]);
+    setDeleteConfirmDialog({ isOpen: false, playlistId: '', playlistName: '' });
+  }, [deletePlaylist, selectedPlaylist, deleteConfirmDialog.playlistId]);
+
+  const handleCancelDeletePlaylist = useCallback(() => {
+    setDeleteConfirmDialog({ isOpen: false, playlistId: '', playlistName: '' });
+  }, []);
 
   const handleSelectTrackFromQueue = useCallback((index: number) => {
     player.setCurrentTrackIndex(index);
@@ -343,15 +393,26 @@ const App: React.FC = () => {
   const handleSaveQueueAsPlaylist = useCallback(async () => {
     if (playlist.length === 0) return alert("播放队列为空。");
     setPendingPlaylistTracks(playlist);
-    setIsCreatePlaylistModalOpen(true);
+    setIsSaveToPlaylistModalOpen(true);
   }, [playlist]);
 
   const handleConfirmCreatePlaylist = async (name: string) => {
     try {
       await createPlaylist(name, pendingPlaylistTracks);
       setIsCreatePlaylistModalOpen(false);
+      setIsSaveToPlaylistModalOpen(false);
     } catch (e) {
       alert("创建失败。");
+    }
+  };
+
+  const handleAddToExistingPlaylist = async (playlistId: string) => {
+    try {
+      await addTracksToPlaylist(playlistId, pendingPlaylistTracks);
+      setIsSaveToPlaylistModalOpen(false);
+      alert("已添加到歌单");
+    } catch (e) {
+      alert("添加失败。");
     }
   };
 
@@ -398,7 +459,30 @@ const App: React.FC = () => {
         defaultValue={pendingPlaylistTracks.length > 0 ? "我的收藏" : "新歌单"}
       />
 
-      {selectedPlaylist && (
+      <SaveToPlaylistModal
+          isOpen={isSaveToPlaylistModalOpen}
+          playlists={playlists}
+          allTracks={library.tracks}
+          onCreateNew={() => {
+            setIsSaveToPlaylistModalOpen(false);
+            setIsCreatePlaylistModalOpen(true);
+          }}
+          onAddToExisting={handleAddToExistingPlaylist}
+          onCancel={() => setIsSaveToPlaylistModalOpen(false)}
+        />
+
+        <ConfirmDialog
+          isOpen={deleteConfirmDialog.isOpen}
+          title="删除歌单"
+          message={`确定要删除歌单 "${deleteConfirmDialog.playlistName}" 吗？此操作无法撤销。`}
+          confirmText="删除"
+          cancelText="取消"
+          type="danger"
+          onConfirm={handleConfirmDeletePlaylist}
+          onCancel={handleCancelDeletePlaylist}
+        />
+
+        {selectedPlaylist && (
           <AddTracksByTextModal 
             isOpen={isAddByTextModalOpen}
             playlist={selectedPlaylist}
@@ -436,7 +520,22 @@ const App: React.FC = () => {
           <div className="flex items-center gap-4 md:gap-6 flex-1 min-w-0" style={{ WebkitAppRegion: 'no-drag' } as any}>
              <div className="relative group max-w-md w-full">
                 <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-zinc-500"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg></div>
-                <input type="text" placeholder={processDisplayString(searchPlaceholder)} value={library.searchQuery} onChange={(e) => { library.setSearchQuery(e.target.value); if(view === 'player' && e.target.value) setView('all'); }} className="w-full bg-white/5 border border-white/10 rounded-full py-2.5 px-11 text-sm text-white focus:border-yellow-500/50 outline-none backdrop-blur-md transition-all" />
+                <input 
+                  type="text" 
+                  placeholder={processDisplayString(searchPlaceholder)} 
+                  value={library.searchQuery} 
+                  onChange={(e) => { library.setSearchQuery(e.target.value); setPlaylistSearchQuery(e.target.value); }}
+                  onFocus={() => setIsSearchDropdownOpen(true)}
+                  onBlur={() => setTimeout(() => setIsSearchDropdownOpen(false), 200)}
+                  className="w-full bg-white/5 border border-white/10 rounded-full py-2.5 px-11 text-sm text-white focus:border-yellow-500/50 outline-none backdrop-blur-md transition-all" 
+                />
+                <SearchDropdown 
+                  isOpen={isSearchDropdownOpen && library.searchQuery.trim() !== ''} 
+                  searchQuery={library.searchQuery}
+                  tracks={library.tracks}
+                  onPlayTrack={handlePlayFromLibrary}
+                  onClose={() => setIsSearchDropdownOpen(false)}
+                />
              </div>
           </div>
           <div className="flex items-center gap-3" style={{ WebkitAppRegion: 'no-drag' } as any}>
@@ -535,10 +634,10 @@ const App: React.FC = () => {
                     <PlaylistDetailView 
                         playlist={selectedPlaylist}
                         allTracks={library.tracks}
-                        onBack={() => setSelectedPlaylist(null)}
+                        onBack={handleBack}
                         onPlayTrack={handlePlayFromLibrary}
                         onPlayPlaylist={handlePlayPlaylist}
-                        onDeletePlaylist={handleDeletePlaylist}
+                        onDeletePlaylist={handleDeletePlaylistRequest}
                         onOpenAddByText={() => setIsAddByTextModalOpen(true)}
                         favorites={library.favorites}
                         onToggleFavorite={library.handleToggleFavorite}
@@ -546,20 +645,21 @@ const App: React.FC = () => {
                     />
                   ) : (
                     <PlaylistsView 
-                        playlists={playlists}
+                        playlists={filteredPlaylists.length > 0 ? filteredPlaylists : playlists}
                         onSelectPlaylist={setSelectedPlaylist}
                         onPlayPlaylist={handlePlayPlaylist}
                         onCreatePlaylist={() => { setPendingPlaylistTracks([]); setIsCreatePlaylistModalOpen(true); }}
                         onImportPlaylist={() => setIsImportPlaylistModalOpen(true)}
+                        onDeletePlaylist={handleDeletePlaylistRequest}
                         displayConverter={processDisplayString}
                     />
                   )
                 ) : view === 'artistProfile' && selectedArtist ? (
-                  <ArtistProfile artistName={selectedArtist} allTracks={library.tracks} onBack={() => { setView('collection'); setSelectedArtist(null); }} onPlayTrack={handlePlayFromLibrary} onAddToQueue={addToPlaylist} onPlayAlbum={handlePlayAlbum} onPlayArtist={handlePlayArtist} onNavigateToAlbum={(album) => handleNavigate('albums', album)} favorites={library.favorites} onToggleFavorite={library.handleToggleFavorite} artistMetadata={library.artistMetadata} />
+                  <ArtistProfile artistName={selectedArtist} allTracks={library.tracks} onBack={handleBack} onPlayTrack={handlePlayFromLibrary} onAddToQueue={addToPlaylist} onPlayAlbum={handlePlayAlbum} onPlayArtist={handlePlayArtist} onNavigateToAlbum={(album) => handleNavigate('albums', album)} favorites={library.favorites} onToggleFavorite={library.handleToggleFavorite} artistMetadata={library.artistMetadata} followedArtists={library.followedArtists} onFollowArtist={library.handleFollowArtist} onUnfollowArtist={library.handleUnfollowArtist} />
                 ) : view === 'settings' ? (
                   <SettingsView settings={settings} onUpdate={updateSettings} onReset={resetSettings} onClearHistory={library.clearHistory} />
                 ) : (view === 'collection' || view === 'albums' || view === 'artists') ? (
-                  <CollectionView tracks={library.tracks} onNavigate={handleNavigate} onPlayAlbum={handlePlayAlbum} displayConverter={processDisplayString} searchQuery={library.searchQuery} initialTab={view === 'albums' ? 'albums' : 'artists'} onTabChange={(newTab) => setView(newTab)} artistMetadata={library.artistMetadata} />
+                  <CollectionView tracks={library.tracks} onNavigate={handleNavigate} onPlayAlbum={handlePlayAlbum} displayConverter={processDisplayString} searchQuery={library.searchQuery} initialTab={view === 'albums' ? 'albums' : 'artists'} onTabChange={(newTab) => setView(newTab)} artistMetadata={library.artistMetadata} followedArtists={library.followedArtists} />
                 ) : (
                   <LibraryView 
                     view={view} 
@@ -572,6 +672,7 @@ const App: React.FC = () => {
                     navigationRequest={navigationRequest} 
                     onNavigationProcessed={() => setNavigationRequest(null)} 
                     onNavigate={handleNavigate} 
+                    onBack={handleBack}
                     isSearching={library.searchQuery.length > 0} 
                     onToggleFavorite={library.handleToggleFavorite} 
                     onUpdateTrack={library.handleUpdateTrack} 
@@ -634,6 +735,8 @@ const App: React.FC = () => {
           themeColor="#eab308" 
           settings={settings} 
           displayConverter={processDisplayString}
+          isArtistFollowed={currentTrack?.artist ? library.followedArtists.has(currentTrack.artist) : false}
+          onToggleFollowArtist={() => currentTrack?.artist && (library.followedArtists.has(currentTrack.artist) ? library.handleUnfollowArtist(currentTrack.artist) : library.handleFollowArtist(currentTrack.artist))}
         />
         <MobileNav activeView={view} onViewChange={handleSidebarViewChange} trackCount={library.tracks.length} themeColor="#eab308" />
       </main>

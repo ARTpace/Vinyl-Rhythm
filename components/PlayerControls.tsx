@@ -34,6 +34,8 @@ interface PlayerControlsProps {
   themeColor?: string;
   settings?: AppSettings; 
   displayConverter?: (str: string) => string; 
+  isArtistFollowed?: boolean;
+  onToggleFollowArtist?: () => void;
 }
 
 const PlayerControls: React.FC<PlayerControlsProps> = ({
@@ -66,7 +68,9 @@ const PlayerControls: React.FC<PlayerControlsProps> = ({
     onSaveQueueAsPlaylist,
     themeColor = '#eab308',
     settings,
-    displayConverter
+    displayConverter,
+    isArtistFollowed = false,
+    onToggleFollowArtist
   }) => {
   const [showQueue, setShowQueue] = useState(false);
   const [queueTab, setQueueTab] = useState<'queue' | 'history'>('queue');
@@ -403,7 +407,27 @@ const PlayerControls: React.FC<PlayerControlsProps> = ({
               </div>
            </div>
            <button onClick={() => onToggleFavorite()} disabled={!currentTrack} className={`w-8 h-8 flex-shrink-0 ${insetButtonClass(isFavorite)} ${isFavorite ? 'text-yellow-500' : ''} disabled:opacity-30`}><svg width="14" height="14" viewBox="0 0 24 24" fill={isFavorite ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2.5"><path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"/></svg></button>
-           <button onClick={() => currentTrack && onAddToPlaylist(currentTrack)} disabled={!currentTrack} className={`w-8 h-8 flex-shrink-0 ${insetButtonClass(false)} disabled:opacity-30`}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="19" x2="19" y1="8" y2="14"/><line x1="22" x2="16" y1="11" y2="11"/></svg></button>
+           <button onClick={() => onToggleFollowArtist?.()} disabled={!currentTrack?.artist} className={`w-8 h-8 flex-shrink-0 relative ${insetButtonClass(isArtistFollowed)} ${isArtistFollowed ? 'text-yellow-500' : ''} disabled:opacity-30`}>
+             <svg width="14" height="14" viewBox="0 0 24 24" fill={isArtistFollowed ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+               <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
+               <circle cx="12" cy="7" r="4"/>
+             </svg>
+             {isArtistFollowed && (
+               <span className="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-yellow-500 rounded-full flex items-center justify-center">
+                 <svg className="w-2 h-2 text-[#1a1a1a]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="4">
+                   <polyline points="20 6 9 17 4 12"/>
+                 </svg>
+               </span>
+             )}
+             {!isArtistFollowed && (
+               <span className="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-[#3a3a3a] rounded-full flex items-center justify-center">
+                 <svg className="w-2 h-2 text-zinc-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
+                   <line x1="12" y1="5" x2="12" y2="19"/>
+                   <line x1="5" y1="12" x2="19" y2="12"/>
+                 </svg>
+               </span>
+             )}
+           </button>
         </div>
 
         <div className="flex flex-col items-center justify-center gap-1 w-2/4 h-full pt-1">

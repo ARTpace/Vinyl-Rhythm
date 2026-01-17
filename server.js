@@ -1,8 +1,13 @@
+import express from 'express';
+import path from 'path';
+import fs from 'fs/promises';
+import fsSync from 'fs';
+import * as mm from 'music-metadata';
+import { fileURLToPath } from 'url';
 
-const express = require('express');
-const path = require('path');
-const fs = require('fs').promises;
-const fsSync = require('fs');
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
 const app = express();
 const PORT = process.env.PORT || 3000;
 const MUSIC_PATH = '/music'; // Docker 内部挂载音乐的固定路径
@@ -20,23 +25,78 @@ app.get('/api/status', (req, res) => {
 app.get('/api/scan', async (req, res) => {
   const formats = ['.mp3', '.wav', '.ogg', '.m4a', '.flac'];
   const tracks = [];
+  const STAT_BATCH = 32; // 稍微调小一点，因为要解析元数据
 
   async function walk(dir) {
     try {
-      const files = await fs.readdir(dir, { withFileTypes: true });
-      for (const file of files) {
-        const fullPath = path.join(dir, file.name);
-        if (file.isDirectory()) {
-          await walk(fullPath);
-        } else if (formats.some(ext => file.name.toLowerCase().endsWith(ext))) {
-          const stats = await fs.stat(fullPath);
+      const entries = await fs.readdir(dir, { withFileTypes: true });
+      const subDirs = [];
+      const audioFiles = [];
+
+      for (const entry of entries) {
+        const fullPath = path.join(dir, entry.name);
+        if (entry.isDirectory()) {
+          subDirs.push(fullPath);
+          continue;
+        }
+        const lower = entry.name.toLowerCase();
+        if (formats.some(ext => lower.endsWith(ext))) {
+          audioFiles.push({ name: entry.name, fullPath });
+        }
+      }
+
+      for (let i = 0; i < audioFiles.length; i += STAT_BATCH) {
+        const batch = audioFiles.slice(i, i + STAT_BATCH);
+        const results = await Promise.all(
+          batch.map(async (f) => {
+            try {
+              const stats = await fs.stat(f.fullPath);
+              // 解析元数据
+              let metadata = null;
+              try {
+                metadata = await mm.parseFile(f.fullPath);
+              } catch (e) {
+                console.warn(`Failed to parse metadata for ${f.name}:`, e.message);
+              }
+
+              return { 
+                ok: true, 
+                f, 
+                stats,
+                metadata: metadata ? {
+                  title: metadata.common.title,
+                  artist: metadata.common.artist || metadata.common.albumartist,
+                  album: metadata.common.album,
+                  duration: metadata.format.duration,
+                  bitrate: metadata.format.bitrate
+                } : null
+              };
+            } catch (e) {
+              return { ok: false, f, stats: null, metadata: null };
+            }
+          })
+        );
+
+        for (const item of results) {
+          if (!item.ok) continue;
+          const baseName = item.f.name.replace(/\.[^/.]+$/, "");
           tracks.push({
-            name: file.name,
-            path: fullPath.replace(MUSIC_PATH, ''), // 存储相对路径
-            size: stats.size,
-            lastModified: stats.mtimeMs
+            name: baseName,
+            fileName: item.f.name,
+            title: item.metadata?.title || null,
+            artist: item.metadata?.artist || null,
+            album: item.metadata?.album || null,
+            duration: item.metadata?.duration,
+            bitrate: item.metadata?.bitrate,
+            path: path.relative(MUSIC_PATH, item.f.fullPath),
+            size: item.stats.size,
+            lastModified: item.stats.mtimeMs
           });
         }
+      }
+
+      for (const sub of subDirs) {
+        await walk(sub);
       }
     } catch (e) {
       console.error('Scan error:', e);
@@ -54,7 +114,8 @@ app.get('/api/stream', (req, res) => {
   const relativePath = req.query.path;
   if (!relativePath) return res.status(400).send('Path required');
   
-  const fullPath = path.join(MUSIC_PATH, relativePath);
+  const safeRelativePath = String(relativePath).replace(/^[/\\]+/, '');
+  const fullPath = path.join(MUSIC_PATH, safeRelativePath);
   if (!fsSync.existsSync(fullPath)) return res.status(404).send('File not found');
 
   const stat = fsSync.statSync(fullPath);
@@ -86,7 +147,7 @@ app.get('/api/stream', (req, res) => {
 });
 
 // 所有其他路由指向前端入口
-app.get('*', (req, res) => {
+app.get(/.*/, (req, res) => {
   res.sendFile(path.join(__dirname, 'dist', 'index.html'));
 });
 

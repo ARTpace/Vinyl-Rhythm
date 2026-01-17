@@ -16,6 +16,9 @@ interface ArtistProfileProps {
   favorites: Set<string>;
   onToggleFavorite: (id: string) => void;
   artistMetadata: Map<string, string>;
+  followedArtists: Set<string>;
+  onFollowArtist: (artistName: string) => void;
+  onUnfollowArtist: (artistName: string) => void;
 }
 
 const ArtistProfile: React.FC<ArtistProfileProps> = ({
@@ -30,7 +33,10 @@ const ArtistProfile: React.FC<ArtistProfileProps> = ({
   onNavigateToAlbum,
   favorites,
   onToggleFavorite,
-  artistMetadata
+  artistMetadata,
+  followedArtists,
+  onFollowArtist,
+  onUnfollowArtist
 }) => {
   const [addedIds, setAddedIds] = useState<Set<string>>(new Set());
   const [flyEffect, setFlyEffect] = useState<{ startX: number, startY: number, endX: number, endY: number, track: Track } | null>(null);
@@ -175,10 +181,19 @@ const ArtistProfile: React.FC<ArtistProfileProps> = ({
             </div>
             <h1 className="text-5xl md:text-7xl lg:text-8xl font-black text-white tracking-tighter leading-none mb-6 drop-shadow-2xl">{artistName}</h1>
             <div className="max-w-2xl">
-              <div className="flex flex-col md:flex-row items-center gap-6 mb-8">
+              <div className="flex flex-col md:flex-row items-center gap-4 md:gap-6 mb-8">
                 <button onClick={() => onPlayArtist?.(artistName)} className="bg-yellow-500 hover:bg-yellow-400 text-black px-10 py-4 rounded-full font-black text-sm uppercase tracking-widest flex items-center gap-3 transition-all active:scale-95 shadow-[0_10px_30px_rgba(234,179,8,0.3)]">
                   <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M5 3l14 9-14 9V3z"/></svg>播放全部
                 </button>
+                {followedArtists.has(artistName) ? (
+                  <button onClick={() => onUnfollowArtist(artistName)} className="bg-zinc-800 hover:bg-zinc-700 text-white px-6 py-4 rounded-full font-black text-sm uppercase tracking-widest flex items-center gap-2 transition-all active:scale-95 border border-white/10">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>已关注
+                  </button>
+                ) : (
+                  <button onClick={() => onFollowArtist(artistName)} className="bg-transparent hover:bg-white/5 text-zinc-400 hover:text-white px-6 py-4 rounded-full font-black text-sm uppercase tracking-widest flex items-center gap-2 transition-all active:scale-95 border border-white/10">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>关注
+                  </button>
+                )}
                 <div className="flex items-center gap-6">
                    <div className="flex flex-col"><span className="text-white font-black text-xl leading-none">{stats.albumCount}</span><span className="text-zinc-600 text-[9px] font-black uppercase tracking-widest mt-1">Albums</span></div>
                    <div className="w-px h-6 bg-zinc-800" />
@@ -238,7 +253,7 @@ const ArtistProfile: React.FC<ArtistProfileProps> = ({
           <div 
             ref={scrollContainerRef}
             onScroll={handleScroll}
-            className="flex overflow-x-auto gap-8 pb-8 custom-scrollbar no-scrollbar scroll-smooth"
+            className="flex overflow-x-auto gap-8 pt-6 pb-8 custom-scrollbar no-scrollbar scroll-smooth"
           >
             {sortedAlbums.map(([name, data], idx) => (
               <div 

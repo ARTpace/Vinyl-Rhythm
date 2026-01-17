@@ -86,11 +86,10 @@ export const useAudioPlayer = (
   const playWithFade = useCallback(async () => {
     const audio = audioRef.current;
     if (!audio || currentTrackIndex === null || tracks.length === 0) return;
-    
+
     const track = tracks[currentTrackIndex];
     if (!track) return;
 
-    // 处理路径解析
     let sourceUrl = track.url;
     if (!sourceUrl) {
       const resolved = await resolveTrackFile(track);
@@ -104,7 +103,7 @@ export const useAudioPlayer = (
     try {
       let ctx = getAudioCtx();
       let gainNode = getGainNode();
-      
+
       if (ctx && (ctx.state === 'suspended' || (ctx.state as string) === 'interrupted')) {
         await ctx.resume();
       }
@@ -116,29 +115,33 @@ export const useAudioPlayer = (
           return u;
         }
       };
+
       const currentSrc = audio.currentSrc || audio.src || '';
-      const isSameSource = !!currentSrc && normalizeUrl(currentSrc) === normalizeUrl(sourceUrl);
-      if (isSameSource && !audio.paused) return;
-      
-      // 切歌时的物理重置
+      const normalizedCurrentSrc = normalizeUrl(currentSrc);
+      const normalizedSourceUrl = normalizeUrl(sourceUrl);
+      const isSameSource = !!currentSrc && normalizedCurrentSrc === normalizedSourceUrl;
+
+      if (isSameSource && !audio.paused) {
+        return;
+      }
+
       if (!isSameSource) {
         audio.pause();
         audio.src = sourceUrl;
-        audio.load(); 
-        audio.currentTime = 0; 
-        setProgress(0); 
-        setDuration(0); 
+        audio.load();
+        audio.currentTime = 0;
+        setProgress(0);
+        setDuration(0);
       }
-      
+
       if (gainNode && ctx) {
         gainNode.gain.cancelScheduledValues(ctx.currentTime);
         gainNode.gain.setValueAtTime(0, ctx.currentTime);
       }
-      
+
       await audio.play();
       setIsPlaying(true);
-      
-      // 通知外部记录历史
+
       if (onTrackStart) {
         onTrackStart(track);
       }
@@ -159,8 +162,16 @@ export const useAudioPlayer = (
   }, [fadePhysicalVolume]);
 
   const togglePlay = useCallback(() => {
-    if (isPlaying) pauseWithFade(); else playWithFade();
-  }, [isPlaying, pauseWithFade, playWithFade]);
+    if (isPlaying) {
+      pauseWithFade();
+    } else {
+      if (currentTrackIndex === null && tracks.length > 0) {
+        setCurrentTrackIndex(0);
+        return;
+      }
+      playWithFade();
+    }
+  }, [isPlaying, pauseWithFade, playWithFade, currentTrackIndex, tracks.length]);
 
   const nextTrack = useCallback(() => {
     if (tracks.length === 0 || currentTrackIndex === null) return;

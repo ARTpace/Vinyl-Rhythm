@@ -338,13 +338,13 @@ const LibraryView: React.FC<LibraryViewProps> = ({
 
   return (
     <div className="flex flex-col h-full bg-zinc-950/20 overflow-hidden animate-in fade-in duration-500">
-      <header className="p-4 md:p-8 flex flex-col md:flex-row md:items-end justify-between gap-4 shrink-0">
-        <div className="space-y-1">
+      <header className="p-4 md:p-8 flex flex-col md:flex-row md:items-end justify-between gap-4 shrink-0 pointer-events-none">
+        <div className="space-y-1 pointer-events-auto">
           <h2 className="text-2xl md:text-4xl font-black text-white tracking-tighter uppercase italic">{convert(pageTitle)}</h2>
           {activeAlbum && albumYear && <p className="text-[10px] text-zinc-500 font-black uppercase tracking-[0.2em] mt-1 italic animate-in fade-in slide-in-from-left-2">Release Year • {albumYear}</p>}
           <div className="h-0.5 w-12 bg-yellow-500 rounded-full shadow-[0_0_10px_rgba(234,179,8,0.5)] mt-1"></div>
         </div>
-        {(activeGroup || activeAlbum) && <button onClick={() => { setActiveGroup(null); setActiveAlbum(null); }} className="flex items-center gap-2 text-zinc-500 hover:text-yellow-500 transition-colors uppercase font-black text-[10px] tracking-widest"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><path d="m15 18-6-6 6-6"/></svg>BACK TO LIST</button>}
+        {(activeGroup || activeAlbum) && <button onClick={() => { if (onBack) onBack(); else { setActiveGroup(null); setActiveAlbum(null); } }} className="flex items-center gap-2 text-zinc-500 hover:text-yellow-500 transition-colors uppercase font-black text-[10px] tracking-widest pointer-events-auto"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><path d="m15 18-6-6 6-6"/></svg>BACK TO LIST</button>}
       </header>
       {!activeGroup && !activeAlbum && view !== 'history' && !isSearching && (
         <div className="px-4 md:px-8 space-y-6 shrink-0 animate-in slide-in-from-top-2 duration-500 mb-6">
@@ -377,7 +377,7 @@ const LibraryView: React.FC<LibraryViewProps> = ({
           )}
         </div>
       )}
-      <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 md:px-8 pb-32 custom-scrollbar">
+      <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 md:px-8 pt-8 pb-32 custom-scrollbar">
         {groups && !activeGroup && !activeAlbum ? (
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-6">
             {groups.map(([id, groupTracks]) => {

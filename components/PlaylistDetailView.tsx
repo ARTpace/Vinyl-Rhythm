@@ -9,8 +9,8 @@ interface PlaylistDetailViewProps {
   onBack: () => void;
   onPlayTrack: (track: Track) => void;
   onPlayPlaylist: (playlist: Playlist) => void;
-  onDeletePlaylist: (id: string) => void;
-  onOpenAddByText: () => void; // 新增：打开文本追加弹窗
+  onDeletePlaylist: (id: string, name: string) => void;
+  onOpenAddByText: () => void;
   favorites: Set<string>;
   onToggleFavorite: (id: string) => void;
   displayConverter: (s: string) => string;
@@ -41,9 +41,7 @@ const PlaylistDetailView: React.FC<PlaylistDetailViewProps> = ({
   }, [playlistTracks]);
 
   const handleDelete = () => {
-    if (window.confirm(`确定要删除歌单 "${playlist.name}" 吗？此操作无法撤销。`)) {
-      onDeletePlaylist(playlist.id);
-    }
+    onDeletePlaylist(playlist.id, playlist.name);
   };
 
   return (

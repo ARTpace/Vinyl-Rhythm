@@ -1,5 +1,5 @@
 const DB_NAME = 'VinylRhythmDB';
-const DB_VERSION = 11;
+const DB_VERSION = 12;
 const STORE_NAME = 'libraryHandles';
 const STORIES_STORE = 'trackStories';
 const HISTORY_STORE = 'playbackHistory';
@@ -7,6 +7,7 @@ const TRACKS_CACHE_STORE = 'tracksCache';
 const ARTIST_METADATA_STORE = 'artistMetadata';
 const PLAYLISTS_STORE = 'playlists';
 const WEBDAV_FOLDERS_STORE = 'webdavFolders';
+const FOLLOWED_ARTISTS_STORE = 'followedArtists';
 
 let dbInstance: IDBDatabase | null = null;
 
@@ -46,6 +47,9 @@ const initDB = async (): Promise<IDBDatabase> => {
       }
       if (!db.objectStoreNames.contains(WEBDAV_FOLDERS_STORE)) {
         db.createObjectStore(WEBDAV_FOLDERS_STORE, { keyPath: 'id' });
+      }
+      if (!db.objectStoreNames.contains(FOLLOWED_ARTISTS_STORE)) {
+        db.createObjectStore(FOLLOWED_ARTISTS_STORE, { keyPath: 'name' });
       }
     };
     request.onsuccess = () => {
@@ -146,6 +150,52 @@ export const getAllArtistMetadata = async (): Promise<{name: string, coverUrl: s
     });
 };
 
+export const followArtist = async (name: string) => {
+    const db = await initDB();
+    const tx = db.transaction(FOLLOWED_ARTISTS_STORE, 'readwrite');
+    const store = tx.objectStore(FOLLOWED_ARTISTS_STORE);
+    store.put({ name, followedAt: Date.now() });
+    return new Promise<void>((resolve, reject) => {
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error);
+    });
+};
+
+export const unfollowArtist = async (name: string) => {
+    const db = await initDB();
+    const tx = db.transaction(FOLLOWED_ARTISTS_STORE, 'readwrite');
+    const store = tx.objectStore(FOLLOWED_ARTISTS_STORE);
+    store.delete(name);
+    return new Promise<void>((resolve, reject) => {
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error);
+    });
+};
+
+export const isArtistFollowed = async (name: string): Promise<boolean> => {
+    const db = await initDB();
+    const tx = db.transaction(FOLLOWED_ARTISTS_STORE, 'readonly');
+    const store = tx.objectStore(FOLLOWED_ARTISTS_STORE);
+    return new Promise((resolve, reject) => {
+        const request = store.get(name);
+        request.onsuccess = () => resolve(!!request.result);
+        request.onerror = () => reject(request.error);
+    });
+};
+
+export const getAllFollowedArtists = async (): Promise<string[]> => {
+    const db = await initDB();
+    const tx = db.transaction(FOLLOWED_ARTISTS_STORE, 'readonly');
+    const store = tx.objectStore(FOLLOWED_ARTISTS_STORE);
+    const request = store.getAll();
+    return new Promise((resolve, reject) => {
+        request.onsuccess = () => {
+            resolve((request.result || []).map((item: any) => item.name));
+        };
+        request.onerror = () => reject(request.error);
+    });
+};
+
 export const saveTracksToCache = async (tracks: any[]) => {
   const db = await initDB();
   const tx = db.transaction(TRACKS_CACHE_STORE, 'readwrite');
@@ -179,30 +229,101 @@ export const getCachedTracks = async (): Promise<any[]> => {
   });
 };
 
+export const replaceTracksForFolderInCache = async (folderId: string, tracks: any[]) => {
+  const db = await initDB();
+  const tx = db.transaction(TRACKS_CACHE_STORE, 'readwrite');
+  const store = tx.objectStore(TRACKS_CACHE_STORE);
+
+  const index = store.index('folderId');
+  const cursorRequest = index.openCursor(IDBKeyRange.only(folderId));
+
+  cursorRequest.onsuccess = () => {
+    const cursor = cursorRequest.result;
+    if (cursor) {
+      cursor.delete();
+      cursor.continue();
+      return;
+    }
+
+    for (const track of tracks) {
+      const { file, url, coverUrl, ...serializableTrack } = track;
+      store.put(serializableTrack);
+    }
+  };
+
+  return new Promise<void>((resolve, reject) => {
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+};
+
 export const addToHistory = async (track: any) => {
   const db = await initDB();
   const tx = db.transaction(HISTORY_STORE, 'readwrite');
   const store = tx.objectStore(HISTORY_STORE);
-  await store.put({
+  
+  // 核心修复：不持久化 blob URL，因为它在重启后会失效
+  const { coverUrl, ...serializableTrack } = track;
+  const historyItem = {
     fingerprint: track.fingerprint,
     name: track.name,
     artist: track.artist,
     album: track.album,
-    coverUrl: track.coverUrl,
     timestamp: Date.now()
-  });
+  };
+
+  // 如果 coverUrl 不是 blob，则可以保留（比如来自网络或本地服务器的持久 URL）
+  if (coverUrl && !coverUrl.startsWith('blob:')) {
+    (historyItem as any).coverUrl = coverUrl;
+  }
+
+  await store.put(historyItem);
 };
 
 export const getPlaybackHistory = async (): Promise<any[]> => {
   const db = await initDB();
-  const tx = db.transaction(HISTORY_STORE, 'readonly');
-  const request = tx.objectStore(HISTORY_STORE).getAll();
+  
+  // 获取历史记录
+  const tx = db.transaction([HISTORY_STORE, TRACKS_CACHE_STORE], 'readonly');
+  const historyStore = tx.objectStore(HISTORY_STORE);
+  const cacheStore = tx.objectStore(TRACKS_CACHE_STORE);
+  
+  const historyRequest = historyStore.getAll();
+  
   return new Promise((resolve) => {
-    request.onsuccess = () => {
-      const results = request.result || [];
-      resolve(results.sort((a, b) => b.timestamp - a.timestamp));
+    historyRequest.onsuccess = async () => {
+      const results = historyRequest.result || [];
+      
+      // 为没有有效 coverUrl 的历史记录尝试从缓存恢复封面
+      const hydratedResults = await Promise.all(results.map(async (item) => {
+        if (!item.coverUrl) {
+          // 尝试从缓存中查找对应曲目以获取 coverBlob
+          const cacheRequest = cacheStore.get(item.fingerprint);
+          return new Promise((res) => {
+            cacheRequest.onsuccess = () => {
+              const cachedTrack = cacheRequest.result;
+              if (cachedTrack && cachedTrack.coverBlob) {
+                try {
+                  res({
+                    ...item,
+                    coverUrl: URL.createObjectURL(cachedTrack.coverBlob)
+                  });
+                  return;
+                } catch (e) {
+                  console.error('Failed to create object URL for history item:', e);
+                }
+              }
+              res(item);
+            };
+            cacheRequest.onerror = () => res(item);
+          });
+        }
+        return item;
+      }));
+
+      resolve((hydratedResults as any[]).sort((a, b) => b.timestamp - a.timestamp));
     };
-    request.onerror = () => resolve([]);
+    historyRequest.onerror = () => resolve([]);
   });
 };
 

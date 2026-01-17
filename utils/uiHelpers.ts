@@ -18,15 +18,12 @@ export const generateCompositeCover = (tracks: Track[]): Promise<Blob> => {
       return reject(new Error('Canvas context not available'));
     }
 
-    // Default background
     ctx.fillStyle = '#1a1a1a';
     ctx.fillRect(0, 0, size, size);
 
-    // Get unique covers from the tracks
-    const coverUrls = [...new Set(tracks.map(t => t.coverUrl).filter(Boolean))].slice(0, 4) as string[];
+    const tracksWithCover = tracks.filter(t => t.coverBlob || t.coverUrl);
 
-    if (coverUrls.length === 0) {
-      // Draw a default placeholder if no covers are available
+    if (tracksWithCover.length === 0) {
       ctx.fillStyle = '#222';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
@@ -36,15 +33,48 @@ export const generateCompositeCover = (tracks: Track[]): Promise<Blob> => {
       return;
     }
 
+    const selectedTracks: Track[] = [];
+    const seenFolderIds = new Set<string>();
+    const seenFingerprints = new Set<string>();
+
+    for (const track of tracksWithCover) {
+      const fp = track.fingerprint || '';
+      const folderId = track.folderId || '';
+
+      if (seenFingerprints.has(fp)) continue;
+
+      if (folderId && seenFolderIds.has(folderId)) {
+        continue;
+      }
+
+      seenFingerprints.add(fp);
+      if (folderId) {
+        seenFolderIds.add(folderId);
+      }
+      selectedTracks.push(track);
+
+      if (selectedTracks.length >= 4) break;
+    }
+
+    if (selectedTracks.length < 4) {
+      for (const track of tracksWithCover) {
+        const fp = track.fingerprint || '';
+        if (seenFingerprints.has(fp)) continue;
+
+        seenFingerprints.add(fp);
+        selectedTracks.push(track);
+        if (selectedTracks.length >= 4) break;
+      }
+    }
+
+    const coverUrls = selectedTracks.slice(0, 4).map(t => t.coverUrl).filter((url): url is string => Boolean(url));
+
     const images = coverUrls.map(url => {
       return new Promise<HTMLImageElement>((res) => {
         const img = new Image();
-        // NOTE: Do NOT use crossOrigin for blob: urls as it can cause loading failures
         img.onload = () => res(img);
-        img.onerror = () => res(new Image()); // Resolve with an empty image on error
+        img.onerror = () => res(new Image());
         img.src = url;
-        
-        // Timeout safeguard
         setTimeout(() => res(new Image()), 2000);
       });
     });
@@ -52,9 +82,8 @@ export const generateCompositeCover = (tracks: Track[]): Promise<Blob> => {
     Promise.all(images).then(loadedImages => {
       const validImages = loadedImages.filter(img => img.width > 0);
       const count = validImages.length;
-      
+
       if (count === 0) {
-        // Fallback if images failed to load
         ctx.fillStyle = '#222';
         ctx.fillText('♪', size / 2, size / 2);
       } else if (count === 1) {

@@ -11,6 +11,7 @@ interface CollectionViewProps {
   initialTab?: 'artists' | 'albums';
   onTabChange?: (tab: 'artists' | 'albums') => void;
   artistMetadata: Map<string, string>;
+  followedArtists?: Set<string>;
 }
 
 const PAGE_SIZE = 40; 
@@ -68,9 +69,11 @@ const CollectionView: React.FC<CollectionViewProps> = ({
   searchQuery = '', 
   initialTab = 'artists',
   onTabChange,
-  artistMetadata
+  artistMetadata,
+  followedArtists
 }) => {
   const [tab, setTab] = useState<'artists' | 'albums'>(initialTab);
+  const [showFollowedOnly, setShowFollowedOnly] = useState(false);
   const [displayLimit, setDisplayLimit] = useState(PAGE_SIZE);
   const observerRef = useRef<IntersectionObserver | null>(null);
   const loadMoreRef = useRef<HTMLDivElement>(null);
@@ -110,8 +113,19 @@ const CollectionView: React.FC<CollectionViewProps> = ({
       });
     });
 
-    const result: [string, { tracks: Track[], cover?: string, year?: number }][] = [];
+    let result: [string, { tracks: Track[], cover?: string, year?: number }][] = [];
     map.forEach((data, name) => {
+      if (showFollowedOnly && followedArtists && !followedArtists.has(name)) {
+        return;
+      }
+      
+      if (searchQuery.trim()) {
+        const q = normalizeChinese(searchQuery);
+        if (!normalizeChinese(name).includes(q)) {
+          return;
+        }
+      }
+      
       const uniqueTracks = deduplicateTracks(data.tracks);
       const artistCover = artistMetadata.get(name) || uniqueTracks.find(t => t.coverUrl)?.coverUrl;
       result.push([name, { 
@@ -121,7 +135,7 @@ const CollectionView: React.FC<CollectionViewProps> = ({
     });
 
     return result.sort((a, b) => a[0].localeCompare(b[0]));
-  }, [tracks, searchQuery, artistMetadata]);
+  }, [tracks, searchQuery, artistMetadata, showFollowedOnly, followedArtists]);
 
   const albumGroups = useMemo(() => {
     let sourceTracks = tracks;
@@ -139,6 +153,13 @@ const CollectionView: React.FC<CollectionViewProps> = ({
 
     const result: [string, { tracks: Track[], cover?: string, year?: number }][] = [];
     map.forEach((data, name) => {
+      if (searchQuery.trim()) {
+        const q = normalizeChinese(searchQuery);
+        if (!normalizeChinese(name).includes(q)) {
+          return;
+        }
+      }
+      
       const uniqueTracks = deduplicateTracks(data.tracks);
       const albumYear = uniqueTracks.find(t => t.year)?.year;
       
@@ -154,7 +175,7 @@ const CollectionView: React.FC<CollectionViewProps> = ({
 
   useEffect(() => {
     setDisplayLimit(PAGE_SIZE);
-  }, [tab, searchQuery]);
+  }, [tab, searchQuery, showFollowedOnly]);
 
   useEffect(() => {
     if (observerRef.current) observerRef.current.disconnect();
@@ -165,22 +186,22 @@ const CollectionView: React.FC<CollectionViewProps> = ({
     }, { threshold: 0.1 });
     if (loadMoreRef.current) observerRef.current.observe(loadMoreRef.current);
     return () => observerRef.current?.disconnect();
-  }, [tab, searchQuery]);
+  }, [tab, searchQuery, showFollowedOnly]);
 
   const currentGroups = tab === 'artists' ? artistGroups : albumGroups;
   const displayedGroups = useMemo(() => currentGroups.slice(0, displayLimit), [currentGroups, displayLimit]);
 
   return (
     <div className="flex flex-col h-full bg-zinc-950/20 overflow-hidden animate-in fade-in duration-500">
-      <header className="p-4 md:p-8 flex flex-col md:flex-row md:items-end justify-between gap-6 shrink-0">
-        <div className="space-y-1">
+      <header className="p-4 md:p-8 flex flex-col md:flex-row md:items-end justify-between gap-6 shrink-0 pointer-events-none">
+        <div className="space-y-1 pointer-events-auto">
           <h2 className="text-2xl md:text-4xl font-black text-white tracking-tighter uppercase italic">
             馆藏预览
           </h2>
           <div className="h-0.5 w-12 bg-yellow-500 rounded-full shadow-[0_0_10px_rgba(234,179,8,0.5)]"></div>
         </div>
 
-        <div className="flex bg-black/40 p-1.5 rounded-2xl border border-white/5 backdrop-blur-md">
+        <div className="flex bg-black/40 p-1.5 rounded-2xl border border-white/5 backdrop-blur-md pointer-events-auto">
           <button 
             onClick={() => handleTabSwitch('artists')}
             className={`px-8 py-2.5 text-[10px] font-black uppercase tracking-[0.2em] rounded-xl transition-all ${tab === 'artists' ? 'bg-zinc-800 text-yellow-500 shadow-xl border border-white/5' : 'text-zinc-600 hover:text-zinc-400'}`}
@@ -193,10 +214,24 @@ const CollectionView: React.FC<CollectionViewProps> = ({
           >
             {convert('专辑')}
           </button>
+          {tab === 'artists' && (
+            <div className="w-px bg-white/10 mx-1.5" />
+          )}
+          {tab === 'artists' && (
+            <button 
+              onClick={() => setShowFollowedOnly(!showFollowedOnly)}
+              className={`px-6 py-2.5 text-[10px] font-black uppercase tracking-[0.15em] rounded-xl transition-all flex items-center gap-2 ${showFollowedOnly ? 'bg-yellow-500 text-black shadow-xl' : 'text-zinc-600 hover:text-zinc-400'}`}
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill={showFollowedOnly ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2">
+                <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/>
+              </svg>
+              {convert('已关注')}
+            </button>
+          )}
         </div>
       </header>
 
-      <div className="flex-1 overflow-y-auto px-4 md:px-8 pb-32 custom-scrollbar">
+      <div className="flex-1 overflow-y-auto px-4 md:px-8 pt-8 pb-32 custom-scrollbar">
         {currentGroups.length === 0 ? (
           <div className="h-64 flex flex-col items-center justify-center text-zinc-800 gap-4">
              <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M21 15V6a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-2"/><circle cx="12" cy="12" r="3"/><path d="M16 8.5V11"/></svg>

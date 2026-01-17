@@ -1,6 +1,73 @@
 import { Track } from '../types';
 import * as mm from 'music-metadata-browser';
 
+const COVER_FILENAMES = [
+  'cover',
+  'folder',
+  'album',
+  'art',
+  'artwork',
+  'thumbnail',
+  '.cover'
+];
+
+const COVER_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp'];
+
+export async function findFolderCoverFromHandle(folderHandle: FileSystemDirectoryHandle): Promise<Blob | null> {
+  try {
+    for (const filename of COVER_FILENAMES) {
+      for (const ext of COVER_EXTENSIONS) {
+        const coverName = `${filename}${ext}`;
+        try {
+          const coverHandle = await folderHandle.getFileHandle(coverName);
+          const file = await coverHandle.getFile();
+          if (file.size > 0) {
+            console.log('[AudioParser] Found folder cover:', coverName);
+            return file;
+          }
+        } catch {
+          continue;
+        }
+
+        const coverNameUpper = `${filename.toUpperCase()}${ext}`;
+        try {
+          const coverHandle = await folderHandle.getFileHandle(coverNameUpper);
+          const file = await coverHandle.getFile();
+          if (file.size > 0) {
+            console.log('[AudioParser] Found folder cover:', coverNameUpper);
+            return file;
+          }
+        } catch {
+          continue;
+        }
+      }
+    }
+
+    for (const entry of await (folderHandle as any).values()) {
+      if (entry.kind === 'file') {
+        const ext = entry.name.toLowerCase().slice(entry.name.lastIndexOf('.'));
+        if (COVER_EXTENSIONS.includes(ext) && /^(cover|folder|album|art)/i.test(entry.name)) {
+          try {
+            const file = await entry.getFile();
+            if (file.size > 0) {
+              console.log('[AudioParser] Found folder cover:', entry.name);
+              return file;
+            }
+          } catch {
+            continue;
+          }
+        }
+      }
+    }
+
+    console.log('[AudioParser] No folder cover found');
+    return null;
+  } catch (error) {
+    console.error('[AudioParser] Error finding folder cover:', error);
+    return null;
+  }
+}
+
 const cleanFileNameData = (fileName: string) => {
   let cleanName = fileName.replace(/\.[^/.]+$/, ""); 
   const ads = ["【无损音乐网 www.wusuns.com】", " - 更多精彩尽在www.it688.cn", "_无损下载", "[80s下载网]", " (高清版)", " - 副本", "-(www.music.com)", "(Live)", "（Live）", "[FLAC]", "(Official Video)", "- 单曲"];
@@ -64,7 +131,18 @@ export const parseFileToTrack = async (file: File, directoryCoverBlob: Blob | nu
     if (common.picture && common.picture.length > 0) {
       try {
         const picture = common.picture[0];
-        coverBlob = new Blob([picture.data], { type: picture.format });
+        let pictureData: Uint8Array;
+        const rawData = (picture as any).data as unknown;
+        if (rawData instanceof Uint8Array) {
+          pictureData = rawData;
+        } else if (rawData instanceof ArrayBuffer) {
+          pictureData = new Uint8Array(rawData);
+        } else if (ArrayBuffer.isView(rawData)) {
+          pictureData = new Uint8Array(rawData.buffer);
+        } else {
+          pictureData = new Uint8Array(rawData as any);
+        }
+        coverBlob = new Blob([pictureData.buffer as ArrayBuffer], { type: picture.format });
         coverUrl = URL.createObjectURL(coverBlob);
       } catch (e) { console.warn("无法生成封面预览", e); }
     } else if (directoryCoverBlob) {
