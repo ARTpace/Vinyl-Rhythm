@@ -21,6 +21,7 @@ interface LibraryViewProps {
   isSearching?: boolean;
   displayConverter?: (str: string) => string; 
   onEditFolder?: (folder: LibraryFolder) => void;
+  initialSortKey?: 'name' | 'artist' | 'album' | 'dateAdded' | 'discTrack';
 }
 
 const PAGE_SIZE = 50; 
@@ -157,8 +158,7 @@ const LibraryView: React.FC<LibraryViewProps> = ({
   const [scrapingId, setScrapingId] = useState<string | null>(null);
   const [subTab, setSubTab] = useState<'all' | 'fav' | 'folders'>('all');
   
-  // 核心修复：默认排序切换为 dateAdded
-  const [sortKey, setSortKey] = useState<'name' | 'artist' | 'album' | 'dateAdded'>('dateAdded');
+  const [sortKey, setSortKey] = useState<'name' | 'artist' | 'album' | 'dateAdded' | 'discTrack'>(initialSortKey || 'dateAdded');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
 
   const [filterQuality, setFilterQuality] = useState<'all' | 'hires' | 'lossless' | 'hq' | 'sd'>('all');
@@ -238,6 +238,18 @@ const LibraryView: React.FC<LibraryViewProps> = ({
     }
     
     list.sort((a, b) => {
+      if (sortKey === 'discTrack') {
+        const discA = a.discNumber ?? 0;
+        const discB = b.discNumber ?? 0;
+        const trackA = a.trackNumber ?? 0;
+        const trackB = b.trackNumber ?? 0;
+        
+        if (discA !== discB) {
+          return sortOrder === 'asc' ? discA - discB : discB - discA;
+        }
+        return sortOrder === 'asc' ? trackA - trackB : trackB - trackA;
+      }
+      
       let valA: any = (a as any)[sortKey] ?? '';
       let valB: any = (b as any)[sortKey] ?? '';
       if (typeof valA === 'string' && typeof valB === 'string') { valA = valA.toLowerCase(); valB = valB.toLowerCase(); }
@@ -328,7 +340,7 @@ const LibraryView: React.FC<LibraryViewProps> = ({
     return '本地曲库';
   }, [activeGroup, activeAlbum, view, folderIdToName]);
 
-  const sortOptions = [{ key: 'dateAdded', label: '最近添加' }, { key: 'name', label: '名称' }, { key: 'artist', label: '艺人' }, { key: 'album', label: '专辑' }] as const;
+  const sortOptions = [{ key: 'dateAdded', label: '最近添加' }, { key: 'name', label: '名称' }, { key: 'artist', label: '艺人' }, { key: 'album', label: '专辑' }, { key: 'discTrack', label: '碟号+音轨' }] as const;
   const resetFilters = () => { setFilterQuality('all'); setFilterDecade('all'); setFilterDuration('all'); };
   const hasActiveFilters = filterQuality !== 'all' || filterDecade !== 'all' || filterDuration !== 'all';
   const subTabs = [
